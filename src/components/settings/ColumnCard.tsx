@@ -2,7 +2,6 @@ import { T, TYPE_LABELS, TYPE_COLORS } from '../../tokens';
 import { I } from '../icons';
 import type { Column, DataType } from '../../types';
 import { isTrendEligible } from '../../lib/columnFlags';
-import { COLUMN_HELP } from './helpCopy';
 import { MiniInput } from './MiniInput';
 import { SegmentToggle, ROW_LABEL_STYLE } from './SegmentToggle';
 import { AutoDetail } from './AutoDetail';

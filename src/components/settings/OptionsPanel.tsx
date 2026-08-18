@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { T } from '../../tokens';
 import type { Column } from '../../types';
-import { autoValue } from '../../lib/autoValue';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { withExclusion, withoutExclusion } from '../../lib/optionExclusions';
 

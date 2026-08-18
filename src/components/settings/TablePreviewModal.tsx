@@ -2,8 +2,6 @@ import { T } from '../../tokens';
 import { I } from '../icons';
 import type { Column } from '../../types';
 import { nestedAutoValue, buildCyclingValues, isUserInputColumn } from '../../lib/autoValue';
-import { SegmentToggle } from './SegmentToggle';
-import { ColumnDetailRow, ColumnGridCell } from './ColumnPreviewParts';
 import { SettingsSummary } from './SettingsSummary';
 import { ModalBase } from '../ModalBase';
 

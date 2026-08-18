@@ -16,7 +16,6 @@ import {
   resetPastIndexRetries,
   shouldPreparePastIndex,
 } from './lib/pastValues';
-import { useSettingsStore } from './stores/settingsStore';
 import { initAutoCapture } from './lib/screenshot';
 import { installAudioInterruptionProbe } from './lib/audioInterruption';
 import { captureForFeedback, initFeedbackQueueFlush, submitFeedback } from './lib/feedback';

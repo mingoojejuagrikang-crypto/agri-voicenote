@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '../../stores/sessionStore';
-import { T } from '../../tokens';
 import { computeRowFromAutoChange } from '../../lib/autoValue';
 import type { Column } from '../../types';
 import { CommandHelpPopup } from './CommandHelpPopup';
