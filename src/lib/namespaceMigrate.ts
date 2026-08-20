@@ -20,9 +20,10 @@
  *
  * 3. **1회 스냅샷 + 새 DB 안의 마커.** 마커(`kv[IDB_MARKER_KEY]`)는 localStorage가 아니라
  *    새 DB에 둔다 — localStorage는 iOS가 evict한다(이 레포가 kv 미러를 만든 이유 그대로).
- *    🔴 마커는 **실제 복사가 일어났을 때만** 쓴다: 구 DB가 아예 없으면 마커 없이 끝낸다
- *    (신규 설치 뒤 구 DB가 «나중에» 생기는 비정상 순서에도 안전하고, 복사 실패는 마커가
- *    안 남아 다음 부팅이 재시도한다 — per-key 부재 검사라 멱등).
+ *    🔴 마커는 **스냅샷을 시도했을 때만** 쓴다(구 DB가 아예 없으면 마커 없이 끝 — 신규
+ *    설치 뒤 구 DB가 «나중에» 생기는 비정상 순서에도 안전). **부분 실패도 마커를 남긴다**
+ *    (`partial: true`) — 실패 후 자동 재시도는 그 사이 사용자가 지운 레코드를 부활시키므로
+ *    하지 않는다(3회전 확정). partial은 계측으로 올라가 사람이 판독·판단한다.
  *
  * 4. 🔴 **feedbackQueue는 복사하지 않는다.** pending의 소유권은 구 앱에 있다 — 복사하면
  *    양쪽이 같은 zip을 각각 업로드한다(codex #4). 전환 절차가 「전환 직전 구 앱을 마지막
@@ -179,8 +180,14 @@ export async function mergeLegacyIdb(newDb: IDBPDatabase): Promise<string | null
       }
       // kv 설정 미러 특례 — 스냅샷이 넘겨온 구 키 레코드를 새 키로도 복제해, localStorage가
       // evict된 부팅에서도 mirroredStorage 복원(새 키 조회)이 구 설정을 찾게 한다.
+      // 성공 마커도 같은 tx다 — 특례 쓰기·마커 쓰기 모두 **마커 재확인과 원자**여야
+      // 느린 컨텍스트가 완료 마커 이후에 값을 쓰거나 마커를 덮는 창이 없다(3회전 #2 잔존분).
       {
         const tx = newDb.transaction('kv', 'readwrite');
+        if ((await tx.store.getKey(IDB_MARKER_KEY)) !== undefined) {
+          await tx.done;
+          return `yielded:another-context-completed,copied=${copied}`;
+        }
         if ((await tx.store.getKey(NEW_SETTINGS_KEY)) === undefined) {
           const legacyMirror: unknown = await tx.store.get(LEGACY_SETTINGS_KEY);
           if (legacyMirror !== undefined) {
@@ -188,13 +195,11 @@ export async function mergeLegacyIdb(newDb: IDBPDatabase): Promise<string | null
             copied += 1;
           }
         }
+        const summary = `copied=${copied},skipped=${skipped}`;
+        await tx.store.put({ at: new Date().toISOString(), summary }, IDB_MARKER_KEY);
         await tx.done;
+        return summary;
       }
-      const summary = `copied=${copied},skipped=${skipped}`;
-      // 마커는 스냅샷이 **끝까지 돈 뒤에만** — 중간 실패는 catch로 빠져 마커가 안 남고,
-      // 다음 부팅이 재시도한다(per-key 부재 검사라 이미 복사된 것은 skip).
-      await newDb.put('kv', { at: new Date().toISOString(), summary }, IDB_MARKER_KEY);
-      return summary;
     } finally {
       legacy.close();
     }
@@ -206,7 +211,12 @@ export async function mergeLegacyIdb(newDb: IDBPDatabase): Promise<string | null
     //    필요하면 사람이 판단해 수동 재승계한다(자동은 안전한 쪽, 판단은 사람).
     const summary = `error:${e instanceof Error ? e.name : 'unknown'}`;
     try {
-      await newDb.put('kv', { at: new Date().toISOString(), summary, partial: true }, IDB_MARKER_KEY);
+      // 같은 tx에서 재확인 — 다른 컨텍스트의 **완료** 마커를 partial로 덮으면 안 된다.
+      const tx = newDb.transaction('kv', 'readwrite');
+      if ((await tx.store.getKey(IDB_MARKER_KEY)) === undefined) {
+        await tx.store.put({ at: new Date().toISOString(), summary, partial: true }, IDB_MARKER_KEY);
+      }
+      await tx.done;
     } catch { /* 마커조차 못 쓰면 IDB 전체가 죽은 상황 — 다음 부팅 재시도가 낫다 */ }
     return summary; // fail-open (계약 6) — 부팅을 막지 않는다
   }
