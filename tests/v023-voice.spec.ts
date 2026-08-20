@@ -24,7 +24,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const PHONE_375 = { width: 375, height: 812 };
 
 function localISO(d: Date): string {
@@ -174,11 +174,11 @@ type LogEv = {
     anomalyRuleCount?: number;
   };
 };
-/** logger가 IDB('survey-011' / store 'logEvents')에 영속한 진단 이벤트를 읽는다(meta 포함). */
+/** logger가 IDB('agri-voicenote' / store 'logEvents')에 영속한 진단 이벤트를 읽는다(meta 포함). */
 async function loadLogEvents(page: Page): Promise<LogEv[]> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });

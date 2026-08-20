@@ -121,7 +121,7 @@ interface LoggedEvent { type: string; parsed?: string; extra?: string }
 async function screenLogs(page: Page, parsed: 'screen_off' | 'screen_on'): Promise<LoggedEvent[]> {
   const all = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });

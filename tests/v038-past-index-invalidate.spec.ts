@@ -7,7 +7,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 import { BASE } from './baseUrl';
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const SHEET_ID = 'SHEET_V038_INVALIDATE';
 const HEADERS = ['조사일자', '농가명', '횡경'];
 
@@ -84,7 +84,7 @@ async function readProbe(page: Page): Promise<PastIndexWriteProbe> {
 async function hasPastIndexBackup(page: Page): Promise<boolean> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });

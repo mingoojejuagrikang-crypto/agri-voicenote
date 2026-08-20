@@ -32,7 +32,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 
 /** 기본 다이얼 0.6 → minConf 0.6. 아래 신뢰도들이 게이트 양쪽에 걸치도록 고른 값이다. */
 const SETTINGS = {
@@ -61,7 +61,7 @@ type LogEv = { type?: string; parsed?: string; extra?: string; text?: string; co
 async function loadLogEvents(page: Page): Promise<LogEv[]> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -110,7 +110,7 @@ async function boot(page: Page) {
     ({ s, storeKey }) => {
       localStorage.clear();
       localStorage.setItem(storeKey, JSON.stringify(s));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { s: SETTINGS, storeKey: STORE_KEY },
   );
@@ -253,7 +253,7 @@ async function bootTrend(page: Page) {
         access_token: 'test-token', expires_at: Date.now() + 3_600_000, email: 'tester@example.com',
       }));
       localStorage.setItem(storeKey, JSON.stringify(s));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { s: SETTINGS_TREND, storeKey: STORE_KEY },
   );

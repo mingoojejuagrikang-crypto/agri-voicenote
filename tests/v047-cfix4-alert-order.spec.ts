@@ -84,7 +84,7 @@ async function fireStt(page: Page, transcript: string, waitMs = 300) {
 async function loadLogEventsFromIDB(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -113,7 +113,7 @@ test('C-FIX4 — 비-awaiting 위반 수동 커밋: 알람 즉시(팝업·트릴
         access_token: 'test-token', expires_at: Date.now() + 3600_000, email: 'tester@example.com',
       }));
       localStorage.setItem(storeKey, JSON.stringify(settings));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { settings: AZ_SETTINGS, storeKey: STORE_KEY },
   );

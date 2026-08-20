@@ -19,7 +19,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 import { BASE } from './baseUrl';
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const PHONE_375 = { width: 375, height: 812 };
 
 // settingsStore.ts MOCK_COLUMNS와 동일한 신규 설치 기본 10컬럼(시드용 사본).

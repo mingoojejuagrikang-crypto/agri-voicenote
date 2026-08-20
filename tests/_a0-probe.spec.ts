@@ -24,7 +24,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const PHONE_402 = { width: 402, height: 874 };
 
 // ── Part A ──────────────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 
 const SETTINGS = {
   state: {
@@ -40,7 +40,7 @@ interface LoggedEvent { type: string; parsed?: string; extra?: string; meta?: Re
 async function loadLogEvents(page: Page): Promise<LoggedEvent[]> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -68,7 +68,7 @@ async function bootIdle(page: Page) {
     ({ s, storeKey }) => {
       localStorage.clear();
       localStorage.setItem(storeKey, JSON.stringify(s));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { s: SETTINGS, storeKey: STORE_KEY },
   );

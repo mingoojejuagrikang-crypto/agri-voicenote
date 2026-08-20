@@ -26,7 +26,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 
 function localISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -147,7 +147,7 @@ async function setupAndStart(page: Page) {
         access_token: 'test-token', expires_at: Date.now() + 3600_000, email: 'tester@example.com',
       }));
       localStorage.setItem(storeKey, JSON.stringify(settings));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { settings: SETTINGS, storeKey: STORE_KEY },
   );
@@ -187,7 +187,7 @@ async function getTtsLog(page: Page): Promise<string[]> {
 async function loadLogEventsFromIDB(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -512,7 +512,7 @@ test('trendConfirm 중 소수부 재질문 → [수정] 터치 강등 → 소수
 async function readRow1C8(page: Page): Promise<string | null> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((res, rej) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
     });
     const tx = db.transaction('sessions', 'readonly');

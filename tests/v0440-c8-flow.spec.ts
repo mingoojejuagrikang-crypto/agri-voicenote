@@ -27,7 +27,7 @@ import { reviewWaitAbsorbTts } from '../src/lib/voicePrompts';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 
 /** F13용 5행 테이블 — 완료/미완료가 섞인 중간 구간(2~4행)을 만들 수 있는 최소 크기. */
 function settingsRows(totalRows: number, label: string) {
@@ -65,7 +65,7 @@ async function seedAndOpenVoiceTab(page: Page, settings: object) {
     ({ s, storeKey }) => {
       localStorage.clear();
       localStorage.setItem(storeKey, JSON.stringify(s));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { s: settings, storeKey: STORE_KEY },
   );
@@ -122,7 +122,7 @@ async function speakWhenArmed(page: Page, text: string, waitMs = 400) {
 async function loadLogEventsFromIDB(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -139,7 +139,7 @@ async function loadLogEventsFromIDB(page: Page) {
 async function loadSessionsFromIDB(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -202,7 +202,7 @@ test('F13 — "다음"은 완료 행을 건너뛰지 않는다: jump delta 전 �
   expect(
     (await page.evaluate(async () => {
       const db: IDBDatabase = await new Promise((r) => {
-        const q = indexedDB.open('survey-011');
+        const q = indexedDB.open('agri-voicenote');
         q.onsuccess = () => r(q.result);
       });
       const rows: { extra?: string }[] = await new Promise((r) => {

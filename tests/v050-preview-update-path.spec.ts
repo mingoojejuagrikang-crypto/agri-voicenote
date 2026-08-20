@@ -143,15 +143,21 @@ test('[node] ⓕ 🔴 폴백 리로드는 캐시만 지운다 — **IndexedDB는
 
 test('[node] ⓖ SW scope 비침범 — 문자열 접두 규칙이 근거다', () => {
   // Service Worker scope 매칭은 **문자열 접두**다(URL 경로 세그먼트가 아니다).
-  // 프로덕션 SW의 scope가 `/survey-011/`일 때 프리뷰 경로가 그 아래로 들어가는지 본다.
-  const prodScope = '/survey-011/';
-  const previewScope = '/survey-011-preview/';
+  // v0.50 개명 — 계약 쌍을 새 배포 경로로 갱신. 전환기엔 구 정식(`/survey-011/`)도 살아
+  // 있으므로 **세 경로 전부** 서로 비침범이어야 한다.
+  const prodScope = '/agri-voicenote/';
+  const previewScope = '/agri-voicenote-preview/';
+  const legacyProdScope = '/survey-011/';
   expect(previewScope.startsWith(prodScope),
     '프리뷰가 프로덕션 SW의 scope 안에 들어가면 캐시가 서로를 가로챈다').toBe(false);
   expect(prodScope.startsWith(previewScope), '반대 방향도 안전해야 한다').toBe(false);
+  expect(prodScope.startsWith(legacyProdScope) || legacyProdScope.startsWith(prodScope),
+    '전환기 구 정식(v0.48)과 새 정식은 서로의 scope 밖이어야 한다').toBe(false);
+  expect(previewScope.startsWith(legacyProdScope),
+    '새 프리뷰가 구 정식 SW의 scope 안에 들어가면 안 된다').toBe(false);
   // 🔑 하이픈이 슬래시가 아니라는 사실 하나가 이 안전성의 전부다 — 경로를
-  //    `/survey-011/preview/`로 바꾸면 **즉시 침범**한다. 그래서 이 단언을 남긴다.
-  expect('/survey-011/preview/'.startsWith(prodScope),
+  //    `/agri-voicenote/preview/`로 바꾸면 **즉시 침범**한다. 그래서 이 단언을 남긴다.
+  expect('/agri-voicenote/preview/'.startsWith(prodScope),
     '경로를 슬래시 하위로 바꾸면 프로덕션 SW가 프리뷰를 가로챈다 — 배포 경로를 바꾸지 마라').toBe(true);
 });
 

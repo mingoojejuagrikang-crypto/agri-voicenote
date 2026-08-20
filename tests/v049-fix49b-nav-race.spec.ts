@@ -27,7 +27,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const TOTAL_ROWS = 3;
 
 function settings() {
@@ -67,7 +67,7 @@ async function seedAndOpenVoiceTab(page: Page) {
     ({ st, storeKey }) => {
       localStorage.clear();
       localStorage.setItem(storeKey, JSON.stringify(st));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { st: settings(), storeKey: STORE_KEY },
   );

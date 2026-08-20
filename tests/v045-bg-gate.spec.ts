@@ -20,7 +20,7 @@ import { BG_KEEP_PHASES, LONG_BACKGROUND_OFF_MS, shouldKeepInBackground } from '
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const BG_MSG = '자리를 비운 동안 입력이 중지됐습니다. 다시 시작합니다.';
 const THRESHOLD_MSG = '10분 동안 자리를 비워 음성 입력을 정지합니다. 입력한 값은 저장되어 있습니다.';
 const BRIEFING_RETURN = '조사나무 1. 다음, 횡경.';
@@ -69,7 +69,7 @@ const FAKE_MIC_SCRIPT = `
 async function loadLogEvents(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -120,7 +120,7 @@ async function boot(page: Page) {
     ({ s, storeKey }) => {
       localStorage.clear();
       localStorage.setItem(storeKey, JSON.stringify(s));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { s: SETTINGS, storeKey: STORE_KEY },
   );

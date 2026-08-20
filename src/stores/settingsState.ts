@@ -94,7 +94,7 @@ export interface SettingsState {
    *  A의 폴더 ID 재사용으로 관리자 공유 폴더에서 로그가 계정 간 혼입되던 결함 차단.
    *  검증·해석은 driveFolders.cachedFolderIdFor가 SSOT(이메일 불일치 = 캐시 미스). */
   teamFolderCache: FolderCache | null;
-  /** v0.4.5 Q1b: 캐시된 사용자 Drive 내 `survey-011/log/` 폴더 — 매 업로드 검색 방지.
+  /** v0.4.5 Q1b: 캐시된 사용자 Drive 내 `agri-voicenote/log/`(전환기 구 `survey-011/log/`) 폴더 — 매 업로드 검색 방지.
    *  v0.35.1: teamFolderCache와 동일하게 계정 결합. */
   userLogFolderCache: FolderCache | null;
   /** v0.7.0 — 조사시기(회차) 컬럼 id. null = 자동(첫 date 컬럼, '조사일자' 우선) —

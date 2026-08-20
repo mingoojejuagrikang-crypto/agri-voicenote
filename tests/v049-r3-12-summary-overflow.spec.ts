@@ -23,7 +23,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(60_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const PHONE_375 = { width: 375, height: 812 };
 
 function settingsWith(voiceCols: number, farm: string) {

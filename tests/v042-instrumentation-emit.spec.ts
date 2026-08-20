@@ -24,7 +24,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const PORTRAIT = { width: 390, height: 844 };
 const LANDSCAPE = { width: 844, height: 390 };
 
@@ -48,7 +48,7 @@ const SETTINGS = {
 async function loadLogEvents(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((resolve) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
     });

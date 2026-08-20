@@ -23,7 +23,7 @@ import { GUM_GRANT_SCRIPT } from './fixtures/gum';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const PHONE_402 = { width: 402, height: 874 };
 
 const TWO_COL_SETTINGS = {
@@ -140,7 +140,7 @@ async function setupAndStart(page: Page, settings: unknown, opts?: { stubAzSheet
         access_token: 'test-token', expires_at: Date.now() + 3600_000, email: 'tester@example.com',
       }));
       localStorage.setItem(storeKey, JSON.stringify(s));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { s: settings, storeKey: STORE_KEY },
   );

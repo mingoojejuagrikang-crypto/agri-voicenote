@@ -54,7 +54,7 @@ type LogEv = { type: string; extra?: string };
 async function loadLogEvents(page: Page): Promise<LogEv[]> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -77,7 +77,7 @@ const cue = (page: Page) => page.locator('[data-testid="reask-cue"]');
 async function persistedRow1(page: Page) {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });

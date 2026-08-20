@@ -128,7 +128,7 @@ test('P5b-ⓒ 🔴 reload 복구에서도 후보값은 칩에 없다 — 저장�
   // 후보는 **IDB에 그대로 남아 있어야** 한다(가린 것은 표시일 뿐 — 유실이 아니다).
   const stored = await page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((res, rej) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
     });
     const all: Array<{ pendingValidation?: { candidateValue: string } }> = await new Promise((res, rej) => {

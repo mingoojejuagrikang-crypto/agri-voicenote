@@ -16,11 +16,12 @@ import { logger } from './logger';
 import type { SettingsActionsShared } from './useSettingsSheetConnection';
 import type { TypeReviewState } from './useSettingsTableGeneration';
 
-/** localStorage 키 — 첫 진입 안내를 본 적 있는지(스토리지 네임스페이스 survey-011 준수).
+/** localStorage 키 — 첫 진입 안내를 본 적 있는지(스토리지 네임스페이스 agri-voicenote 준수).
  *  종전 components/settings/helpCopy.ts 소유였으나 유일 소비자가 이 훅이라 여기로 이동
  *  (v0.35.2 리뷰 r1 공통 지적 — lib→components 역참조 해소. v0.49 R1 P1-2에서
  *  useSettingsActions.ts → 이 서브 훅으로 재이동). */
-const SETTINGS_TIP_SEEN_KEY = 'survey-011-settings-tip-seen';
+// v0.50 개명 — 구 키는 namespaceBoot가 복사. namespaceMigrate.ts NEW_TIP_SEEN_KEY와 일치 계약.
+const SETTINGS_TIP_SEEN_KEY = 'agri-voicenote-settings-tip-seen';
 
 export function useSettingsReset(deps: {
   shared: SettingsActionsShared;

@@ -14,7 +14,7 @@ import { MEDIA_RECORDER_STUB_SCRIPT } from './mediaRecorder';
 import { fireStt, installVoiceMocks } from './stt';
 import { BASE } from '../baseUrl';
 
-export const STORE_KEY = 'survey-011-settings-v3';
+export const STORE_KEY = 'agri-voicenote-settings-v3';
 export const PHONE_402 = { width: 402, height: 874 };
 export const PHONE_375 = { width: 375, height: 667 };
 

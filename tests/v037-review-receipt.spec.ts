@@ -25,7 +25,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 
 const MOCK_INIT_SCRIPT = `
 (function() {
@@ -75,7 +75,7 @@ async function fireStt(page: Page, transcript: string, waitMs = 400) {
 async function loadLogEvents(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((resolve) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
     });
@@ -133,7 +133,7 @@ async function bootAndStart(page: Page, settings: unknown, route?: { prevRow: st
         }));
       }
       localStorage.setItem(storeKey, JSON.stringify(s));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { s: settings, storeKey: STORE_KEY, withToken: !!route },
   );

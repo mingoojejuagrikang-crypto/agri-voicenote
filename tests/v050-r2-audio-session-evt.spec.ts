@@ -80,7 +80,7 @@ async function bootProbeOnly(page: Page, script: string) {
 async function appLogs(page: Page, prefix: string): Promise<string[]> {
   return page.evaluate(async (p) => {
     const db: IDBDatabase = await new Promise((r) => {
-      const q = indexedDB.open('survey-011');
+      const q = indexedDB.open('agri-voicenote');
       q.onsuccess = () => r(q.result);
     });
     const rows: { extra?: string }[] = await new Promise((r) => {

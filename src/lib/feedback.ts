@@ -6,7 +6,7 @@
  *   → FeedbackModal(썸네일 + 자유텍스트) → submitFeedback():
  *     ① buildFeedbackZip — feedback.json(텍스트·컨텍스트 메타) + screenshot.jpg +
  *        **경량 로그(events.json + sessions.json — 클립·스크린샷 제외, 민구 확정)**.
- *     ② 온라인+로그인 → uploadFeedbackToBothDrives(사용자 survey-011/feedback/ + 관리자
+ *     ② 온라인+로그인 → uploadFeedbackToBothDrives(사용자 agri-voicenote/feedback/ + 관리자
  *        FEEDBACK_FOLDER_ID/<email>/). 관리자 레그 실패는 non-fatal — 사용자 레그 성공이면
  *        성공 처리하고 관리자 레그만 재시도 큐에 남긴다.
  *     ③ 오프라인/미로그인/사용자 레그 실패 → IDB feedbackQueue(DB v6)에 zip 통째 보관 →

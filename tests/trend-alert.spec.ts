@@ -31,7 +31,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 
 /** 직전 회차 = 어제(로컬) — previousRound가 '오늘 미만 strictly'라 당일 날짜는 못 쓴다. */
 function localISO(d: Date): string {
@@ -288,7 +288,7 @@ async function waitForRow(page: Page, targetRow: number, timeout = 6000) {
 async function getIdbSessions(page: Page) {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -307,7 +307,7 @@ async function getIdbSessions(page: Page) {
 async function getTrendEvents(page: Page): Promise<Array<{ extra: string; row?: number; colId?: string }>> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });

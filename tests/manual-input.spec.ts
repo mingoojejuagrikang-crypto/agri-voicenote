@@ -32,7 +32,7 @@ import { reviewWaitAbsorbTts } from '../src/lib/voicePrompts';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 
 const BASE_SETTINGS = {
   state: {
@@ -176,7 +176,7 @@ async function waitForRow(page: Page, targetRow: number, timeout = 6000) {
 async function heldCandidate(page: Page): Promise<string | null> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((res, rej) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
     });
     const all: Array<{ pendingValidation?: { candidateValue: string } }> = await new Promise((res, rej) => {
@@ -190,7 +190,7 @@ async function heldCandidate(page: Page): Promise<string | null> {
 async function loadLogEventsFromIDB(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -207,7 +207,7 @@ async function loadLogEventsFromIDB(page: Page) {
 async function getIdbSessions(page: Page) {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -230,7 +230,7 @@ async function setupAndStart(page: Page, settings: unknown = BASE_SETTINGS) {
     ({ s, storeKey }) => {
       localStorage.clear();
       localStorage.setItem(storeKey, JSON.stringify(s));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { s: settings, storeKey: STORE_KEY },
   );
@@ -501,7 +501,7 @@ async function setupTrendAndStart(page: Page) {
         access_token: 'test-token', expires_at: Date.now() + 3600_000, email: 'tester@example.com',
       }));
       localStorage.setItem(storeKey, JSON.stringify(s));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { s: TREND_SETTINGS, storeKey: STORE_KEY },
   );
@@ -624,7 +624,7 @@ test('[리뷰 High] manualHold → reload: 후보·팝업·중앙 게이트를 I
 
   const before = await page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
     });
     const tx = db.transaction('sessions', 'readonly');
@@ -666,7 +666,7 @@ test('[리뷰 High] manualHold → reload: 후보·팝업·중앙 게이트를 I
   // Codex는 샌드박스 EPERM으로 브라우저 스위트를 못 돌려 이 단언 실수를 잡지 못했다 — [TEST-SANDBOX-1]).
   const committed = await page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((res, rej) => {
-      const r = indexedDB.open('survey-011'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+      const r = indexedDB.open('agri-voicenote'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
     });
     const all: Array<{ rows?: Array<{ index: number; values?: Record<string, string> }> }> = await new Promise((res, rej) => {
       const r = db.transaction('sessions', 'readonly').objectStore('sessions').getAll();

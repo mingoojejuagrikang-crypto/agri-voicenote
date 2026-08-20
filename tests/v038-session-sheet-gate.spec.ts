@@ -4,7 +4,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 import { BASE } from './baseUrl';
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const SHEET_A = 'SHEET_GATE_A';
 const SHEET_B = 'SHEET_GATE_B';
 const SHEET_C = 'SHEET_GATE_C';
@@ -59,7 +59,7 @@ async function storedState(page: Page): Promise<Record<string, unknown>> {
 async function sessionCount(page: Page): Promise<number> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((resolve) => {
-      const request = indexedDB.open('survey-011');
+      const request = indexedDB.open('agri-voicenote');
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => resolve(null);
     });

@@ -31,7 +31,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const TOTAL_ROWS = 3;
 
 /** cell-guard 스펙과 **같은 골격**(voice 컬럼 3개) — 두 스펙이 같은 상태를 다른 축에서 재므로
@@ -74,7 +74,7 @@ async function seedAndOpenVoiceTab(page: Page, s: ReturnType<typeof settings> = 
     ({ st, storeKey }) => {
       localStorage.clear();
       localStorage.setItem(storeKey, JSON.stringify(st));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { st: s, storeKey: STORE_KEY },
   );

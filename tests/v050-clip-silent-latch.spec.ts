@@ -75,7 +75,7 @@ const WIDE_ROWS = [[PREV_ROUND, '이원창', '1', '100.0', '', '', '', '', '']];
 async function logExtras(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((r) => {
-      const q = indexedDB.open('survey-011');
+      const q = indexedDB.open('agri-voicenote');
       q.onsuccess = () => r(q.result);
     });
     const rows: { type?: string; extra?: string }[] = await new Promise((r) => {

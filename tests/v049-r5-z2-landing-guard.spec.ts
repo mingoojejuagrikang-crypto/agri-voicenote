@@ -70,7 +70,7 @@ async function bootRows(page: Page, rows: number) {
 async function logExtras(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
     });
     const rows: { extra?: string }[] = await new Promise((resolve) => {

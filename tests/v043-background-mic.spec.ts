@@ -29,7 +29,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 
 /** 정지 사이클 복원 시에만 나가는 안내(useVoiceSession BG_RESUME_MESSAGE와 글자 일치). */
 const BG_MSG = '자리를 비운 동안 입력이 중지됐습니다. 다시 시작합니다.';
@@ -81,7 +81,7 @@ const FAKE_MIC_SCRIPT = `
 async function loadLogEvents(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -156,7 +156,7 @@ async function bootIdle(page: Page, settings = SETTINGS) {
     ({ s, storeKey }) => {
       localStorage.clear();
       localStorage.setItem(storeKey, JSON.stringify(s));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { s: settings, storeKey: STORE_KEY },
   );

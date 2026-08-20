@@ -102,7 +102,7 @@ async function boot(page: Page, viewport: { width: number; height: number }) {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.evaluate((s) => {
     localStorage.clear();
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(s));
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s));
   }, SETTINGS);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(400);

@@ -2,7 +2,7 @@
  * [ENV-11] 가드 — 앱 DB 이름·버전 하드코딩 재유입 차단 (v0.35.1 Stage 1-5 신설, Node 러너).
  *
  * 규약(tests/fixtures/idb.ts가 SSOT):
- *  - 이미 부팅된 앱 DB에 시딩 → 버전 무지정 `indexedDB.open('survey-011')`.
+ *  - 이미 부팅된 앱 DB에 시딩 → 버전 무지정 `indexedDB.open('agri-voicenote')`.
  *  - 부팅 전 시딩(스키마 필요) → fixture의 IDB/APPLY_APP_SCHEMA_SOURCE를 evaluate 인자로 주입.
  *  ⇒ 어느 spec도 "리터럴 DB명 + 버전 인자" 형태의 open을 다시 하드코딩해선 안 된다.
  *    (하드코딩이 남으면 DB_VERSION bump 때 전수 grep 갱신이 되살아난다 — [ENV-11] 재발.)
@@ -26,7 +26,8 @@ test('spec에 indexedDB.open 버전 하드코딩이 없다 (fixture 주입만 �
     // 재발 1회가 정확히 변수형이었다). 파일 전체를 스캔해 개행을 끼운 다중행 호출도 잡는다
     // (리뷰 라운드3 Codex Medium). 허용되는 버전 지정은 fixture 주입 식별자를 인자로 받은
     // open(<식별자>.name/…, <버전식별자>)뿐이고, 그 형태는 DB명이 리터럴이 아니라 안 걸린다.
-    const re = /indexedDB\.open\(\s*['"`]survey-011['"`]\s*,/g;
+    // v0.50 개명 — 구 이름 재유입도 함께 잡는다(마이그레이션 스펙만 예외 — 아래 allowlist).
+    const re = /indexedDB\.open\(\s*['"`](?:agri-voicenote|survey-011)['"`]\s*,/g;
     for (const m of src.matchAll(re)) {
       const line = src.slice(0, m.index).split('\n').length;
       offenders.push(`${f}:${line}`);

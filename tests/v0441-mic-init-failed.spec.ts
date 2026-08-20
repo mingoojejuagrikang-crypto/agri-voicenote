@@ -22,7 +22,7 @@ import { GUM_DENY_SCRIPT, GUM_GRANT_SCRIPT } from './fixtures/gum';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 
 /** v0440-c8-flow.spec의 최소 3컬럼 시드와 동형 — 세션 시작만 필요하므로 2행. */
 const SETTINGS = {
@@ -62,7 +62,7 @@ async function bootAndStart(page: Page, gumScript: string) {
     ({ s, storeKey }) => {
       localStorage.clear();
       localStorage.setItem(storeKey, JSON.stringify(s));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { s: SETTINGS, storeKey: STORE_KEY },
   );
@@ -79,7 +79,7 @@ async function bootAndStart(page: Page, gumScript: string) {
 async function loadLogEvents(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((resolve) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
     });

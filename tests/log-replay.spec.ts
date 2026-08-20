@@ -216,7 +216,7 @@ test('Log replay — 6행 STT 시퀀스 재생 (값/수정/스킵/노이즈 거�
   await page.addInitScript(MOCK_INIT_SCRIPT);
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.evaluate((s) => {
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(s));
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s));
   }, SETTINGS_REPLAY);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500);
@@ -289,7 +289,7 @@ test('F001 — 동일 field 연속 STT race: 두 번째 무시', async ({ page }
   await page.addInitScript(MOCK_INIT_SCRIPT);
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.evaluate((s) => {
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(s));
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s));
   }, SETTINGS_REPLAY);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500);

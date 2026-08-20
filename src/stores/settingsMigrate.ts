@@ -1,5 +1,5 @@
 /**
- * 설정 persist의 **버전 마이그레이션 이력** (`survey-011-settings-v3`, version 12).
+ * 설정 persist의 **버전 마이그레이션 이력** (`agri-voicenote-settings-v3` — 구 `survey-011-settings-v3`, v0.50 개명 · version 12).
  *
  * [ENV-12] 2026-08-15 — `settingsStore.ts`에서 **본문 무수정**으로 옮겼다(들여쓰기만 6칸 제거).
  * 🔴 **이 파일에서 문장 순서를 바꾸지 마라.** 무조건 coercion 블록이 먼저 돌고 그 뒤에

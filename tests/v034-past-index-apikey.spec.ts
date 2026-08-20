@@ -25,7 +25,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(60_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const SHEET_ID = 'SHEET_V034_APIKEY_1';
 
 // ─── 1) 단위 — planValuesReadonly ───────────────────────────────────────────
@@ -140,7 +140,7 @@ async function seedAndBoot(page: Page, opts: { withToken: boolean; failStatus?: 
 async function getEventExtras(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });

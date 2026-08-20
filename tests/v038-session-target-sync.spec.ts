@@ -5,7 +5,7 @@ import { fireStt, installVoiceMocks } from './fixtures/stt';
 import { BASE } from './baseUrl';
 
 test.setTimeout(60_000);
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const SHEET_A = 'SHEET_TARGET_A';
 const SHEET_B = 'SHEET_TARGET_B';
 const URL_A = `https://docs.google.com/spreadsheets/d/${SHEET_A}/edit`;

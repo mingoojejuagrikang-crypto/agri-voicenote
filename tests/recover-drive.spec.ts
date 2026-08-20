@@ -68,7 +68,7 @@ async function stubDriveApi(page: Page, opts: { listFails?: boolean } = {}): Pro
 
     if (u.pathname === '/drive/v3/files' && u.searchParams.has('q')) {
       const q = u.searchParams.get('q') ?? '';
-      if (q.includes("name='survey-011'")) {
+      if (q.includes("name='agri-voicenote'")) {
         await route.fulfill({ json: { files: [{ id: 'fld-app', createdTime: ISO(60) }] } });
         return;
       }
@@ -119,7 +119,7 @@ async function bootApp(page: Page, { signedIn }: { signedIn: boolean }) {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.evaluate((withToken) => {
     localStorage.clear();
-    indexedDB.deleteDatabase('survey-011');
+    indexedDB.deleteDatabase('agri-voicenote');
     if (withToken) {
       localStorage.setItem('gs10_google_token', JSON.stringify({
         access_token: 'test-token',
@@ -137,7 +137,7 @@ async function bootApp(page: Page, { signedIn }: { signedIn: boolean }) {
 async function readIdb(page: Page, store: 'sessions' | 'audioClips') {
   return page.evaluate(async (st) => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -230,7 +230,7 @@ test('W6 — N개 단일세션 zip 열거: 각 zip의 sessions.json(1세션)을 
     const u = new URL(route.request().url());
     if (u.pathname === '/drive/v3/files' && u.searchParams.has('q')) {
       const q = u.searchParams.get('q') ?? '';
-      if (q.includes("name='survey-011'")) { await route.fulfill({ json: { files: [{ id: 'fld-app', createdTime: ISO(60) }] } }); return; }
+      if (q.includes("name='agri-voicenote'")) { await route.fulfill({ json: { files: [{ id: 'fld-app', createdTime: ISO(60) }] } }); return; }
       if (q.includes("name='log'")) { await route.fulfill({ json: { files: [{ id: 'fld-log', createdTime: ISO(60) }] } }); return; }
       if (q.includes("'fld-log' in parents")) {
         // W6 산출: 세션당 개별 zip(파일명에 sessionId 포함). 둘 다 30일 내.

@@ -82,7 +82,7 @@ async function failAfter(page: Page, n: number | undefined) {
 async function persisted(page: Page): Promise<{ count: number; rows: { i: number; c: boolean; v: Record<string, string> }[] }> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((r) => {
-      const q = indexedDB.open('survey-011');
+      const q = indexedDB.open('agri-voicenote');
       q.onsuccess = () => r(q.result);
     });
     const all: { rows?: { index: number; complete: boolean; values: Record<string, string> }[] }[] =

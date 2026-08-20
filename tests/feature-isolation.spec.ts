@@ -63,7 +63,7 @@ async function waitForActiveChip(page: Page, colName: string, timeout = 6000) {
 async function getEventTypes(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);
     });
@@ -81,7 +81,7 @@ async function getEventTypes(page: Page): Promise<string[]> {
 test('빠른 인식 OFF(기본) — interim 안정화가 커밋·계측 모두 no-op, final 경로는 무영향', async ({ page }) => {
   await installVoiceMocks(page);
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate((s) => { localStorage.setItem('survey-011-settings-v3', JSON.stringify(s)); }, SETTINGS);
+  await page.evaluate((s) => { localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s)); }, SETTINGS);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500);
   await page.locator('[data-testid="tab-voice"]').click();

@@ -24,7 +24,7 @@ import { GUM_GRANT_SCRIPT } from './fixtures/gum';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const PHONE_402 = { width: 402, height: 874 };
 
 // 추세/이상치 규칙 없는 음성 float 2컬럼(당도=행 중간, 산도=행 마지막) × 2행 — v035 하네스와 동형.

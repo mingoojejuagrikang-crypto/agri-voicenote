@@ -203,7 +203,7 @@ async function getActiveRow(page: Page): Promise<number> {
 async function loadSessionsFromIDB(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -222,8 +222,8 @@ async function startSession(page: Page) {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.evaluate((s) => {
     localStorage.clear();
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(s));
-    indexedDB.deleteDatabase('survey-011');
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s));
+    indexedDB.deleteDatabase('agri-voicenote');
   }, SETTINGS_3ROWS);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500);
@@ -276,7 +276,7 @@ test('NAV-1 — "다음" 행 skip → 후속 행 완료 시 완료 행 복귀 �
   // 빈 행 안내 멘트가 마지막 TTS로 나갔는지 (lastTts는 ready 전환 후 사라질 수 있으므로 로그로 검증)
   const events = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -351,7 +351,7 @@ test('NAV-1 — "종료" 명령 시에도 skip된 빈 행 안내 1회', async ({
 
   const events = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -378,7 +378,7 @@ test('NAV-2 / W3 — "유지": 빈 칸이면 명시 피드백, 완료 행 검토
   await fireStt(page, '유지', 500);
   const keepNoValueLogged = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -427,7 +427,7 @@ test('NAV-2 / W3 — "유지": 빈 칸이면 명시 피드백, 완료 행 검토
 async function loadLogEventsFromIDB(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });

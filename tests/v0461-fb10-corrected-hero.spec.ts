@@ -30,7 +30,7 @@ import { GUM_GRANT_SCRIPT } from './fixtures/gum';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const VIEWPORT = { width: 402, height: 513 };
 
 function localISO(d: Date): string {

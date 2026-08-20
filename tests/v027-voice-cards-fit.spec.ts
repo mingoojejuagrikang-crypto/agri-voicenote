@@ -23,7 +23,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const SHOT_DIR = '/private/tmp/claude-501/-Users-kangmingoo-workspace-AI-PKA/b55dd6fd-e9a1-4776-a982-360ba043adb9/scratchpad/v027-vance';
 
 const VIEWPORTS = [

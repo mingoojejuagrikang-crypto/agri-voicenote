@@ -34,7 +34,7 @@ test('A4 — 첫 진입 안내 배너가 보이고, ✕로 닫으면 localStorag
   await page.waitForTimeout(200);
   await expect(tip).toBeHidden();
 
-  const seen = await page.evaluate(() => localStorage.getItem('survey-011-settings-tip-seen'));
+  const seen = await page.evaluate(() => localStorage.getItem('agri-voicenote-settings-tip-seen'));
   expect(seen).toBe('1');
   console.log('✓ ✕ 닫기 → localStorage seen=1');
 

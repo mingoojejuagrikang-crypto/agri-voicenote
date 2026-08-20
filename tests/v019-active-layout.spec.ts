@@ -195,7 +195,7 @@ test('R1 — 375×667: 칩 캡이 화면 30% 안에서 축소되고 초과 칩�
   await page.waitForLoadState('networkidle');
   await page.evaluate((settings) => {
     localStorage.clear();
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(settings));
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(settings));
   }, SMALL_VP_SETTINGS);
   await page.reload();
   await page.waitForLoadState('networkidle');

@@ -79,7 +79,7 @@ async function stubDrive(page: Page): Promise<string[]> {
     const u = new URL(url);
     if (u.pathname === '/drive/v3/files' && u.searchParams.has('q')) {
       const q = u.searchParams.get('q') ?? '';
-      if (q.includes("name='survey-011'")) {
+      if (q.includes("name='agri-voicenote'")) {
         await route.fulfill({ json: { files: [{ id: 'fld-app', createdTime: ISO(60) }] } }); return;
       }
       if (q.includes("name='log'")) {
@@ -140,7 +140,7 @@ async function bootApp(page: Page, { localSession }: { localSession?: unknown } 
 async function sessionIds(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result); r.onerror = () => res(null);
     });
     if (!db) return [];

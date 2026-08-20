@@ -51,7 +51,7 @@ const banner = (page: Page) => page.locator('[data-testid="mic-reconnect-btn"]')
 async function clipEvents(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((r) => {
-      const q = indexedDB.open('survey-011');
+      const q = indexedDB.open('agri-voicenote');
       q.onsuccess = () => r(q.result);
     });
     const rows: { type?: string; extra?: string }[] = await new Promise((r) => {

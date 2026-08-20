@@ -116,7 +116,7 @@ async function seedAndBoot(page: Page, session: unknown) {
     localStorage.setItem('gs10_google_token', JSON.stringify({
       access_token: 'test-token', expires_at: Date.now() + 3600_000, email: 'tester@example.com',
     }));
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(settings));
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(settings));
     // IDB sessions store에 세션 저장
     await new Promise<void>((resolve) => {
       const applySchema = (0, eval)(`(${schemaSrc})`) as (db: IDBDatabase) => void;
@@ -149,7 +149,7 @@ async function runSync(page: Page) {
 async function readSession(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result); r.onerror = () => res(null);
     });
     if (!db) return null;
@@ -264,7 +264,7 @@ test('update 404 → sheetRow 초기화 후 append 폴백 + sync_row_mismatch', 
   // sync_row_mismatch 텔레메트리 기록 확인
   const events = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result); r.onerror = () => res(null);
     });
     if (!db) return [] as string[];
@@ -329,7 +329,7 @@ test('C1 — append updatedRange 파싱 실패: synced-without-sheetRow (재appe
   await expect(page.locator('text=실패').first()).toBeHidden().catch(() => {});
   const events = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result); r.onerror = () => res(null);
     });
     if (!db) return [] as string[];

@@ -17,7 +17,7 @@ import { GUM_GRANT_SCRIPT } from './fixtures/gum';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const PHONE_402 = { width: 402, height: 874 };
 
 const SETTINGS = {
@@ -123,7 +123,7 @@ test('C-FIX5 — 확정값 국면 modify-value는 textOverflow:clip(축약 금�
     ({ s, storeKey }) => {
       localStorage.clear();
       localStorage.setItem(storeKey, JSON.stringify(s));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { s: SETTINGS, storeKey: STORE_KEY },
   );

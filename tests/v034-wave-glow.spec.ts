@@ -17,7 +17,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const PHONE_375 = { width: 375, height: 812 };
 
 function localISO(d: Date): string {
@@ -151,7 +151,7 @@ async function injectLevel(page: Page, level: number) {
 async function loadLogExtras(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((res, rej) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => res(req.result);
       req.onerror = () => rej(req.error);
     });
@@ -620,7 +620,7 @@ test('D11b — 세션 시작 시 ui_fx:wave=on,glow=on,preroll=<...> 1건(IDB lo
 
   const uiFx = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((res, rej) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => res(req.result);
       req.onerror = () => rej(req.error);
     });

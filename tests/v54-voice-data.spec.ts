@@ -100,7 +100,7 @@ async function setupVoiceTab(page: Page) {
   await page.waitForLoadState('domcontentloaded');
   await page.evaluate((s) => {
     localStorage.clear();
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(s));
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s));
   }, SETTINGS_VOICE);
   await page.reload();
   await page.waitForLoadState('domcontentloaded');
@@ -781,7 +781,7 @@ test('[E2E-19] 전체 플로우 — 설정→생성→시작→일시정지→�
 
   // 2. 설정 로드 (localStorage 직접 주입 후 reload로 설정 탭부터 시작)
   await page.evaluate((s) => {
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(s));
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s));
   }, SETTINGS_VOICE);
   await page.reload();
   await page.waitForLoadState('domcontentloaded');

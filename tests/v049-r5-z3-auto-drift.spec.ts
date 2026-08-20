@@ -52,7 +52,7 @@ type Row = { i: number; v: Record<string, string>; sync?: string };
 async function persistedRows(page: Page): Promise<Row[]> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((r) => {
-      const q = indexedDB.open('survey-011');
+      const q = indexedDB.open('agri-voicenote');
       q.onsuccess = () => r(q.result);
     });
     const all: { rows?: { index: number; values: Record<string, string>; syncState?: string }[] }[] =
@@ -139,7 +139,7 @@ test('② 과잉 방어 반증 — 승계는 자동 컬럼만이다. 기존 행�
 async function persistedSessionDate(page: Page): Promise<string | undefined> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((r) => {
-      const q = indexedDB.open('survey-011');
+      const q = indexedDB.open('agri-voicenote');
       q.onsuccess = () => r(q.result);
     });
     const all: { date?: string }[] = await new Promise((r) => {

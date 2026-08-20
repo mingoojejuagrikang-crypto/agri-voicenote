@@ -346,7 +346,7 @@ async function getActiveRow(page: Page): Promise<number> {
 async function loadLogEventsFromIDB(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -363,7 +363,7 @@ async function loadLogEventsFromIDB(page: Page) {
 async function loadSessionsFromIDB(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -382,8 +382,8 @@ async function startSession(page: Page) {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.evaluate((s) => {
     localStorage.clear();
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(s));
-    indexedDB.deleteDatabase('survey-011');
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s));
+    indexedDB.deleteDatabase('agri-voicenote');
   }, SETTINGS_3ROWS);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500);
@@ -543,8 +543,8 @@ test('세션 없으면 입력탭 왕복이 마이크를 만지지 않는다 — 
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.evaluate((s) => {
     localStorage.clear();
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(s));
-    indexedDB.deleteDatabase('survey-011');
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s));
+    indexedDB.deleteDatabase('agri-voicenote');
   }, SETTINGS_3ROWS);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500);
@@ -604,8 +604,8 @@ test('[MIC-B2] 실제 복귀 배선은 임계 경계와 vis→pageshow 중복 �
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.evaluate((s) => {
     localStorage.clear();
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(s));
-    indexedDB.deleteDatabase('survey-011');
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s));
+    indexedDB.deleteDatabase('agri-voicenote');
   }, SETTINGS_3ROWS);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('[data-testid="tab-voice"]').click();
@@ -679,8 +679,8 @@ test('[F5] 실제 복귀 배선이 audio_route_revalidate를 남긴다 — 정�
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.evaluate((s) => {
     localStorage.clear();
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(s));
-    indexedDB.deleteDatabase('survey-011');
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s));
+    indexedDB.deleteDatabase('agri-voicenote');
   }, SETTINGS_3ROWS);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('[data-testid="tab-voice"]').click();

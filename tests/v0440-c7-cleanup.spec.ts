@@ -19,7 +19,7 @@ import { test, expect, type Page } from '@playwright/test';
 
 import { BASE } from './baseUrl';
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const PHONE_375 = { width: 375, height: 812 };
 const PHONE_402 = { width: 402, height: 874 };
 
@@ -36,7 +36,7 @@ const COLUMNS = [
 async function injectSessions(page: Page) {
   await page.evaluate(async (columns) => {
     const db = await new Promise<IDBDatabase>((res, rej) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
       r.onblocked = () => rej(new Error('IDB open blocked'));

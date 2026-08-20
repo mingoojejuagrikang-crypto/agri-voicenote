@@ -34,7 +34,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const TOTAL_ROWS = 3;
 
 /** voice 컬럼 3개 — f1nav 스펙과 같은 골격. */
@@ -84,7 +84,7 @@ async function seedAndOpenVoiceTab(page: Page) {
     ({ st, storeKey }) => {
       localStorage.clear();
       localStorage.setItem(storeKey, JSON.stringify(st));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { st: settings(), storeKey: STORE_KEY },
   );
@@ -171,7 +171,7 @@ async function seedTrendAndStart(page: Page) {
         access_token: 'test-token', expires_at: Date.now() + 3600_000, email: 'tester@example.com',
       }));
       localStorage.setItem(storeKey, JSON.stringify(st));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { st: trendSettings(), storeKey: STORE_KEY },
   );

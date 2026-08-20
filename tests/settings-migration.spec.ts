@@ -28,7 +28,7 @@ import { IDB, APPLY_APP_SCHEMA_SOURCE } from './fixtures/idb';
 import { BASE } from './baseUrl';
 
 test.setTimeout(60_000);
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const BLUE = 'rgb(41, 121, 255)'; // T.blue — SegmentToggle 활성 배경
 
 async function readStore(page: Page): Promise<{ version: number; state: Record<string, unknown> }> {

@@ -53,7 +53,7 @@ export interface LiveVersionProbeDeps {
 /** 기본 구현 — 캐시를 두 겹으로 우회해 라이브 `index.html`을 받는다. */
 async function defaultFetchLiveHtml(): Promise<string> {
   // 🔑 `new URL('index.html', location.href)` — `base: './'`(상대 배포)라서 이게 가장 안전하다.
-  //    standalone 시작 URL이 `/survey-011-preview/`든 `/survey-011/`든 그 아래로 정확히 풀린다.
+  //    standalone 시작 URL이 `/agri-voicenote-preview/`든 `/survey-011/`(구 정식)든 그 아래로 정확히 풀린다.
   const url = new URL('index.html', location.href);
   url.searchParams.set('fresh', String(Date.now()));
   const ctrl = new AbortController();

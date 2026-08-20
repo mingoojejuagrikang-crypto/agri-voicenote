@@ -189,7 +189,7 @@ test('P1ⓒ-review-재위반 🔴 정정값이 또 위반이어도 검토 대기
 async function idbRowValue(page: Page, rowIndex: number, colId: string): Promise<string | null> {
   return page.evaluate(async ({ rowIndex, colId }) => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -323,7 +323,7 @@ async function idbRow(
 ): Promise<{ complete?: boolean; values?: Record<string, string> } | null> {
   return page.evaluate(async ({ rowIndex }) => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });

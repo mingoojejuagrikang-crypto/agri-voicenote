@@ -34,7 +34,7 @@ import { BASE } from './baseUrl';
 // A11 — 「어제」는 달력 연산으로 만든다(DST 함정). 사유는 fixtures/localDate.ts 헤더.
 import { daysAgoLocal } from './fixtures/localDate';
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const SHEET_ID = 'SHEET_PREVSURVEY_1';
 const PHONE_375 = { width: 375, height: 812 };
 
@@ -210,7 +210,7 @@ test('W3-2 — IDB 폴백 + 세션 고정 키 일치: 직전 조사일 표시', 
 async function readLogExtras(page: Page): Promise<string[]> {
   const extras = await page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
     });
     const rows: { type?: string; extra?: string }[] = await new Promise((resolve) => {
@@ -290,7 +290,7 @@ test('W3-5(r2 A6) — 백업 인덱스에서 온 날짜는 「(백업)」으로 
 
   const extras = await page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
     });
     const rows: { type?: string; extra?: string }[] = await new Promise((resolve) => {
@@ -427,7 +427,7 @@ test('W3-9(r4 M8) — 「미확인」의 사유가 로그에 남는다(r4 당시
 
   const extras = await page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
     });
     const rows: { extra?: string }[] = await new Promise((resolve) => {

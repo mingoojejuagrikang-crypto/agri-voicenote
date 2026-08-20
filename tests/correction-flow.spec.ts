@@ -209,7 +209,7 @@ async function setupAndStart(page: Page) {
   await page.addInitScript(MOCK_INIT_SCRIPT);
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.evaluate((s) => {
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(s));
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s));
   }, SETTINGS);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500);
@@ -235,7 +235,7 @@ async function inputRow(page: Page, h: string, j: string, nextRow?: number) {
 async function getIdbSessions(page: Page) {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result as any);
       req.onerror = () => reject(req.error);
     });
@@ -769,7 +769,7 @@ test('REVIEW+A3 — 검토 대기 중 "수정 <컬럼명>": 지목 컬럼(종경
 async function loadAllLogEvents(page: Page) {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });

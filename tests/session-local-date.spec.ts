@@ -19,7 +19,7 @@ import { BASE } from './baseUrl';
 test.setTimeout(60_000);
 test.use({ timezoneId: 'Pacific/Kiritimati' }); // UTC+14
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 // UTC 2026-01-01 20:00 = Kiritimati(UTC+14) 2026-01-02 10:00 — 날짜가 결정적으로 어긋난다.
 const FIXED_TIME = '2026-01-01T20:00:00Z';
 const LOCAL_DATE = '2026-01-02';
@@ -193,7 +193,7 @@ test('persistSession은 UTC가 아닌 로컬 날짜를 session.date에 기록한
 
   const sessions = await page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });

@@ -36,7 +36,7 @@ import { daysAgoLocal } from './fixtures/localDate';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const SHEET_ID = 'SHEET_PASTIDX_1';
 
 const PREV_ROUND = daysAgoLocal(1); // 어제 — previousRound는 오늘 미만 strictly
@@ -226,7 +226,7 @@ async function seedAndBoot(
   if (opts.record) {
     await page.evaluate(async (rec) => {
       const db: IDBDatabase = await new Promise((resolve, reject) => {
-        const req = indexedDB.open('survey-011');
+        const req = indexedDB.open('agri-voicenote');
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
       });
@@ -280,7 +280,7 @@ async function waitForActiveChip(page: Page, colName: string, timeout = 5000) {
 async function getEventExtras(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -299,7 +299,7 @@ async function getEventExtras(page: Page): Promise<string[]> {
 async function getKvPastIndexRecord(page: Page): Promise<PersistedPastIndexRecord | null> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });

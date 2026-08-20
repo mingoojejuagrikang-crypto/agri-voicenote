@@ -24,7 +24,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(60_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 
 // ─── F23 하네스 ─────────────────────────────────────────────────────────────
 
@@ -111,7 +111,7 @@ async function seedF23(page: Page) {
     localStorage.setItem('gs10_google_token', JSON.stringify({
       access_token: 'test-token', expires_at: Date.now() + 3600_000, email: 'tester@example.com',
     }));
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(settings));
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(settings));
     // ⚠️ deleteDatabase 금지 — 부팅된 앱이 연결을 쥐고 있어 blocked로 영원히 대기한다.
     //    sync-token-expiry 패턴: 앱 DB를 그대로 열어 세션만 upsert(신규 컨텍스트라 잔재 없음).
     await new Promise<void>((resolve) => {
@@ -225,7 +225,7 @@ test('F27 — 2026-08-02(일) 고정: 기준일자 기본값·조사일자 지�
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.evaluate(() => {
     localStorage.clear();
-    indexedDB.deleteDatabase('survey-011');
+    indexedDB.deleteDatabase('agri-voicenote');
   });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500); // 기본 탭 = 설정
@@ -330,8 +330,8 @@ async function seedF28AndBoot(page: Page, dateMode: 'past' | 'today') {
       },
       version: 12,
     };
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(settings));
-    indexedDB.deleteDatabase('survey-011');
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(settings));
+    indexedDB.deleteDatabase('agri-voicenote');
   }, { mode: dateMode, sheetUrl: F28_SHEET_URL, sheetId: F28_SHEET_ID });
   await page.reload({ waitUntil: 'domcontentloaded' });
 }

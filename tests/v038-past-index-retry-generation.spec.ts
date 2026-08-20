@@ -7,7 +7,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 import { BASE } from './baseUrl';
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const SHEET_ID = 'SHEET_V038_RETRY_GENERATION';
 const INITIAL_HEADERS = ['조사일자', '농가명', '횡경'];
 const UPDATED_HEADERS = ['조사일자', '농가', '횡경'];
@@ -91,7 +91,7 @@ async function completedErrorBodies(page: Page): Promise<number> {
 async function persistedMeasurement(page: Page): Promise<string | null> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });

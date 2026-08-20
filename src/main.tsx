@@ -1,3 +1,6 @@
+// 🔴 v0.50 개명 — **반드시 첫 import.** 구 네임스페이스 localStorage 복사가 스토어 모듈
+// 평가(= zustand 동기 하이드레이션)보다 먼저 돌아야 한다. namespaceBoot.ts 머리주석 참조.
+import './lib/namespaceBoot';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';

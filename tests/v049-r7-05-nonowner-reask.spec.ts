@@ -93,7 +93,7 @@ test('② 큐가 살아 있으므로 다음 발화가 정수부와 합성된다 
   ).toBe(true);
   const m1 = await page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((r) => {
-      const q = indexedDB.open('survey-011');
+      const q = indexedDB.open('agri-voicenote');
       q.onsuccess = () => r(q.result);
     });
     const all: { rows?: { index: number; values: Record<string, string> }[] }[] = await new Promise((r) => {

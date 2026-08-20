@@ -148,7 +148,9 @@ export const useSettingsStore = create<SettingsState>()(
         }),
     }),
     {
-      name: 'survey-011-settings-v3',
+      // v0.50 개명 — 구 키 'survey-011-settings-v3'는 namespaceBoot(부팅 첫 import)가
+      // 부재 시 복사한다. 🔴 이 문자열은 namespaceMigrate.ts의 NEW_SETTINGS_KEY와 일치 계약.
+      name: 'agri-voicenote-settings-v3',
       version: 12,
       // v0.14.0 C — localStorage + IDB 내구 미러(eviction 방어).
       storage: createJSONStorage(() => mirroredStorage),

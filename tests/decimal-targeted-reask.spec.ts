@@ -150,7 +150,7 @@ async function expectReaskMatchesLastTts(page: Page) {
 async function getIdbSessions(page: Page) {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result as any);
       req.onerror = () => reject(req.error);
     });
@@ -170,7 +170,7 @@ async function setupAndStart(page: Page) {
   await page.addInitScript({ content: GUM_GRANT_SCRIPT });
   await page.addInitScript(MOCK_INIT_SCRIPT);
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate((s) => { localStorage.setItem('survey-011-settings-v3', JSON.stringify(s)); }, SETTINGS);
+  await page.evaluate((s) => { localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s)); }, SETTINGS);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500);
   await page.locator('[data-testid="tab-voice"]').click();

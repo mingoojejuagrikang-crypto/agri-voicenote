@@ -53,7 +53,7 @@ const bootZ7 = (page: Page) => boot(page, PHONE_402, {
 async function logExtras(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((r) => {
-      const q = indexedDB.open('survey-011');
+      const q = indexedDB.open('agri-voicenote');
       q.onsuccess = () => r(q.result);
     });
     const rows: { extra?: string }[] = await new Promise((r) => {

@@ -40,7 +40,7 @@ import { GUM_GRANT_SCRIPT } from './fixtures/gum';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const PHONE_402 = { width: 402, height: 874 };
 
 // 추세/이상치 규칙 없는 음성 float 컬럼 → 커밋이 항상 깨끗(확인 플래시 경로).

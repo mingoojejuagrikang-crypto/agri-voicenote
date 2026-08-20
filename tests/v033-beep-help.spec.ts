@@ -19,7 +19,7 @@ import {
 } from '../src/lib/beepVariants';
 
 import { BASE } from './baseUrl';
-const SETTINGS_KEY = 'survey-011-settings-v3';
+const SETTINGS_KEY = 'agri-voicenote-settings-v3';
 
 // ─── [node] 비프 세그먼트 스펙 ───────────────────────────────────────────────
 

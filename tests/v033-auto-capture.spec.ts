@@ -170,7 +170,7 @@ test('[node] 컨트롤러 — 캡처 실패(null blob)는 non-fatal: capture_fai
 async function seedForCascade(page: Page) {
   await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((res, rej) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
       r.onblocked = () => rej(new Error('IDB open blocked'));
@@ -203,7 +203,7 @@ async function seedForCascade(page: Page) {
 async function readScreenshotKeys(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((res, rej) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
     });

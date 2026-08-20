@@ -75,7 +75,7 @@ async function bootUnsupported(page: Page) {
 async function logsStartingWith(page: Page, prefix: string) {
   return page.evaluate(async (p) => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });

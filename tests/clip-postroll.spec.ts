@@ -24,7 +24,7 @@ test.use({
   },
 });
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 
 const SETTINGS = {
   state: {
@@ -193,7 +193,7 @@ interface ClipEvent { extra?: string; postrollMs?: number; durationMs?: number }
 async function getClipEvents(page: Page): Promise<ClipEvent[]> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });

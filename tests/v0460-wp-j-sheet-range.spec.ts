@@ -14,7 +14,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(60_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const SHEET_ID = 'WPJ_RANGE_SHEET';
 const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`;
 const HEADERS = ['조사일자', '농가명', '횡경'];

@@ -24,7 +24,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 
 const BASE_SETTINGS = {
   state: {
@@ -121,7 +121,7 @@ async function fireStt(page: Page, transcript: string, waitMs = 300) {
 async function loadLogEventsFromIDB(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -141,7 +141,7 @@ async function boot(page: Page) {
   await page.evaluate(({ s, storeKey }) => {
     localStorage.clear();
     localStorage.setItem(storeKey, JSON.stringify(s));
-    indexedDB.deleteDatabase('survey-011');
+    indexedDB.deleteDatabase('agri-voicenote');
   }, { s: BASE_SETTINGS, storeKey: STORE_KEY });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500);
@@ -273,7 +273,7 @@ test('R3-FIX-2 — 최종 저장 실패면 ready로 전환하지 않고 오류�
   // 값이 실제로 durable하게 남았다(재시도가 형식이 아니라 진짜 저장이었다는 증거).
   const sessions = await page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });

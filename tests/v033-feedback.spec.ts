@@ -69,7 +69,7 @@ async function boot(page: Page, opts: { withToken: boolean } = { withToken: true
     }
     // zip 제외 검증용 시딩: 클립 1개 + 자동캡처 1장 — 경량 zip엔 절대 담기면 안 된다.
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);
     });
@@ -89,7 +89,7 @@ async function boot(page: Page, opts: { withToken: boolean } = { withToken: true
 async function getEventExtras(page: Page): Promise<string[]> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);
     });
@@ -107,7 +107,7 @@ async function getEventExtras(page: Page): Promise<string[]> {
 async function getFeedbackQueue(page: Page): Promise<Array<{ filename: string; pendingUser: boolean; pendingAdmin: boolean }>> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);
     });
@@ -168,10 +168,11 @@ test('제출(로그인+온라인) — 사용자 Drive 레그 업로드 + 경량 
   await page.locator('[data-testid="feedback-send"]').click();
   await expect(page.locator('[data-testid="feedback-modal"]')).toBeHidden({ timeout: 15_000 });
 
-  // 업로드 1건(사용자 레그) — 관리자 폴더 env 미설정이라 admin은 skip. 폴더는 survey-011/feedback 생성.
+  // 업로드 1건(사용자 레그) — 관리자 폴더 env 미설정이라 admin은 skip. 폴더는 agri-voicenote/feedback 생성
+  // (스텁 검색이 항상 빈 결과라 신·구 폴더 둘 다 miss → 새 이름 생성 경로).
   await expect.poll(() => stub.uploads.length).toBe(1);
   expect(stub.uploads[0].filename).toMatch(/^feedback_\d{4}-\d{2}-\d{2}_\d+\.zip$/);
-  expect(stub.folderCreates).toEqual(['survey-011', 'feedback']);
+  expect(stub.folderCreates).toEqual(['agri-voicenote', 'feedback']);
 
   // zip 내용물 — 경량 계약(민구 확정): feedback.json + events.json + sessions.json (+ screenshot.jpg
   // 자기일관). clips/·screens/ 절대 없음(부팅 시딩된 클립·자동캡처가 IDB에 실존하는데도).
@@ -248,7 +249,7 @@ test('DB v6 마이그레이션 — feedbackQueue 스토어 신설 + 기존 스�
   await boot(page);
   const info = await page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);
     });
@@ -317,7 +318,7 @@ const STT_MOCK_INIT = `
 async function getSuspendEvents(page: Page) {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);
     });
@@ -338,8 +339,8 @@ test('v0.34.0 A2 — 세션 중 개선요청 팝업 열기 → ui_suspend(feedba
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.evaluate((s) => {
     localStorage.clear();
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(s));
-    indexedDB.deleteDatabase('survey-011');
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s));
+    indexedDB.deleteDatabase('agri-voicenote');
   }, FEEDBACK_STT_SETTINGS);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500);

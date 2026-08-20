@@ -35,7 +35,7 @@ import { BASE } from './baseUrl';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 const TOTAL_ROWS = 3;
 
 /** voice 컬럼 3개 — f1nav 스펙과 같은 골격(항목 이동을 «중간→양 끝»으로 왕복시키려면 최소 3개). */
@@ -77,7 +77,7 @@ async function seedAndOpenVoiceTab(page: Page, s: ReturnType<typeof settings> = 
     ({ st, storeKey }) => {
       localStorage.clear();
       localStorage.setItem(storeKey, JSON.stringify(st));
-      indexedDB.deleteDatabase('survey-011');
+      indexedDB.deleteDatabase('agri-voicenote');
     },
     { st: s, storeKey: STORE_KEY },
   );

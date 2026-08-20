@@ -1,7 +1,7 @@
 /**
  * [ENV-11]/[ENV-3] 근절 — 앱 IndexedDB 이름·버전·스키마의 테스트측 진입점 (v0.35.1 신설).
  *
- * 종전에는 27개 spec이 `indexedDB.open('survey-011', 6)`을 하드코딩하고 6곳이 스키마 미러를
+ * 종전에는 27개 spec이 `indexedDB.open('agri-voicenote', 6)`을 하드코딩하고 6곳이 스키마 미러를
  * 복붙해, DB_VERSION bump마다 전수 grep 갱신이 필요했고([ENV-11]) 미러가 신규 스토어를 빠뜨리면
  * 침묵 실패했다([ENV-3]). 이 fixture가 규약을 한 곳으로 모은다:
  *

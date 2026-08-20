@@ -243,7 +243,7 @@ async function waitForRow(page: Page, targetRow: number, timeout = 6000) {
 async function loadSessionsFromIDB(page: Page) {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -268,7 +268,7 @@ test('30행 음성 입력 — TTS/칩/값/순서/수정/스킵/일시정지 종�
   await page.waitForLoadState('domcontentloaded');
   await page.evaluate((settingsJson) => {
     localStorage.clear();
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(settingsJson));
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(settingsJson));
   }, SETTINGS_30ROWS);
 
   // 3. 페이지 재로드 (설정 적용)
@@ -566,7 +566,7 @@ async function injectSession(page: Page) {
   await page.evaluate(async () => {
     // 앱이 이미 IDB를 열고 있는 경우 같은 버전으로 연결 → 즉시 성공
     const db = await new Promise<IDBDatabase>((res, rej) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
       r.onblocked = () => rej(new Error('IDB open blocked'));
@@ -704,7 +704,7 @@ test('[음성] 일시정지 → 재개 → 종료 UI 상태 검증', async ({ pa
   await page.waitForLoadState('domcontentloaded');
   await page.evaluate((s) => {
     localStorage.clear();
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(s));
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s));
   }, SETTINGS_30ROWS);
   await page.reload();
   await page.waitForLoadState('domcontentloaded');

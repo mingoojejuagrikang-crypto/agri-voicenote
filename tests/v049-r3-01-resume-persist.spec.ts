@@ -58,7 +58,7 @@ async function activeChipName(page: Page): Promise<string> {
 async function persistedRow(page: Page, index: number) {
   return page.evaluate(async (rowIndex) => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });

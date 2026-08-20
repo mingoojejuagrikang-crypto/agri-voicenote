@@ -62,7 +62,7 @@ async function keypadCommit(page: Page, colName: string, keys: string[]) {
 async function persistedRows(page: Page): Promise<{ i: number; c: boolean; v: Record<string, string> }[]> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((r) => {
-      const q = indexedDB.open('survey-011');
+      const q = indexedDB.open('agri-voicenote');
       q.onsuccess = () => r(q.result);
     });
     const all: { rows?: { index: number; complete: boolean; values: Record<string, string> }[] }[] =

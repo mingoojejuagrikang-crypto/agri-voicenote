@@ -74,7 +74,7 @@ test('chip switch diagnostic', async ({ page }) => {
   await page.waitForLoadState('domcontentloaded');
   await page.evaluate((s) => {
     localStorage.clear();
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(s));
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s));
   }, SETTINGS_2COL);
   await page.reload();
   await page.waitForLoadState('domcontentloaded');

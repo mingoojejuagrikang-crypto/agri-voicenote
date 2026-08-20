@@ -100,7 +100,7 @@ async function seedAndBoot(page: Page, settings: ReturnType<typeof settingsWithC
     localStorage.setItem('gs10_google_token', JSON.stringify({
       access_token: 'test-token', expires_at: Date.now() + 3600_000, email: 'tester@example.com',
     }));
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(settings));
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(settings));
     await new Promise<void>((resolve) => {
       const applySchema = (0, eval)(`(${schemaSrc})`) as (db: IDBDatabase) => void;
       const open = indexedDB.open(idb.name, idb.version);

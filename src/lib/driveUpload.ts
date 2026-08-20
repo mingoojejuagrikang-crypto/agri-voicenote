@@ -1,6 +1,8 @@
 import { getAccessToken, getCurrentEmail } from './googleAuth';
 import { useSettingsStore } from '../stores/settingsStore';
 import { FILES_API, escapeDriveQ, ensureEmailSubFolder, cachedFolderIdFor } from './driveFolders';
+import { LEGACY_APP_FOLDER_NAME } from './namespaceMigrate';
+import { logger } from './logger';
 
 /**
  * Drive log backup target — 관리자(팀 리더) 드라이브의 공유 폴더 ID.
@@ -98,7 +100,7 @@ async function ensureTeamSubFolder(
   });
 }
 
-const APP_FOLDER_NAME = 'survey-011';
+const APP_FOLDER_NAME = 'agri-voicenote';   // v0.50 개명 — namespaceMigrate와 별개로 여기서도 새 이름
 const USER_LOG_SUBFOLDER = 'log';
 
 /** 사용자 Drive에서 `name` 폴더를 parent(미지정=루트) 아래에서 검색만 한다(생성 없음).
@@ -140,19 +142,49 @@ async function ensureFolder(name: string, parentId?: string, headersIn?: Record<
   return created.id;
 }
 
-/** 사용자 Drive `survey-011/log/` 폴더 ID (settingsStore 캐시 우선).
+/** v0.50 개명 — 앱 루트 폴더의 **채택(adoption) 경로**. 순서가 계약이다:
+ *  ① 새 이름(`agri-voicenote`)이 있으면 그것 — 이미 전환됐다.
+ *  ② 구 이름(`survey-011`)만 있으면:
+ *     - 🔴 **프리뷰 빌드는 구 폴더를 그대로 쓴다**(rename 금지). github.io는 같은 origin이라
+ *       구 정식(v0.48)이 아직 살아 있는데, rename하면 구 앱이 `survey-011`을 **재생성**해
+ *       폴더가 갈라진다. 프리뷰가 구 폴더를 쓰면 수확 경로(`gdrive:survey-011/log`)도 불변.
+ *     - 정식 빌드는 **rename**(PATCH)으로 채택 — 내용물·폴더 ID가 보존되는 마이그레이션 본체.
+ *       rename 실패 시 구 폴더 ID로 계속(업로드는 성공해야 한다 — 유실 없음, 다음 부팅 재시도).
+ *  ③ 둘 다 없으면 새 이름으로 생성(신규 사용자).
+ *  구 이름 상수는 namespaceMigrate.ts가 SSOT다. */
+async function ensureAppFolder(headers: Record<string, string>): Promise<string> {
+  const found = await findFolder(APP_FOLDER_NAME, undefined, headers);
+  if (found) return found;
+  const legacy = await findFolder(LEGACY_APP_FOLDER_NAME, undefined, headers);
+  if (legacy) {
+    if (typeof __PREVIEW_BUILD__ !== 'undefined' && __PREVIEW_BUILD__) {
+      logger.log({ type: 'app', extra: 'ns_drive:legacy_used_preview' });
+      return legacy;
+    }
+    const res = await fetch(`${FILES_API}/${legacy}`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: APP_FOLDER_NAME }),
+    });
+    logger.log({ type: 'app', extra: `ns_drive:${res.ok ? 'renamed' : `rename_fail_${res.status}`}` });
+    return legacy; // rename 성공/실패 무관 — 이 ID가 그 폴더다
+  }
+  return ensureFolder(APP_FOLDER_NAME, undefined, headers);
+}
+
+/** 사용자 Drive `agri-voicenote/log/` 폴더 ID (settingsStore 캐시 우선).
  *  v0.35.1 — 캐시는 계정 결합: 같은 기기에서 계정을 바꾸면 다른 사용자 Drive의 폴더 ID가
  *  재사용되지 않는다(불일치 = 재검색). 이메일 미확인 상태면 무캐시로 진행. */
 async function ensureUserLogFolder(email: string | null, headers: Record<string, string>): Promise<string> {
   const cached = cachedFolderIdFor(useSettingsStore.getState().userLogFolderCache, email);
   if (cached) return cached;
-  const appId = await ensureFolder(APP_FOLDER_NAME, undefined, headers);
+  const appId = await ensureAppFolder(headers);
   const logId = await ensureFolder(USER_LOG_SUBFOLDER, appId, headers);
   if (email) useSettingsStore.getState().set({ userLogFolderCache: { email, id: logId } });
   return logId;
 }
 
-/** 사용자 본인 드라이브 `survey-011/log/` 폴더에 업로드 (v0.4.5 Q1b: 루트 대신 전용 폴더).
+/** 사용자 본인 드라이브 `agri-voicenote/log/` 폴더에 업로드 (v0.4.5 Q1b: 루트 대신 전용 폴더).
  *  v0.35.1(리뷰 라운드3 Codex High): 이메일·토큰을 작업 시작 시 1회 스냅샷해 폴더 탐색·생성·zip
  *  업로드·캐시 기록 전 과정에 주입 — 응답 대기 중 A→B 재로그인이 끼어도 폴더는 B에, 캐시는
  *  {A, B폴더}로 갈라지는 혼입이 생기지 않는다(admin 레그와 동일 방어). */
@@ -163,15 +195,17 @@ async function uploadLogToUserDrive(zipBlob: Blob, filename: string, auth?: Uplo
 }
 
 // ─── v0.5.0 W8: 로그 zip 기반 세션 복구 — Drive 읽기 경로 ──────────────────────
-// 업로드와 같은 폴더 규약(`survey-011/log`)·캐시(settingsStore.userLogFolderCache)를 재사용하되,
+// 업로드와 같은 폴더 규약(`agri-voicenote/log` — 전환기 구 폴더 폴백)·캐시(settingsStore.userLogFolderCache)를 재사용하되,
 // 복구는 읽기 전용이므로 폴더를 **생성하지 않는다**(없으면 백업도 없음).
 
-/** `survey-011/log` 폴더 ID를 검색만으로 찾는다(캐시 우선, 생성 없음). 미존재 시 null. */
+/** `agri-voicenote/log`(폴백: 구 `survey-011/log`) 폴더 ID를 검색만으로 찾는다(캐시 우선, 생성 없음). 미존재 시 null. */
 export async function findUserLogFolderId(): Promise<string | null> {
   const email = getCurrentEmail();
   const cached = cachedFolderIdFor(useSettingsStore.getState().userLogFolderCache, email);
   if (cached) return cached;
-  const appId = await findFolder(APP_FOLDER_NAME);
+  // v0.50 개명 — 읽기 전용이라 rename·생성 없이 구 이름까지만 폴백한다(W8 복구가
+  // 전환 전 백업도 보게). 채택·rename은 업로드 경로(ensureAppFolder)의 몫.
+  const appId = (await findFolder(APP_FOLDER_NAME)) ?? (await findFolder(LEGACY_APP_FOLDER_NAME));
   if (!appId) return null;
   const logId = await findFolder(USER_LOG_SUBFOLDER, appId);
   if (logId && email) useSettingsStore.getState().set({ userLogFolderCache: { email, id: logId } });
@@ -323,11 +357,11 @@ export async function uploadLogToBothDrives(
 
 const USER_FEEDBACK_SUBFOLDER = 'feedback';
 
-/** 사용자 Drive `survey-011/feedback/` 폴더 ID. 로그 폴더(userLogFolderCache)와 달리 별도
+/** 사용자 Drive `agri-voicenote/feedback/` 폴더 ID. 로그 폴더(userLogFolderCache)와 달리 별도
  *  settings 캐시를 두지 않는다 — 개선요청은 빈도가 낮아 검색 2회 비용이 무해하고, persist 필드
  *  추가(마이그레이션 비용)를 피한다. */
 async function ensureUserFeedbackFolder(headers: Record<string, string>): Promise<string> {
-  const appId = await ensureFolder(APP_FOLDER_NAME, undefined, headers);
+  const appId = await ensureAppFolder(headers);
   return ensureFolder(USER_FEEDBACK_SUBFOLDER, appId, headers);
 }
 
@@ -346,7 +380,7 @@ async function ensureFeedbackSubFolder(
   });
 }
 
-/** 사용자 Drive `survey-011/feedback/`에 업로드. TOCTOU — 로그 사용자 레그와 동일하게 토큰을
+/** 사용자 Drive `agri-voicenote/feedback/`에 업로드. TOCTOU — 로그 사용자 레그와 동일하게 토큰을
  *  작업 시작 시 1회 스냅샷해 전 과정에 주입. */
 export async function uploadFeedbackToUserDrive(zipBlob: Blob, filename: string, auth?: UploadAuth): Promise<string> {
   const headers = auth?.headers ?? (await authHeader());

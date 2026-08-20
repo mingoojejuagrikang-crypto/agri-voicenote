@@ -33,7 +33,7 @@ import { REASK_TTS } from '../src/lib/voicePrompts';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 
 const SETTINGS = {
   state: {
@@ -172,7 +172,7 @@ interface LogEvt { type?: string; extra?: string; row?: number; colId?: string }
 async function getClipLog(page: Page): Promise<LogEvt[]> {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -191,7 +191,7 @@ async function getClipLog(page: Page): Promise<LogEvt[]> {
 async function getIdbSessions(page: Page) {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('survey-011');
+      const req = indexedDB.open('agri-voicenote');
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });

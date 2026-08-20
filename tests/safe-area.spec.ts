@@ -20,7 +20,7 @@ import { GUM_GRANT_SCRIPT } from './fixtures/gum';
 
 test.setTimeout(120_000);
 
-const STORE_KEY = 'survey-011-settings-v3';
+const STORE_KEY = 'agri-voicenote-settings-v3';
 
 // ── 공용 단언 ────────────────────────────────────────────────
 /** 요소가 safe bounds(노치 아래·홈바 위·좌우 inset 안)에 **완전히** 들어와 있는지 단언.
@@ -95,7 +95,7 @@ test('부팅 텔레메트리 — sa_insets가 시뮬레이션된 inset 실측값
   await page.waitForTimeout(800); // load 후 logger.log → IDB fire-and-forget 정착 대기
   const events = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase | null>((res) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => res(null);
     });
@@ -118,7 +118,7 @@ test('부팅 텔레메트리 — sa_insets가 시뮬레이션된 inset 실측값
 async function injectTallSession(page: Page) {
   await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((res, rej) => {
-      const r = indexedDB.open('survey-011');
+      const r = indexedDB.open('agri-voicenote');
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
       r.onblocked = () => rej(new Error('IDB open blocked'));

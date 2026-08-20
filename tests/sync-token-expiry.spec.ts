@@ -117,7 +117,7 @@ async function seedNoToken(page: Page, session: unknown) {
   await page.evaluate(async ({ sess, settings, idb, schemaSrc }) => {
     localStorage.clear();
     // 토큰 없음 = 만료/미로그인 상태.
-    localStorage.setItem('survey-011-settings-v3', JSON.stringify(settings));
+    localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(settings));
     await new Promise<void>((resolve) => {
       const applySchema = (0, eval)(`(${schemaSrc})`) as (db: IDBDatabase) => void;
       const open = indexedDB.open(idb.name, idb.version);
