@@ -11,4 +11,4 @@
  */
 import { migrateLocalStorageNamespace } from './namespaceMigrate';
 
-migrateLocalStorageNamespace();
+migrateLocalStorageNamespace(typeof __PREVIEW_BUILD__ !== 'undefined' && __PREVIEW_BUILD__);

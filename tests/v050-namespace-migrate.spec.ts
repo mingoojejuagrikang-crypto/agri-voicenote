@@ -14,6 +14,8 @@
  *   T6 새 DB에서 지운 레코드는 재부팅해도 **부활하지 않는다**(codex #1을 오라클로)
  *   T7 [node] 프리뷰 게이트 순수 함수 — `__PREVIEW_BUILD__`는 컴파일 상수라 브라우저로 못 잰다
  *   T8 초기화가 지운 tip-seen을 구 키가 부활시키지 않는다(localStorage 마커)
+ *   T9 정식 첫 부팅은 구 키로 **덮어쓴다**(force 스냅샷) — 프리뷰가 남긴 새 키 값이
+ *      전환 시점의 구 정식 설정을 가리지 않는다(codex 2회전 #3의 뒤집힌 보증)
  *
  * ⚠️ 구 DB 생성은 이름을 **인자로** 넘긴다 — idb-fixture 가드는 리터럴+버전 조합만 잡으므로
  * 이 스펙은 예외 목록 없이 통과한다(가드 주석 참조).
@@ -225,4 +227,20 @@ test('T4 merge-by-absence — 새 DB에 이미 있는 키는 절대 덮지 않�
   const dup = (await readNewDb(page, 'sessions')).vals
     .find((v) => (v as { id?: string }).id === 'dup-1') as { marker?: string };
   expect(dup.marker, '새 쪽이 정본이다 — merge가 덮으면 최신 데이터가 과거로 되돌아간다').toBe('new');
+});
+
+test('T9 정식 첫 부팅 force 스냅샷 — 프리뷰가 남긴 새 키 값을 구 정식 설정이 이긴다', async ({ page }) => {
+  const LEGACY_VAL = JSON.stringify({ state: { sheetUrl: 'https://example.com/from-old-prod' }, version: 12 });
+  const PREVIEW_VAL = JSON.stringify({ state: { sheetUrl: 'https://example.com/from-preview' }, version: 12 });
+  await page.addInitScript(({ lk, nk, lv, pv }) => {
+    if (localStorage.getItem('__ns_seeded') == null) {
+      localStorage.setItem(lk, lv);   // 구 정식이 쌓은 설정(전환 시점의 정본)
+      localStorage.setItem(nk, pv);   // 프리뷰(관찰자)가 새 키에 남긴 흔적 — 마커는 없다
+      localStorage.setItem('__ns_seeded', '1');
+    }
+  }, { lk: LEGACY_SETTINGS_KEY, nk: NEW_SETTINGS_KEY, lv: LEGACY_VAL, pv: PREVIEW_VAL });
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  // dev 서버는 __PREVIEW_BUILD__=false = 정식 경로 — force 스냅샷이 프리뷰 흔적을 덮는다
+  await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), NEW_SETTINGS_KEY))
+    .toContain('from-old-prod');
 });

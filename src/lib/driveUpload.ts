@@ -186,6 +186,9 @@ function markDriveAdopted(): void {
  *  무관하게 유효하지만(ID 불변), 캐시 경로는 rename 기회를 영영 안 준다. */
 function driveAdoptionPending(): boolean {
   if (typeof __PREVIEW_BUILD__ !== 'undefined' && __PREVIEW_BUILD__) return false;
+  // catch → false는 **의도된 fail-open**이다(codex 2회전 #5 검토·수용): storage 접근이
+  // 차단된 환경에서 rename 재시도가 안 일어나지만, 캐시된 폴더 ID는 rename과 무관하게
+  // 유효해 업로드는 정상이다 — 잃는 것은 「폴더 표시 이름의 전환 시점」뿐이다.
   try { return localStorage.getItem(DRIVE_ADOPTED_KEY) !== '1'; } catch { return false; }
 }
 

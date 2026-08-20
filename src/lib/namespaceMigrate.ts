@@ -67,11 +67,19 @@ export const DRIVE_ADOPTED_KEY = 'agri-voicenote-drive-adopted';
 export const IDB_MARKER_KEY = 'ns:migrated';
 
 /**
- * localStorage 키 복사 — **동기·1회**. zustand persist가 스토어 생성 시점에 localStorage를
+ * localStorage 키 복사 — **동기**. zustand persist가 스토어 생성 시점에 localStorage를
  * 동기로 읽으므로 settingsStore 모듈 평가 **전에** 돌아야 한다(→ namespaceBoot가 main.tsx
- * 첫 import). 마커 규약은 IDB와 대칭: **구 키가 하나라도 있었을 때만** 마커를 남긴다.
+ * 첫 import).
+ *
+ * 🔴 **IDB와 완전 대칭의 스냅샷 의미론이다** (3회전 — codex 2회전 #3이 비대칭을 기각):
+ * - **프리뷰**: copy-if-missing만, **마커를 남기지 않는다.** 프리뷰는 관찰자다 — 마커를
+ *   선점하면 「프리뷰가 A를 복사 → 구 정식에서 B로 변경 → 정식 첫 부팅이 A를 정본으로」
+ *   가 된다(sheetUrl 포함이라 업로드 대상 오류까지 가능).
+ * - **정식 첫 부팅**(마커 없음): 구 키가 있으면 **덮어쓴다(force)** — 전환 시점의 구 정식
+ *   설정이 최종본이다. 프리뷰 기간에 프리뷰가 새 키에 남긴 값은 관찰자의 흔적일 뿐이다.
+ *   전부 성공했을 때만 마커(부분 실패에 마커를 쓰면 재시도가 영영 없다 — claude 2회전 #1).
  */
-export function migrateLocalStorageNamespace(): void {
+export function migrateLocalStorageNamespace(isPreviewBuild: boolean): void {
   try {
     if (localStorage.getItem(LS_MIGRATED_KEY) != null) return;
   } catch { return; }
@@ -80,15 +88,22 @@ export function migrateLocalStorageNamespace(): void {
     [LEGACY_TIP_SEEN_KEY, NEW_TIP_SEEN_KEY],
   ];
   let sawLegacy = false;
+  let allOk = true;
   for (const [oldKey, newKey] of pairs) {
     try {
       const v = localStorage.getItem(oldKey);
       if (v == null) continue;
       sawLegacy = true;
-      if (localStorage.getItem(newKey) == null) localStorage.setItem(newKey, v);
-    } catch { /* private mode 등 — persist 자체가 없는 환경이라 무해 */ }
+      if (isPreviewBuild) {
+        if (localStorage.getItem(newKey) == null) localStorage.setItem(newKey, v);
+      } else {
+        localStorage.setItem(newKey, v); // 정식 스냅샷 — 구 정식이 정본, 덮는다
+      }
+    } catch {
+      allOk = false;
+    }
   }
-  if (sawLegacy) {
+  if (!isPreviewBuild && sawLegacy && allOk) {
     try { localStorage.setItem(LS_MIGRATED_KEY, '1'); } catch { /* ignore */ }
   }
 }
@@ -132,20 +147,31 @@ export async function mergeLegacyIdb(newDb: IDBPDatabase): Promise<string | null
         if (keys.length === 0) continue;
         const hasKeyPath = newDb.transaction(store).store.keyPath !== null;
         for (const key of keys) {
+          // advisory pre-check — 재시도 부팅에서 이미 복사된 키의 **Blob 전체를 읽고
+          // 버리는** 낭비를 막는다(클립 수 MB × N · 부팅 임계 경로 — 2회전 claude #2).
+          // 원자성 판정은 아래 tx 안의 재확인이 갖는다 — 이건 최적화일 뿐이다.
+          if ((await newDb.getKey(store, key)) !== undefined) { skipped += 1; continue; }
           // legacy 읽기는 tx 밖에서 먼저 — 두 DB를 한 tx 안에서 번갈아 await하면 tx가
           // auto-commit돼 TransactionInactiveError가 난다. 그리고 getAll 일괄 적재는
           // audioClips(클립 Blob 수 MB × N)에서 메모리 피크를 만든다 — 레코드당 처리.
           const val: unknown = await legacy.get(store, key);
           if (val === undefined) continue;
-          // 🔴 부재 재확인 + put을 **같은 readwrite tx 안**에서 — 계약 5(원자성).
-          const tx = newDb.transaction(store, 'readwrite');
-          if ((await tx.store.getKey(key)) !== undefined) {
+          // 🔴 [store, kv] **복합 tx** — 부재 재확인 + put과 함께 **마커도 재확인**한다.
+          //    느린 컨텍스트 B가, 먼저 완주한 A의 마커 이후에 낡은 put을 밀어넣는 창을
+          //    닫는다(codex 2회전 #2 — 마커 이후의 모든 쓰기는 이 재확인에서 중단된다).
+          const tx = newDb.transaction([store, 'kv'], 'readwrite');
+          if ((await tx.objectStore('kv').getKey(IDB_MARKER_KEY)) !== undefined) {
+            await tx.done;
+            return `yielded:another-context-completed,copied=${copied}`;
+          }
+          const st = tx.objectStore(store);
+          if ((await st.getKey(key)) !== undefined) {
             skipped += 1;
           } else if (hasKeyPath) {
-            await tx.store.put(val);
+            await st.put(val);
             copied += 1;
           } else {
-            await tx.store.put(val, key);
+            await st.put(val, key);
             copied += 1;
           }
           await tx.done;
@@ -173,7 +199,15 @@ export async function mergeLegacyIdb(newDb: IDBPDatabase): Promise<string | null
       legacy.close();
     }
   } catch (e) {
-    // fail-open (계약 6) — 부팅을 막지 않는다. 계측만 남긴다.
-    return `error:${e instanceof Error ? e.name : 'unknown'}`;
+    // 🔴 부분 실패는 **재시도하지 않는다** (3회전 — codex 2회전 #1). 실패 후 재시도는
+    //    「그 사이 사용자가 지운 레코드」를 부활시킨다 — 부활(시트 중복 행·중복 업로드 =
+    //    데이터 오염)이 미복사(구 DB에 안전 보존 — 유실 아님)보다 나쁘다.
+    //    partial 마커를 남겨 재시도를 멈추고, 계측이 SOP-003 판독으로 올라간다 —
+    //    필요하면 사람이 판단해 수동 재승계한다(자동은 안전한 쪽, 판단은 사람).
+    const summary = `error:${e instanceof Error ? e.name : 'unknown'}`;
+    try {
+      await newDb.put('kv', { at: new Date().toISOString(), summary, partial: true }, IDB_MARKER_KEY);
+    } catch { /* 마커조차 못 쓰면 IDB 전체가 죽은 상황 — 다음 부팅 재시도가 낫다 */ }
+    return summary; // fail-open (계약 6) — 부팅을 막지 않는다
   }
 }
