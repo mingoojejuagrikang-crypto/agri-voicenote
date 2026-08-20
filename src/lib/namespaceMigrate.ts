@@ -6,23 +6,38 @@
  * NEW_* 사본과 문자열이 일치해야 한다 — 드리프트는 tests/v050-namespace-migrate.spec.ts가
  * 「앱이 실제로 새 키에 쓰는가」로 잡는다.
  *
- * 설계 계약 (plans/2026-08-20-rename-agri-voicenote.md §8):
+ * 설계 계약 v2 (이중 콜드 리뷰 1회전 소비 — codex 7건이 v1의 「매 부팅 merge-by-absence」를
+ * 기각했다: 삭제 레코드 부활·pending 이중 소비·낡은 스냅샷 영구 승자. 정본 계획 §8~§9):
  *
  * 1. 🔴 **복사만 한다. 절대 지우지 않는다.** github.io는 프로젝트 경로가 달라도 **같은
  *    origin**이라 localStorage·IndexedDB를 구 정식(`/survey-011/` v0.48)·프리뷰·새 경로가
  *    **전부 공유한다.** 구 DB를 지우면 아직 살아 있는 구 정식 앱의 데이터를 지우는 것이다.
- *    구 네임스페이스 정리는 구 PWA가 퇴역한 뒤의 별도 회차 몫.
  *
- * 2. **매 부팅 merge-by-absence.** 「새 DB가 비었을 때 1회 복사」로 하면 프리뷰가 새 DB를
- *    먼저 채운 뒤 정식이 부팅할 때 복사가 건너뛰어져 **그 사이 구 정식이 쌓은 데이터가
- *    새 네임스페이스에 영영 안 온다**(스냅샷 함정). 키 단위 부재 복사는 멱등이고 이 함정이 없다.
- *    한계: 같은 키가 양쪽에서 갱신되면 새 쪽이 이긴다(구 값은 구 DB에 그대로 남는다).
+ * 2. **프리뷰 빌드는 IDB를 승계하지 않는다**(`shouldMigrateIdb`). 프리뷰는 관찰자다 —
+ *    Drive 폴더를 rename하지 않는 것과 같은 정신. 이래야 「프리뷰가 새 DB를 먼저 채워
+ *    정식 첫 부팅의 복사가 낡은 스냅샷이 되는」 함정(v1 §8-2)이 원천 소멸한다:
+ *    **정식 첫 부팅 = 민구가 전환하는 시점 = 구 데이터의 최종본**을 그때 뜬다.
  *
- * 3. **logEvents는 복사하지 않는다.** 진단 텔레메트리라 연속성 가치가 낮고 수천 건이라
- *    매 부팅 부재 검사 비용이 크다. 구 진단은 구 DB에 남아 구 앱에서 내보낼 수 있다.
+ * 3. **1회 스냅샷 + 새 DB 안의 마커.** 마커(`kv[IDB_MARKER_KEY]`)는 localStorage가 아니라
+ *    새 DB에 둔다 — localStorage는 iOS가 evict한다(이 레포가 kv 미러를 만든 이유 그대로).
+ *    🔴 마커는 **실제 복사가 일어났을 때만** 쓴다: 구 DB가 아예 없으면 마커 없이 끝낸다
+ *    (신규 설치 뒤 구 DB가 «나중에» 생기는 비정상 순서에도 안전하고, 복사 실패는 마커가
+ *    안 남아 다음 부팅이 재시도한다 — per-key 부재 검사라 멱등).
  *
- * 4. 실패는 **fail-open** — 마이그레이션이 죽어도 부팅은 계속된다(구 데이터 무손상이 1번
- *    계약으로 보장되므로, 실패의 비용은 「연속성 지연」이지 「유실」이 아니다).
+ * 4. 🔴 **feedbackQueue는 복사하지 않는다.** pending의 소유권은 구 앱에 있다 — 복사하면
+ *    양쪽이 같은 zip을 각각 업로드한다(codex #4). 전환 절차가 「전환 직전 구 앱을 마지막
+ *    1회 열어 pending을 소진한다」를 갖는다(TODO §📛). logEvents도 제외(수천 건 진단
+ *    텔레메트리 — 구 DB에 남아 구 앱에서 내보낼 수 있다).
+ *
+ * 5. **레코드 단위 원자성**: legacy 읽기는 tx 밖에서 먼저, 부재 재확인+put은 **같은
+ *    readwrite tx 안**에서 한다 — 검사와 쓰기 사이에 다른 컨텍스트가 끼어들어 신 레코드를
+ *    구 값으로 덮는 창(codex #3)을 닫는다.
+ *
+ * 6. 실패는 **fail-open** — 마이그레이션이 죽어도 부팅은 계속된다(계약 1이 구 데이터
+ *    무손상을 보장하므로, 실패의 비용은 「연속성 지연」이지 「유실」이 아니다).
+ *
+ * ⚠️ **전환 후 구 정식 앱의 병행 사용은 미지원이다** — 스냅샷 이후 구 앱이 쌓는 데이터는
+ * 구 DB에만 남는다(유실은 아니다 — 구 앱에서 그대로 보이고 내보낼 수 있다).
  */
 import { openDB, type IDBPDatabase } from 'idb';
 
@@ -36,37 +51,70 @@ export const LEGACY_APP_FOLDER_NAME = 'survey-011';
 const NEW_SETTINGS_KEY = 'agri-voicenote-settings-v3';
 const NEW_TIP_SEEN_KEY = 'agri-voicenote-settings-tip-seen';
 
+/** localStorage 복사 완료 마커. 🔴 이게 없으면 복사가 매 부팅 돌아서, 사용자가 새 키를
+ *  지운 것(예: 초기화가 tip-seen을 removeItem — useSettingsReset.ts)을 구 키가 다음 부팅에
+ *  **부활**시킨다(IDB 축 codex #1의 localStorage 아날로그). evict로 마커가 날아가면 새 키들도
+ *  함께 날아간 상태라 재복사가 오히려 복원 경로다 — 일관적. */
+const LS_MIGRATED_KEY = 'agri-voicenote-ns-migrated';
+
+/** Drive 폴더 채택(adoption) 완료 마커 — driveUpload.ts가 쓴다. localStorage여도 되는 이유:
+ *  rename은 멱등이고(새 이름을 찾으면 끝) 폴더 ID는 rename과 무관하게 불변이라, evict 후
+ *  재시도는 검색 1~2회 비용뿐 오동작이 없다. */
+export const DRIVE_ADOPTED_KEY = 'agri-voicenote-drive-adopted';
+
+/** 새 DB kv 스토어 안의 IDB 승계 완료 마커 키. 설정 미러 키(`…-settings-v3`)와 네임스페이스가
+ *  달라 충돌하지 않고, 구 앱은 이 키를 모른다(legacy kv 복사로 되살아날 일 없음). */
+export const IDB_MARKER_KEY = 'ns:migrated';
+
 /**
- * localStorage 키 복사 — **동기**. zustand persist가 스토어 생성 시점에 localStorage를
- * 동기로 읽으므로, 이 함수는 settingsStore 모듈이 평가되기 **전에** 돌아야 한다.
- * → `src/lib/namespaceBoot.ts`를 main.tsx **첫 import**로 둔다(모듈 평가 순서 계약).
+ * localStorage 키 복사 — **동기·1회**. zustand persist가 스토어 생성 시점에 localStorage를
+ * 동기로 읽으므로 settingsStore 모듈 평가 **전에** 돌아야 한다(→ namespaceBoot가 main.tsx
+ * 첫 import). 마커 규약은 IDB와 대칭: **구 키가 하나라도 있었을 때만** 마커를 남긴다.
  */
 export function migrateLocalStorageNamespace(): void {
+  try {
+    if (localStorage.getItem(LS_MIGRATED_KEY) != null) return;
+  } catch { return; }
   const pairs: Array<[string, string]> = [
     [LEGACY_SETTINGS_KEY, NEW_SETTINGS_KEY],
     [LEGACY_TIP_SEEN_KEY, NEW_TIP_SEEN_KEY],
   ];
+  let sawLegacy = false;
   for (const [oldKey, newKey] of pairs) {
     try {
-      if (localStorage.getItem(newKey) != null) continue; // 이미 있음 — 새 쪽이 정본
       const v = localStorage.getItem(oldKey);
-      if (v != null) localStorage.setItem(newKey, v);
+      if (v == null) continue;
+      sawLegacy = true;
+      if (localStorage.getItem(newKey) == null) localStorage.setItem(newKey, v);
     } catch { /* private mode 등 — persist 자체가 없는 환경이라 무해 */ }
+  }
+  if (sawLegacy) {
+    try { localStorage.setItem(LS_MIGRATED_KEY, '1'); } catch { /* ignore */ }
   }
 }
 
-/** merge-by-absence 대상 스토어 — logEvents 제외는 머리주석 3번. */
-const MERGE_STORES = ['sessions', 'audioClips', 'kv', 'screenshots', 'feedbackQueue'] as const;
+/** IDB 승계를 이 부팅에서 시도해도 되는가 — 순수 함수(node 스펙이 직접 잰다).
+ *  프리뷰가 false인 이유는 머리주석 계약 2. `__PREVIEW_BUILD__`는 컴파일 상수라
+ *  브라우저 스펙으로는 프리뷰 분기를 잴 수 없다 — 그래서 판정을 여기로 뽑았다. */
+export function shouldMigrateIdb(isPreviewBuild: boolean): boolean {
+  return !isPreviewBuild;
+}
+
+/** 1회 스냅샷 대상 — feedbackQueue·logEvents 제외는 머리주석 계약 4. */
+const SNAPSHOT_STORES = ['sessions', 'audioClips', 'kv', 'screenshots'] as const;
 
 /**
- * 구 IDB(`survey-011`) → 새 IDB merge-by-absence. `getDb()` 체인 맨 앞에서 await된다 —
- * fire-and-forget이면 업로드 큐·세션 복원과 경쟁한다(플랜 §8-4).
- * 반환: 계측용 요약 문자열(없으면 null = 구 DB 자체가 없음).
+ * 구 IDB(`survey-011`) → 새 IDB **1회 스냅샷 승계**. `getDb()` 체인 맨 앞에서 await된다 —
+ * fire-and-forget이면 업로드 큐·세션 복원이 반쯤 복사된 DB를 읽는다.
+ * 반환: 계측용 요약 문자열(null = 이미 승계됐거나 구 DB가 없음 — 조용히 통과).
  */
 export async function mergeLegacyIdb(newDb: IDBPDatabase): Promise<string | null> {
   try {
+    // 승계 완료 마커 — 있으면 끝. 이 검사가 매 부팅의 전체 비용이다(point read 1회).
+    if ((await newDb.get('kv', IDB_MARKER_KEY)) !== undefined) return null;
+
     // 🔴 databases()로 존재를 먼저 확인한다 — 무버전 open은 없던 DB를 **만들어버린다**
-    //    (빈 legacy DB가 생기면 다음 부팅부터 영원히 merge를 시도한다).
+    //    (빈 legacy DB가 생기면 다음 부팅부터 영원히 승계를 시도한다).
     //    databases() 미지원 환경(iOS 14 미만)은 legacy 여부를 알 수 없으므로 신규 설치로 취급.
     const listFn = indexedDB.databases?.bind(indexedDB);
     if (!listFn) return null;
@@ -77,43 +125,55 @@ export async function mergeLegacyIdb(newDb: IDBPDatabase): Promise<string | null
     try {
       let copied = 0;
       let skipped = 0;
-      for (const store of MERGE_STORES) {
+      for (const store of SNAPSHOT_STORES) {
         if (!legacy.objectStoreNames.contains(store)) continue;
         if (!newDb.objectStoreNames.contains(store)) continue;
         const keys = await legacy.getAllKeys(store);
         if (keys.length === 0) continue;
-        // keyPath 유무로 put 서명이 갈린다(sessions·feedbackQueue는 in-line key).
         const hasKeyPath = newDb.transaction(store).store.keyPath !== null;
         for (const key of keys) {
-          // 🔴 레코드당 짧은 트랜잭션 — 두 DB를 한 tx 안에서 번갈아 await하면 tx가
-          //    auto-commit돼 TransactionInactiveError가 난다. 그리고 getAll 일괄 적재는
-          //    audioClips(클립 Blob 수 MB × N)에서 메모리 피크를 만든다.
-          if ((await newDb.getKey(store, key)) !== undefined) { skipped += 1; continue; }
+          // legacy 읽기는 tx 밖에서 먼저 — 두 DB를 한 tx 안에서 번갈아 await하면 tx가
+          // auto-commit돼 TransactionInactiveError가 난다. 그리고 getAll 일괄 적재는
+          // audioClips(클립 Blob 수 MB × N)에서 메모리 피크를 만든다 — 레코드당 처리.
           const val: unknown = await legacy.get(store, key);
           if (val === undefined) continue;
-          if (hasKeyPath) await newDb.put(store, val);
-          else await newDb.put(store, val, key);
-          copied += 1;
+          // 🔴 부재 재확인 + put을 **같은 readwrite tx 안**에서 — 계약 5(원자성).
+          const tx = newDb.transaction(store, 'readwrite');
+          if ((await tx.store.getKey(key)) !== undefined) {
+            skipped += 1;
+          } else if (hasKeyPath) {
+            await tx.store.put(val);
+            copied += 1;
+          } else {
+            await tx.store.put(val, key);
+            copied += 1;
+          }
+          await tx.done;
         }
       }
-      // kv 설정 미러 특례 — merge가 넘겨온 구 키 레코드를 새 키로도 복제해, localStorage가
+      // kv 설정 미러 특례 — 스냅샷이 넘겨온 구 키 레코드를 새 키로도 복제해, localStorage가
       // evict된 부팅에서도 mirroredStorage 복원(새 키 조회)이 구 설정을 찾게 한다.
-      if (newDb.objectStoreNames.contains('kv')) {
-        const cur: unknown = await newDb.get('kv', NEW_SETTINGS_KEY);
-        if (cur === undefined) {
-          const legacyMirror: unknown = await newDb.get('kv', LEGACY_SETTINGS_KEY);
+      {
+        const tx = newDb.transaction('kv', 'readwrite');
+        if ((await tx.store.getKey(NEW_SETTINGS_KEY)) === undefined) {
+          const legacyMirror: unknown = await tx.store.get(LEGACY_SETTINGS_KEY);
           if (legacyMirror !== undefined) {
-            await newDb.put('kv', legacyMirror, NEW_SETTINGS_KEY);
+            await tx.store.put(legacyMirror, NEW_SETTINGS_KEY);
             copied += 1;
           }
         }
+        await tx.done;
       }
-      return `copied=${copied},skipped=${skipped}`;
+      const summary = `copied=${copied},skipped=${skipped}`;
+      // 마커는 스냅샷이 **끝까지 돈 뒤에만** — 중간 실패는 catch로 빠져 마커가 안 남고,
+      // 다음 부팅이 재시도한다(per-key 부재 검사라 이미 복사된 것은 skip).
+      await newDb.put('kv', { at: new Date().toISOString(), summary }, IDB_MARKER_KEY);
+      return summary;
     } finally {
       legacy.close();
     }
   } catch (e) {
-    // fail-open (머리주석 4번) — 부팅을 막지 않는다. 계측만 남긴다.
+    // fail-open (계약 6) — 부팅을 막지 않는다. 계측만 남긴다.
     return `error:${e instanceof Error ? e.name : 'unknown'}`;
   }
 }

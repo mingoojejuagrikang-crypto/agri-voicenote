@@ -1,6 +1,6 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import type { Session } from '../types';
-import { mergeLegacyIdb } from './namespaceMigrate';
+import { mergeLegacyIdb, shouldMigrateIdb } from './namespaceMigrate';
 
 /** [ENV-11] SSOT — 테스트는 tests/fixtures/idb.ts가 이 상수와 applyAppSchema를 재수출해 쓴다
  *  (하드코딩 금지, tests/idb-fixture.spec.ts 가드가 강제). */
@@ -67,10 +67,11 @@ function getDb() {
         dbPromise = null;
       },
     }).then(async (db) => {
-      // v0.50 개명 — 구 DB('survey-011') merge-by-absence. 🔴 resolve **전에** await한다:
-      // 뒤로 미루면 업로드 큐·세션 복원이 반쯤 복사된 DB를 읽는다(플랜 §8-4).
-      // terminated() 재오픈 시에도 다시 돈다 — merge는 멱등이라 무해(부재 키만 복사).
-      const summary = await mergeLegacyIdb(db);
+      // v0.50 개명 — 구 DB('survey-011') 1회 스냅샷 승계. 🔴 resolve **전에** await한다:
+      // 뒤로 미루면 업로드 큐·세션 복원이 반쯤 복사된 DB를 읽는다. 프리뷰 빌드는 승계하지
+      // 않는다(관찰자 — namespaceMigrate 계약 2). terminated() 재오픈은 마커 point read 1회.
+      const isPreview = typeof __PREVIEW_BUILD__ !== 'undefined' && __PREVIEW_BUILD__;
+      const summary = shouldMigrateIdb(isPreview) ? await mergeLegacyIdb(db) : null;
       if (summary) {
         // logger는 이 파일(db)을 import한다 — 정적 순환을 피해 동적 import로 계측만 남긴다.
         void import('./logger').then(({ logger }) =>

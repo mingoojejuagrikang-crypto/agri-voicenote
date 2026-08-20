@@ -1,7 +1,7 @@
 import { getAccessToken, getCurrentEmail } from './googleAuth';
 import { useSettingsStore } from '../stores/settingsStore';
 import { FILES_API, escapeDriveQ, ensureEmailSubFolder, cachedFolderIdFor } from './driveFolders';
-import { LEGACY_APP_FOLDER_NAME } from './namespaceMigrate';
+import { LEGACY_APP_FOLDER_NAME, DRIVE_ADOPTED_KEY } from './namespaceMigrate';
 import { logger } from './logger';
 
 /**
@@ -154,12 +154,12 @@ async function ensureFolder(name: string, parentId?: string, headersIn?: Record<
  *  구 이름 상수는 namespaceMigrate.ts가 SSOT다. */
 async function ensureAppFolder(headers: Record<string, string>): Promise<string> {
   const found = await findFolder(APP_FOLDER_NAME, undefined, headers);
-  if (found) return found;
+  if (found) { markDriveAdopted(); return found; }
   const legacy = await findFolder(LEGACY_APP_FOLDER_NAME, undefined, headers);
   if (legacy) {
     if (typeof __PREVIEW_BUILD__ !== 'undefined' && __PREVIEW_BUILD__) {
       logger.log({ type: 'app', extra: 'ns_drive:legacy_used_preview' });
-      return legacy;
+      return legacy; // 프리뷰는 채택하지 않는다 — 마커도 안 쓴다
     }
     const res = await fetch(`${FILES_API}/${legacy}`, {
       method: 'PATCH',
@@ -167,9 +167,26 @@ async function ensureAppFolder(headers: Record<string, string>): Promise<string>
       body: JSON.stringify({ name: APP_FOLDER_NAME }),
     });
     logger.log({ type: 'app', extra: `ns_drive:${res.ok ? 'renamed' : `rename_fail_${res.status}`}` });
-    return legacy; // rename 성공/실패 무관 — 이 ID가 그 폴더다
+    if (res.ok) markDriveAdopted(); // 실패면 마커 없이 — 다음 기회에 재시도(멱등)
+    return legacy; // rename 성공/실패 무관 — 이 ID가 그 폴더다(ID는 rename과 무관하게 불변)
   }
-  return ensureFolder(APP_FOLDER_NAME, undefined, headers);
+  const created = await ensureFolder(APP_FOLDER_NAME, undefined, headers);
+  markDriveAdopted();
+  return created;
+}
+
+/** 채택 완료 마커 — 🔴 이게 없으면 `userLogFolderCache` 히트가 ensureAppFolder를 영구
+ *  우회해서 rename이 영원히 안 일어난다(콜드 리뷰 codex #6). evict돼도 재시도는
+ *  검색 1~2회 비용뿐(멱등 — namespaceMigrate.DRIVE_ADOPTED_KEY 주석). */
+function markDriveAdopted(): void {
+  try { localStorage.setItem(DRIVE_ADOPTED_KEY, '1'); } catch { /* ignore */ }
+}
+
+/** 정식 빌드에서 아직 채택 전이면 폴더 캐시를 신뢰하지 않는다 — 캐시된 ID 자체는 rename과
+ *  무관하게 유효하지만(ID 불변), 캐시 경로는 rename 기회를 영영 안 준다. */
+function driveAdoptionPending(): boolean {
+  if (typeof __PREVIEW_BUILD__ !== 'undefined' && __PREVIEW_BUILD__) return false;
+  try { return localStorage.getItem(DRIVE_ADOPTED_KEY) !== '1'; } catch { return false; }
 }
 
 /** 사용자 Drive `agri-voicenote/log/` 폴더 ID (settingsStore 캐시 우선).
@@ -177,7 +194,7 @@ async function ensureAppFolder(headers: Record<string, string>): Promise<string>
  *  재사용되지 않는다(불일치 = 재검색). 이메일 미확인 상태면 무캐시로 진행. */
 async function ensureUserLogFolder(email: string | null, headers: Record<string, string>): Promise<string> {
   const cached = cachedFolderIdFor(useSettingsStore.getState().userLogFolderCache, email);
-  if (cached) return cached;
+  if (cached && !driveAdoptionPending()) return cached;
   const appId = await ensureAppFolder(headers);
   const logId = await ensureFolder(USER_LOG_SUBFOLDER, appId, headers);
   if (email) useSettingsStore.getState().set({ userLogFolderCache: { email, id: logId } });
