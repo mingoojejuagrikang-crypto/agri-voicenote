@@ -70,8 +70,9 @@ export default defineConfig({
       injectRegister: null,
       includeAssets: ['icon.svg', 'icon-192.svg', 'icon-512.svg', 'maskable-icon-512.svg'],
       manifest: {
-        name: 'survey-011',
-        short_name: 'survey-011',
+        // v0.50 개명 (민구 확정 08-20) — short_name은 iOS 홈화면 12자 잘림 회피로 'VoiceNote'
+        name: 'Agri VoiceNote',
+        short_name: 'VoiceNote',
         description: '음성 입력 기반 현장 측정 기록 PWA',
         lang: 'ko',
         theme_color: '#0E0F11',

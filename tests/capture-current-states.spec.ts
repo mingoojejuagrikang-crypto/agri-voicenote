@@ -72,7 +72,7 @@ test.afterAll(() => {
   if (reportLines.length === 0) return;
   fs.writeFileSync(
     path.join(PREVIEW_DIR, '_report.md'),
-    `# design-sync 프리뷰 자기검증 — survey-011 v${VERSION} (commit ${COMMIT})\n\n`
+    `# design-sync 프리뷰 자기검증 — Agri VoiceNote v${VERSION} (commit ${COMMIT})\n\n`
     // 카드 수를 헤더에 박는다 — 일부만 돌린 실행이 이 파일을 덮어써도 잘렸다는 사실이 바로 보이게.
     + `**카드 ${reportLines.length} / ${CASES.length}** · `
     + `뷰포트 ${DEVICE.width}×${DEVICE.height}. 라이브 DOM 직렬화 → self-contained HTML → 재렌더 → 지문 대조.\n`

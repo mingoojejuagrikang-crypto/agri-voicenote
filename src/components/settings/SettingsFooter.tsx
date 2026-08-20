@@ -40,7 +40,7 @@ export function SettingsFooter() {
             <span style={{ color: T.textMute, fontWeight: 500, fontSize: 12 }}>({__BUILD_DATE__})</span>
           </div>
           <div style={{ fontSize: 11, color: T.textMute, marginTop: 4 }}>
-            survey-011 · mingoo.jejuagri.kang@gmail.com
+            Agri VoiceNote · mingoo.jejuagri.kang@gmail.com
           </div>
           {/* v0.18.0 1f — 수동 업데이트 확인/새로고침. 새 버전이 대기 중이면 바로 적용, 아니면
               능동 체크만 트리거(설치형에서 새 버전 반영 경로를 사용자가 직접 호출). */}

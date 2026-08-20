@@ -219,10 +219,10 @@ export function buildPreviewHtml(meta: CardMeta, s: Serialized, fontCss: string,
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>survey-011 · ${meta.title}</title>
+<title>Agri VoiceNote · ${meta.title}</title>
 <!--
   ${meta.name} — ${meta.title}
-  근거: survey-011 v${p.version} · commit ${p.commit} · 뷰포트 ${DEVICE.width}×${DEVICE.height}(민구 실기기 실측)
+  근거: Agri VoiceNote v${p.version} · commit ${p.commit} · 뷰포트 ${DEVICE.width}×${DEVICE.height}(민구 실기기 실측)
   개선요청: ${meta.feedback}
   무엇을 보는 카드인가: ${meta.why}
   출처: 손으로 그린 목업이 아니라 **라이브 DOM 직렬화**다 — tests/capture-current-states.spec.ts

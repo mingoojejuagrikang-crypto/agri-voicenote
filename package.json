@@ -1,5 +1,5 @@
 {
-  "name": "survey-011",
+  "name": "agri-voicenote",
   "private": true,
   "version": "0.48.0",
   "type": "module",
@@ -18,7 +18,7 @@
     "deploy": "npm run build && gh-pages -d dist",
     "build:preview": "PREVIEW_BUILD=1 tsc -b && PREVIEW_BUILD=1 vite build",
     "predeploy:preview": "npm run check:release && npm run test:e2e:gate",
-    "deploy:preview": "npm run build:preview && gh-pages -d dist -r https://github.com/mingoojejuagrikang-crypto/survey-011-preview.git -b gh-pages"
+    "deploy:preview": "npm run build:preview && gh-pages -d dist -r https://github.com/mingoojejuagrikang-crypto/agri-voicenote-preview.git -b gh-pages"
   },
   "dependencies": {
     "html2canvas": "^1.4.1",

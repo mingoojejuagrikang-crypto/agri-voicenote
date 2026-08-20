@@ -1,4 +1,8 @@
-# survey-011
+# Agri VoiceNote
+
+> 📛 **2026-08-20 개명: `survey-011` → Agri VoiceNote** (민구 확정). 새 레포는
+> `agri-voicenote`이고 이 레포(`survey-011`)는 v0.48.0 정식이 퇴역할 때까지 존치된다.
+> 과거 문서·CHANGELOG의 `survey-011` 표기는 이력이므로 고치지 않는다.
 
 음성 입력 기반 현장 측정 기록 PWA. 이어폰을 끼고 양손이 자유롭지 않은 상태에서
 TTS 안내와 음성 인식만으로 측정값을 Google Sheets에 기록합니다.
