@@ -1,0 +1,56 @@
+node_modules
+dist
+.env
+.env.local
+.env.*.local
+.DS_Store
+*.log
+.vite
+.tsc-node
+*.tsbuildinfo
+coverage
+secret/
+test-results/
+playwright-report/
+# Claude Code 세션 연속 로그
+*-this-session-is-being-continued-from-a-previous-c.txt
+
+# 에이전트 운영 지침/스캐폴딩 — 로컬 전용(GitHub 앱 레포에 올리지 않음)
+# 앱과 직접 무관한 AI 팀 운영 파일(myPKA 정체성·볼트 절대경로). 로컬에는 남고 원격에는 안 올라감.
+#
+# ⚠️ AGENTS.md 는 여기 없다 — v0.39.0 문서 정리에서 **앱 전용 계약만 담은 공개 파일**로
+# 다시 만들어 git 추적한다. 레포만 클론한 에이전트(Hermes·CI·다른 컴퓨터)가 볼트 경로에
+# 접근할 수 없어 무엇을 기준으로 작업할지 알 수 없던 문제를 막기 위해서다.
+# 팀 운영용 내용은 _AGENTS-local.md 로 옮겼고, 그 파일이 로컬 전용이다.
+CLAUDE.md
+_AGENTS-local.md
+GEMINI.md
+.claude/
+.gemini/
+.cursor/
+
+# AI 로그 수확 헬퍼(서비스계정 사용, 팀 운영 도구) — 로컬 전용
+scripts/fetch-latest-growth-log.sh
+
+# 디자인 핸드오프(claude.ai/design 산출물) — 로컬 전용, 앱 커밋 제외
+design-sync/
+
+# 라운드별 리뷰 브리핑(AI 팀 운영 파일) — 로컬 전용
+REVIEW-BRIEF.md
+HANDOFF.md
+CODEX-HANDOFF.md
+
+# UI 검증 스크린샷(로컬 확인용) — 레포 커밋 제외
+fb-screenshots/
+
+# 에이전트 운영 파일(로컬 전용 — 앱과 무관, myPKA Hard rule #11)
+_BRIEF-*.md
+# 🔴 08-07 레인 P 실측: 여기에 `_ASK` 규칙이 없어서 위임 워커가 `git add -A` 하면
+#    질문 파일이 앱레포에 커밋된다. 브리핑은 "gitignore됨"이라 적었으나 사실이 아니었다.
+_ASK-*.md
+# 위임 프로브 산출물(JSON·스크린샷). test-results/ 에 두면 다른 레인의 playwright 실행이
+# 그 디렉토리를 청소해 증거가 사라진다(08-07 실측) — 그래서 이 경로가 관례가 됐다.
+_probe-out/
+_GL-006.md
+_reference-ui.html
+_codex-tasks/
