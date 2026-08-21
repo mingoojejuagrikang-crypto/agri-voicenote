@@ -1,19 +1,22 @@
 # Agri VoiceNote
 
-> 📛 **2026-08-20 개명: `survey-011` → Agri VoiceNote** (민구 확정). 새 레포는
-> `agri-voicenote`이고 이 레포(`survey-011`)는 v0.48.0 정식이 퇴역할 때까지 존치된다.
-> 과거 문서·CHANGELOG의 `survey-011` 표기는 이력이므로 고치지 않는다.
+> 📛 **2026-08-20 개명: `survey-011` → Agri VoiceNote** (민구 확정). 정본 저장소는
+> `agri-voicenote`다. 구 저장소(`survey-011`)와 구 배포(`…/survey-011/` v0.48.0)는 구 설치본
+> 퇴역까지 존치된다. 과거 문서·CHANGELOG의 `survey-011` 표기는 이력이므로 고치지 않는다.
 
 음성 입력 기반 현장 측정 기록 PWA. 이어폰을 끼고 양손이 자유롭지 않은 상태에서
 TTS 안내와 음성 인식만으로 측정값을 Google Sheets에 기록합니다.
 
 ## 📱 접속 링크 (바로 사용)
 
-> **👉 https://mingoojejuagrikang-crypto.github.io/survey-011/**
+> **👉 https://mingoojejuagrikang-crypto.github.io/agri-voicenote/**
+>
+> 🔴 **구 앱에서 갈아타는 순서:** ① 구 앱을 마지막으로 한 번 열어 미업로드분을 올린다
+> ② 위 새 주소를 설치한다(첫 실행 때 데이터가 자동으로 넘어온다) ③ 구 앱은 더 안 쓴다.
 >
 > - 스마트폰·태블릿 **Chrome**으로 위 주소에 접속하세요.
 > - 메뉴 → **홈 화면에 추가**를 누르면 앱처럼 설치됩니다.
-> - **현재 버전: v0.48.0**
+> - **현재 버전: v0.50.0**
 
 ## 지원 환경
 
