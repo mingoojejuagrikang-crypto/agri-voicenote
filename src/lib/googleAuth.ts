@@ -13,7 +13,7 @@
  */
 
 import { logger } from './logger';
-import { clearConnection, upsertConnection } from './googleConnection';
+import { clearConnection, isLinkedAccount, upsertConnection } from './googleConnection';
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
 const SCOPE = [
@@ -455,6 +455,14 @@ export async function ensureAccessToken(opts?: { force?: boolean }): Promise<boo
  *    복구 경로 `onTokenSettled`에 맡긴다). */
 export function refreshBeforeSessionStart(): Promise<void> | null {
   if (getStoredToken()) return null;
+  // 🔴 v0.51 r1 [F-1 / 리뷰 H-1] — **연결한 적 없는 사용자에게는 갱신을 시도하지 않는다.**
+  //    판정이 「토큰 유무」 하나였던 탓에, 명시적으로 연결을 해제한 사용자와 한 번도 로그인한 적
+  //    없는 사용자(수동입력·폴백 알람만 쓰는 운용)에게도 세션 시작마다 팝업이 열렸다.
+  //    해제 경로는 revoke를 거치므로 그 팝업은 무팝업이 아니라 **동의 화면**이고, 승인하면
+  //    `upsertConnection`이 4주 창을 **되살린다** — §2-5의 「명시적 해제 = 최상위 의사」와 충돌.
+  //    계획서 §2-6의 P2 전제(*"앱 열고 동기화 없이 바로 세션을 시작하면 토큰이 없어서"*)는
+  //    **이미 연결된 사용자**를 상정한 문장이라 이 가드는 계약을 좁히지 않는다.
+  if (!isLinkedAccount()) return null;
   return ensureAccessToken().then(() => undefined, () => undefined);
 }
 

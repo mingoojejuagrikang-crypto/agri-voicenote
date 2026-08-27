@@ -73,18 +73,26 @@ async function installOrderProbe(page: Page) {
   });
 }
 
-/** 토큰 **없이**(만료 시뮬) 입력탭까지 부팅. 설정은 activeZones 픽스처(테이블 생성 완료 상태). */
-async function bootVoiceNoToken(page: Page) {
+/** 토큰 **없이**(만료 시뮬) 입력탭까지 부팅. 설정은 activeZones 픽스처(테이블 생성 완료 상태).
+ *  `linked:false`면 **연결한 적 없는 사용자**를 재현한다(googleConnected:false + 연결 기록 없음) —
+ *  v0.51 r1 [F-1] 가드의 대상. */
+async function bootVoiceNoToken(page: Page, opts?: { linked?: boolean }) {
   // 🔴 순서가 중요하다 — 픽스처가 `getUserMedia`를 **덮어쓰므로** 프로브를 그 뒤에 깔아야
   //    감싸기가 살아남는다(반대로 깔면 계측이 조용히 사라져 'gum'이 0건이 된다).
   await page.addInitScript(MOCK_INIT_SCRIPT);
   await installOrderProbe(page);
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(({ settings, key }) => {
+  await page.evaluate(({ settings, key, linked, twoHoursAgo }) => {
     localStorage.clear();
     // gs10_google_token은 일부러 심지 않는다 — 「토큰 만료 상태로 세션을 시작한다」가 주제다.
-    localStorage.setItem(key, JSON.stringify(settings));
-  }, { settings: SETTINGS, key: STORE_KEY });
+    // linked: **연결된 사용자 + 토큰만 만료** = 살아 있는 4주 창을 명시적으로 심는다(2시간 전 사용).
+    //   픽스처 version이 현재(13)라 마이그레이션 승계가 돌지 않으므로 여기서 직접 세운다.
+    //   안 세우면 설정탭 마운트가 창 만료로 판정해 강등하고, F-1 가드가 갱신을 막아 P2 자체가 안 돈다.
+    const payload = linked
+      ? { ...settings, state: { ...settings.state, googleConnection: { email: 'tester@example.com', connectedAt: twoHoursAgo, lastUsedAt: twoHoursAgo } } }
+      : { ...settings, state: { ...settings.state, googleConnected: false, userEmail: null, googleConnection: null } };
+    localStorage.setItem(key, JSON.stringify(payload));
+  }, { settings: SETTINGS, key: STORE_KEY, linked: opts?.linked !== false, twoHoursAgo: Date.now() - 2 * 60 * 60 * 1000 });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(400);
   await page.locator('[data-testid="tab-voice"]').click();
@@ -156,4 +164,26 @@ test('P2: 유효 토큰이면 갱신을 아예 시도하지 않는다(공통 경
   const seq = await order(page);
   expect(seq, '유효 토큰인데 팝업을 열었다 — 매 세션 시작이 1~2초 느려진다').not.toContain('signin');
   expect(seq).toContain('gum');
+});
+
+// ─── v0.51 r1 [F-1 / 리뷰 H-1] — 연결한 적 없는 사용자에게는 갱신을 시도하지 않는다 ──────────
+// 판정이 「토큰 유무」 하나였던 탓에, 명시적으로 연결을 해제한 사용자(§2-5 「최상위 의사」)와
+// 한 번도 로그인한 적 없는 사용자(수동입력·폴백 알람만 쓰는 운용)에게도 세션 시작마다 팝업이
+// 열렸다. 해제는 revoke를 거치므로 그 팝업은 무팝업이 아니라 **동의 화면**이고, 승인하면
+// `upsertConnection`이 4주 창을 **되살린다**.
+// 반증 축: `refreshBeforeSessionStart`의 연결 가드를 지우면 `signin`이 기록되어 red.
+test('F-1: 미연결 사용자(googleConnected:false·기록 없음)는 세션 시작에서 GIS를 건드리지 않는다', async ({ page }) => {
+  await bootVoiceNoToken(page, { linked: false });
+
+  await startSession(page);
+
+  const seq = await order(page);
+  expect(seq, '연결한 적 없는 사용자에게 로그인 팝업이 열렸다').not.toContain('signin');
+  expect(seq, '마이크는 정상적으로 잡아야 한다 — 세션 자체는 막지 않는다').toContain('gum');
+  // 창이 되살아나지 않았다(§2-5 「명시적 해제 = 최상위 의사」).
+  const conn = await page.evaluate((key) => {
+    const raw = JSON.parse(localStorage.getItem(key) ?? 'null') as { state?: { googleConnection?: unknown } } | null;
+    return raw?.state?.googleConnection ?? null;
+  }, STORE_KEY);
+  expect(conn, '미연결 사용자에게 4주 창이 생겼다').toBeNull();
 });

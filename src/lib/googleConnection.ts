@@ -71,6 +71,18 @@ export function isConnectionAlive(now: number = Date.now()): boolean {
   return isConnectionAliveAt(getConnection(), now);
 }
 
+/** v0.51 r1 [F-1] — **「이 사용자는 계정을 연결한 적이 있는가」.**
+ *  제스처 안 선제 갱신(P2 세션 시작)이 물어야 하는 질문이다. 「토큰이 없다」만 보고 갱신하면
+ *  **명시적으로 연결을 해제한 사용자**와 **한 번도 로그인한 적 없는 사용자**에게도 세션 시작
+ *  버튼마다 GIS 팝업이 열린다 — 게다가 해제는 `revoke`를 거쳤으므로 `prompt:''`가 무팝업이 아니라
+ *  **전체 동의 화면**이 되고, 승인해 버리면 방금 끊은 계정으로 4주 창이 **되살아난다**(§2-5의
+ *  「명시적 해제 = 최상위 의사」와 정면 충돌).
+ *  창(`isConnectionAlive`)과 스토어 플래그(`googleConnected`)를 **둘 다** 본다: 창 기록만 유실된
+ *  기기(eviction [AUTH-8])에서도 연결된 사용자의 갱신 경로는 살아 있어야 한다. */
+export function isLinkedAccount(now: number = Date.now()): boolean {
+  return isConnectionAlive(now) || useSettingsStore.getState().googleConnected;
+}
+
 /** 남은 일수(내림). 계측 문자열용 — 판정에 쓰지 마라(판정은 isConnectionAlive 하나). */
 export function connectionDaysLeft(rec: GoogleConnection | null, now: number = Date.now()): number {
   if (!rec) return 0;
