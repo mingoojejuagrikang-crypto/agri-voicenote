@@ -97,9 +97,10 @@ test('F-14ⓑ: 버려진 세대의 지각 콜백은 새 flight를 settle하지 �
   await boot(page);
 
   const out = await page.evaluate(async () => {
-    const auth = await import('/src/lib/googleAuth.ts');
+    // v0.51 r4 — 갱신 정책층은 `googleAuthRefresh`로 갈렸다(경계: 정책 / flight 기계).
+    const refresh = await import('/src/lib/googleAuthRefresh.ts');
     const w = window as unknown as { __ensure?: Promise<boolean>; __b?: Promise<{ token: string }> };
-    w.__ensure = auth.ensureAccessToken();        // flight A (silent, 클라이언트 세대 0)
+    w.__ensure = refresh.ensureAccessToken();        // flight A (silent, 클라이언트 세대 0)
     // @ts-expect-error 테스트 전용 계측
     return (window.__issued as () => number)();
   });
@@ -187,9 +188,11 @@ test('F-17: silent flight에 user가 합류하면 origin이 승격돼 12초 정�
   await boot(page);
 
   await page.evaluate(async () => {
+    // v0.51 r4 — 갱신 정책층은 `googleAuthRefresh`로 갈렸다(경계: 정책 / flight 기계).
     const auth = await import('/src/lib/googleAuth.ts');
+    const refresh = await import('/src/lib/googleAuthRefresh.ts');
     const w = window as unknown as { __s?: Promise<boolean>; __u?: Promise<{ token: string }> };
-    w.__s = auth.ensureAccessToken();   // silent 선두
+    w.__s = refresh.ensureAccessToken();   // silent 선두
     w.__u = auth.signIn('user');        // 사람이 합류 → 승격
   });
 

@@ -184,8 +184,9 @@ test('F-2: silent 12초 상한 뒤 사람의 재클릭은 **새 flight로 팝업
   // ⚠️ 가상 시계 아래에서는 `setTimeout`이 스스로 돌지 않는다 — 대기를 넣지 않는다.
   //    `signIn()`은 warmup된 클라이언트에서 `requestAccessToken`을 **동기로** 부르므로 즉시 센다.
   const started = await page.evaluate(async () => {
-    const auth = await import('/src/lib/googleAuth.ts');
-    (window as unknown as { __ensure?: Promise<boolean> }).__ensure = auth.ensureAccessToken();
+    // v0.51 r4 — 갱신 정책층은 `googleAuthRefresh`로 갈렸다(경계: 정책 / flight 기계).
+    const refresh = await import('/src/lib/googleAuthRefresh.ts');
+    (window as unknown as { __ensure?: Promise<boolean> }).__ensure = refresh.ensureAccessToken();
     // @ts-expect-error 테스트 전용 계측
     return (window.__gisIssuedCount as () => number)();
   });
@@ -231,13 +232,14 @@ test('F-4: 제스처 밖이어도 force 갱신은 시도된다(가드 면제) ·
   await bootClean(page, { linked: true });
 
   const out = await page.evaluate(async () => {
-    const auth = await import('/src/lib/googleAuth.ts');
+    // v0.51 r4 — 갱신 정책층은 `googleAuthRefresh`로 갈렸다(경계: 정책 / flight 기계).
+    const refresh = await import('/src/lib/googleAuthRefresh.ts');
     const { logger } = await import('/src/lib/logger.ts');
     logger.clear();
-    const plain = await auth.ensureAccessToken();
+    const plain = await refresh.ensureAccessToken();
     // @ts-expect-error 테스트 전용 계측
     const afterPlain = (window.__gisIssuedCount as () => number)();
-    const forced = await auth.ensureAccessToken({ force: true });
+    const forced = await refresh.ensureAccessToken({ force: true });
     // @ts-expect-error 테스트 전용 계측
     const afterForced = (window.__gisIssuedCount as () => number)();
     return {
@@ -267,10 +269,11 @@ test('F-13 대칭: 창이 죽었으면 force 갱신도 시도하지 않는다(�
   await bootClean(page); // 연결 기록 없음 = 창 없음
 
   const out = await page.evaluate(async () => {
-    const auth = await import('/src/lib/googleAuth.ts');
+    // v0.51 r4 — 갱신 정책층은 `googleAuthRefresh`로 갈렸다(경계: 정책 / flight 기계).
+    const refresh = await import('/src/lib/googleAuthRefresh.ts');
     const { logger } = await import('/src/lib/logger.ts');
     logger.clear();
-    const forced = await auth.ensureAccessToken({ force: true });
+    const forced = await refresh.ensureAccessToken({ force: true });
     return {
       forced,
       // @ts-expect-error 테스트 전용 계측

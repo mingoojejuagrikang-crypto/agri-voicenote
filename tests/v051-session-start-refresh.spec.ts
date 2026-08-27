@@ -170,8 +170,9 @@ test('P2: 유효 토큰이면 갱신을 아예 시도하지 않는다(공통 경
   //    `getUserMedia`가 클릭의 **동기 구간**에 남느냐다(마이크로태스크 하나도 끼우면 안 된다,
   //    [IOS-5]). 모듈을 직접 불러 반환값 자체를 문다.
   const returned = await page.evaluate(async () => {
-    const auth = await import('/src/lib/googleAuth.ts');
-    return auth.refreshBeforeSessionStart();
+    // v0.51 r4 — 갱신 정책층은 `googleAuthRefresh`로 갈렸다(경계: 정책 / flight 기계).
+    const refresh = await import('/src/lib/googleAuthRefresh.ts');
+    return refresh.refreshBeforeSessionStart();
   });
   expect(returned, '🔴 유효 토큰인데 Promise를 돌려줬다 — 호출부가 await하게 되어 gUM이 제스처 밖으로 밀린다')
     .toBeNull();
