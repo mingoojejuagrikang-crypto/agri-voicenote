@@ -86,11 +86,11 @@ export function touchConnection(now: number = Date.now()): void {
   if (!rec) return;
   if (!isConnectionAliveAt(rec, now)) return;
   if (now - rec.lastUsedAt < TOUCH_THROTTLE_MS) return;
+  // 🔑 계측은 **연장 직전 남은 일수**다. 연장 후 값을 실으면 항상 28이라 정보가 0이 된다 —
+  //    알고 싶은 것은 "사용자가 만료에 얼마나 가까워졌다가 돌아왔나"(창 길이 튜닝의 근거)다.
+  const leftBefore = connectionDaysLeft(rec, now);
   useSettingsStore.getState().set({ googleConnection: { ...rec, lastUsedAt: now } });
-  logger.log({
-    type: 'app',
-    extra: `auth_connection_touch:days=${connectionDaysLeft({ ...rec, lastUsedAt: now }, now)}`,
-  });
+  logger.log({ type: 'app', extra: `auth_connection_touch:left=${leftBefore}` });
 }
 
 /** 토큰이 실제로 확정된 순간(googleAuth 콜백의 `storeToken` 직후) 연결 기록을 세우거나 갱신한다.
