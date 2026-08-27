@@ -41,6 +41,7 @@ import { buildAnomalyAlert } from './anomalyAlert';
 import { readonlySheetsAuth } from './sheets';
 import { withoutPendingCandidate } from './pendingValidation';
 import { isSheetSourceBlocked, sessionTargetFromSettings } from './sheetConnection';
+import { refreshBeforeSessionStart } from './googleAuth'; // v0.51 [rauth P2] — 세션 시작 선제 갱신
 import { ensureUniqueSessionLabel } from './sessionLabel';
 // [ENV-12] Stage 3 — 클립 캡처·보존 장부는 useClipCapture가 소유한다(이 파일은 호출만).
 import { useClipCapture, type PendingCommandClip } from './useClipCapture';
@@ -2463,6 +2464,10 @@ export function useVoiceSession() {
     if (startingRef.current) return false; // 정착 대기 중 재클릭 → 이중 세션 시작 차단
     startingRef.current = true;
     try {
+      // v0.51 [rauth P2] — 마이크 획득 **이전**, 이 클릭의 제스처 안에서 토큰을 선제 갱신한다.
+      // 계약·근거는 googleAuth.refreshBeforeSessionStart 주석(유효 토큰이면 null → await 0회).
+      const preRefresh = refreshBeforeSessionStart();
+      if (preRefresh) await preRefresh;
       if (!recorderRef.current) recorderRef.current = new AudioRecorder();
       prog(1, '마이크 권한을 확인하는 중…');
       const granted = await recorderRef.current.init().catch(() => false);
