@@ -225,7 +225,10 @@ test('F-4: 제스처 밖이어도 force 갱신은 시도된다(가드 면제) ·
       value: { isActive: false, hasBeenActive: true }, configurable: true,
     });
   });
-  await bootClean(page);
+  // 🔴 v0.51 r3 재정합 — 이 테스트가 재는 것은 **제스처 가드**의 면제다. r3 [F-13]이 그와 **별개
+  //    축**으로 「창이 죽었으면 자동 갱신 없음」 게이트를 세웠고 그건 force에도 걸리므로, 여기서는
+  //    살아 있는 창을 심어 두 축을 분리한다(창 게이트 자체는 아래 대칭 테스트가 잰다).
+  await bootClean(page, { linked: true });
 
   const out = await page.evaluate(async () => {
     const auth = await import('/src/lib/googleAuth.ts');
@@ -251,4 +254,32 @@ test('F-4: 제스처 밖이어도 force 갱신은 시도된다(가드 면제) ·
   expect(out.forced, '제스처 밖 force가 갱신을 포기했다 — v0.50 자동 재시도가 상시 no-op이 된다').toBe(true);
   expect(out.afterForced, 'force가 팝업(=requestAccessToken)을 시도하지 않았다').toBe(1);
   expect(out.extras).toContain('auth_ensure:refreshed:forced');
+});
+
+
+// ─── v0.51 r3 [F-13] 대칭 — 창이 죽으면 `force`도 갱신하지 않는다 ────────────────────────────
+// 위 F-4는 「제스처 가드는 force를 면제한다」를 잰다. 그것과 **다른 축**으로, r3은 「연결창이
+// 죽었으면 어떤 자동 경로도 갱신하지 않는다」를 세웠다 — force도 예외가 아니다(실측: 창이 죽은
+// 채 동기화를 누르면 업로드 인증 오류 → force → `prompt:''`가 토큰을 받아 창이 되살아났다).
+// 반증 축: `ensureAccessToken`의 연결 게이트에서 force를 면제하면 red.
+test('F-13 대칭: 창이 죽었으면 force 갱신도 시도하지 않는다(제스처 면제와 다른 축)', async ({ page }) => {
+  await installAsyncGisMock(page, 50);
+  await bootClean(page); // 연결 기록 없음 = 창 없음
+
+  const out = await page.evaluate(async () => {
+    const auth = await import('/src/lib/googleAuth.ts');
+    const { logger } = await import('/src/lib/logger.ts');
+    logger.clear();
+    const forced = await auth.ensureAccessToken({ force: true });
+    return {
+      forced,
+      // @ts-expect-error 테스트 전용 계측
+      requests: (window.__gisIssuedCount as () => number)(),
+      extras: logger.getAll().map((e) => e.extra).filter((x): x is string => typeof x === 'string'),
+    };
+  });
+
+  expect(out.forced).toBe(false);
+  expect(out.requests, '🔴 죽은 창에서 force가 팝업을 열었다 — 4주 만료가 표시용으로 전락한다').toBe(0);
+  expect(out.extras).toContain('auth_ensure:skipped:no_connection:forced');
 });
