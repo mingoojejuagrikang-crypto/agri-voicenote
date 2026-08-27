@@ -294,6 +294,11 @@ test('F-3: 세션 live 중 동기화 확정 — 선제 갱신을 하지 않는�
     expect(skipAt, '🔴 선제 갱신이 가드보다 먼저 팝업을 열었다 — 녹음 중 백그라운드 전환 조건')
       .toBeLessThan(firstSignIn);
   }
+  // 🔴 v0.51 **r2**가 그 잔존을 닫았다 — 업로드 직전 `ensureAccessToken`과 `withAuthRetry`의
+  //    force 재시도에도 같은 세션 가드가 걸렸으므로, 이제 세션 중에는 **어떤 경로로도** 팝업이
+  //    열리지 않는다. r1에서 「불가능」이라 적었던 그 단언을 여기서 세운다.
+  expect(extras.filter((x) => x === 'auth_signin_start').length,
+    '🔴 세션 중인데 어딘가에서 GIS 팝업이 열렸다 — 녹음 무결성 계약 위반').toBe(0);
   // 종전 경로로 수렴한다 — 재로그인 모달이 "다음 행동"을 맡는다(모달 클릭은 사용자 명시 의사).
   await expect(page.locator('[role="dialog"][aria-labelledby="login-required-title"]')).toBeVisible();
 });
