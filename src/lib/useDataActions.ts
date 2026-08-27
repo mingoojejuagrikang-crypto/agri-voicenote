@@ -341,6 +341,21 @@ export function useDataActions() {
     }
   };
   const handleSyncConfirm = async (ids: string[], autoDelete: boolean) => {
+    // ── 🔴 v0.51 rauth P1 — **선제 갱신을 제스처 안으로 옮긴다. 이 줄이 첫 줄이어야 한다.** ──
+    //
+    // 종전에는 `runSyncInner`가 `await syncSelected(...)`(시트 왕복 전체)를 끝낸 **뒤에**
+    // `ensureAccessToken()`을 불렀다 — 그 시점엔 클릭의 transient activation이 이미 소진돼
+    // 무팝업 갱신이 브라우저에 막힌다. 2026-08-19 실측이 그 모양이었다: 로그 백업 5회 중 4회가
+    // 첫 시도에 401/403으로 죽고, **사용자가 로그인 버튼을 눌러야**(=새 제스처) 갱신됐다.
+    //
+    // 만료 임박 판정(`getStoredToken()`)은 **동기**라 여기서 그대로 할 수 있고, `signIn()`도
+    // 팝업을 동기적으로 연다(warmup 전제). 그래서 이 한 줄이 클릭의 동기 구간 안에 머문다.
+    // 아래 `runSyncInner`의 업로드 직전 `ensureAccessToken()`은 **확인 전용**으로 남는다
+    // (`auth_ensure:hit`) — 이 갱신이 이미 성공했으면 거기선 아무 일도 일어나지 않는다.
+    //
+    // ⚠️ `await`는 여기서 하지 않는다 — 제스처의 동기 구간을 끊지 않기 위해 **시작만** 하고,
+    //    실제 대기는 아래 `runConfirmedSync` 직전에 한다(그 사이 코드는 순수 로컬 판정이다).
+    const preRefresh = ensureAccessToken();
     setSyncModalOpen(false);
     const syncIds = excludeInProgress(ids);
     const sessions = useDataStore.getState().sessions.filter((s) => syncIds.includes(s.id));
@@ -357,6 +372,9 @@ export function useDataActions() {
       );
       if (prompt) { setLegacySyncPrompt(prompt); return; }
     }
+    // P1의 대기 지점. `ensureAccessToken`은 throw하지 않으므로(계약) 결과 boolean은 버려도 된다 —
+    // 실패했으면 종전 실패 경로(needsLogin → 재로그인 배너)가 그대로 받는다.
+    await preRefresh;
     await runConfirmedSync(ids, autoDelete);
   };
   /** 대기열의 **한 세션**에 대한 답을 확정한다. 남은 세션이 있으면 다음 세션을 이어서 묻고,

@@ -7,6 +7,12 @@
  *   ② 사유 메시지가 화면 배너에 항상 표면화(report.ok===0 "메시지 없음" 버그 방지).
  *   ③ 모달 [로그인] → 재로그인(여기선 GIS mock) 성공 → 같은 동기화가 이어져 시트에 append.
  *
+ * 🔴 **v0.51 재정합** — rauth P1(제스처 안 선제 갱신)이 들어오면서 ①②③의 **전제**가 바뀌었다.
+ * 토큰이 만료된 채 동기화를 눌러도 이제는 클릭의 동기 구간에서 무팝업 갱신이 서고, 그게 성공하면
+ * **로그인 모달은 뜨지 않는다** — 그것이 이 회차의 목적(「매시간 로그인 풀림」 해소)이다.
+ * 그래서 ①③은 「**갱신이 실패한 국면**의 폴백 계약」으로 재서술했고(`setSilentRefresh(false)`),
+ * 「갱신이 되면 모달 없이 첫 시도에 성공한다」는 새 계약을 맨 아래 P1 오라클이 맡는다.
+ *
  * GIS(google.accounts.oauth2)를 mock해 signIn()이 토큰을 발급하도록 한다(실 네트워크/팝업 없음).
  * Sheets API는 sync-skip-rows 패턴으로 page.route stub.
  *
@@ -93,13 +99,25 @@ async function installGisMock(page: Page) {
   await page.route('**://www.googleapis.com/oauth2/v3/userinfo', async (route) => {
     await route.fulfill({ json: { email: 'tester@example.com' } });
   });
+  // 🔴 v0.51 P1 재정합 — 갱신 성공/실패를 **런타임에 뒤집을 수 있어야** 한다.
+  //   P1(제스처 안 선제 갱신)이 들어오면서 「토큰 만료 상태로 동기화를 누른다」의 기본 결과가
+  //   바뀌었다: 무팝업 갱신이 되면 그 자리에서 성공하고 **로그인 모달은 뜨지 않는다**(그게 이
+  //   회차의 목적이다). 모달 경로는 이제 **갱신이 실패했을 때의 폴백**이므로, 그 계약을 재려면
+  //   갱신을 한 번 실패시켰다가 모달의 [로그인] 클릭에서 성공시켜야 한다.
   await page.addInitScript(() => {
+    // @ts-expect-error 테스트 전용 스위치(기본 성공)
+    window.__gisFail = false;
     // @ts-expect-error 테스트 전용 전역 mock
     window.google = {
       accounts: {
         oauth2: {
-          initTokenClient: (config: { callback: (r: unknown) => void }) => ({
+          initTokenClient: (config: {
+            callback: (r: unknown) => void;
+            error_callback?: (e: { type: string }) => void;
+          }) => ({
             requestAccessToken: () => {
+              // @ts-expect-error 테스트 전용 스위치
+              if (window.__gisFail) { config.error_callback?.({ type: 'popup_failed_to_open' }); return; }
               // 클릭 제스처 안에서 동기적으로 토큰 콜백 — 실 GIS 팝업 흐름을 모사.
               config.callback({ access_token: 'fresh-token-after-relogin', expires_in: 3600, scope: '', token_type: 'Bearer' });
             },
@@ -108,6 +126,24 @@ async function installGisMock(page: Page) {
         },
       },
     };
+  });
+}
+
+/** 무팝업 갱신의 성공/실패를 뒤집는다(위 mock의 `__gisFail`). */
+async function setSilentRefresh(page: Page, ok: boolean) {
+  // @ts-expect-error 테스트 전용 스위치
+  await page.evaluate((fail) => { window.__gisFail = fail; }, !ok);
+}
+
+/** 앱 로그에서 인증·업로드 이벤트만 순서대로 뽑는다(P1의 **순서** 단언용). */
+async function readOrderedLog(page: Page): Promise<string[]> {
+  return page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    return logger
+      .getAll()
+      .map((e) => e.extra)
+      .filter((x): x is string =>
+        typeof x === 'string' && (x.startsWith('auth_ensure') || x.startsWith('drive_upload')));
   });
 }
 
@@ -145,10 +181,12 @@ async function openSyncAndConfirm(page: Page) {
   await page.waitForTimeout(500);
 }
 
-test('토큰 만료: 동기화 시 ① 로그인 팝업 노출 ② 사유 메시지 표면화', async ({ page }) => {
+test('토큰 만료 + 무팝업 갱신 실패: 동기화 시 ① 로그인 팝업 노출 ② 사유 메시지 표면화', async ({ page }) => {
   await installGisMock(page);
   await stubSheets(page);
   await seedNoToken(page, makeSession());
+  // v0.51 — 갱신이 **실패했을 때**의 폴백 계약이다(P1이 성공하면 모달은 애초에 뜨지 않는다).
+  await setSilentRefresh(page, false);
 
   await openSyncAndConfirm(page);
 
@@ -166,6 +204,7 @@ test('토큰 만료: ③ 모달 [로그인] → 재로그인 → 같은 동기�
   await installGisMock(page);
   const calls = await stubSheets(page);
   await seedNoToken(page, makeSession());
+  await setSilentRefresh(page, false); // P1 선제 갱신 실패 → 모달 경로 진입
 
   await openSyncAndConfirm(page);
 
@@ -175,6 +214,7 @@ test('토큰 만료: ③ 모달 [로그인] → 재로그인 → 같은 동기�
   // 모달 [로그인] 클릭 → GIS mock이 토큰 발급 → resume이 동기화를 이어 실행.
   const modal = page.locator('[role="dialog"][aria-labelledby="login-required-title"]');
   await expect(modal).toBeVisible();
+  await setSilentRefresh(page, true); // 사용자가 다시 시도하는 국면 — 이번엔 갱신이 된다
   await modal.locator('button:has-text("로그인")').click();
 
   // 모달 닫힘(재로그인 성공 → resume) — signIn은 fetchEmail(stub)까지 await하므로 넉넉히 대기.
@@ -187,4 +227,31 @@ test('토큰 만료: ③ 모달 [로그인] → 재로그인 → 같은 동기�
 
   // 성공 메시지(행 추가/갱신) 배너 표면화(✓ 접두 = 성공 배너, 액션바 버튼과 구별).
   await expect(page.locator('text=행 추가').first()).toBeVisible();
+});
+
+// ─── v0.51 rauth P1 오라클 — 선제 갱신이 **제스처 안에서** 먼저 선다 ────────────────────────
+// 2026-08-19 실측의 실패 모양은 `drive_upload:partial:fail=…` **다음에** 인증 이벤트가 오는
+// 것이었다(만료된 토큰으로 업로드를 시작 → 사용자가 로그인 버튼을 눌러야 갱신). P1은 그 순서를
+// 뒤집는다. 반증 축: 갱신을 종전처럼 업로드 직전으로 되돌리면 refreshed가 drive_upload보다
+// **뒤로** 가거나 아예 `auth_ensure:skipped:no_gesture`가 되어 red.
+test('P1: 만료 임박 상태에서 동기화 클릭 — auth_ensure:refreshed가 drive_upload보다 선행하고 모달이 없다', async ({ page }) => {
+  await installGisMock(page);
+  const calls = await stubSheets(page);
+  await seedNoToken(page, makeSession());
+  await setSilentRefresh(page, true); // 무팝업 갱신이 되는 정상 국면
+
+  await openSyncAndConfirm(page);
+  await page.waitForTimeout(800);
+
+  const log = await readOrderedLog(page);
+  const refreshedAt = log.findIndex((x) => x.startsWith('auth_ensure:refreshed'));
+  const uploadAt = log.findIndex((x) => x.startsWith('drive_upload'));
+  expect(refreshedAt, '선제 갱신이 아예 안 일어났다 — 제스처 밖으로 밀렸다').toBeGreaterThanOrEqual(0);
+  expect(uploadAt, '업로드 계측이 없다 — 이 오라클의 전제가 깨졌다').toBeGreaterThanOrEqual(0);
+  expect(refreshedAt, 'refreshed가 drive_upload보다 뒤에 왔다 — 2026-08-19 그 순서 그대로다')
+    .toBeLessThan(uploadAt);
+  // 갱신이 됐으므로 재로그인 모달은 뜨지 않는다(= 매시간 풀림 UX의 종결점).
+  await expect(page.locator('[role="dialog"][aria-labelledby="login-required-title"]')).toBeHidden();
+  // 그리고 시트 append가 첫 시도에 난다.
+  expect(calls.filter((c) => c.url.includes(':append')).length).toBeGreaterThanOrEqual(1);
 });

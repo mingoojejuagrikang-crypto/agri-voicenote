@@ -141,6 +141,42 @@ let pending: {
 // 이론상 한계가 남는다(그 잔여 케이스는 아래 late-success 재조정 경로가 커버한다).
 const SIGNIN_TIMEOUT_MS = 120_000;
 
+/** v0.51 rauth P1ⓓ② — **무팝업(silent) 갱신 전용 짧은 타임아웃.**
+ *  `SIGNIN_TIMEOUT_MS`(120초)는 실제 2FA 흐름(관측 ~60초)을 담기 위한 상한이고, 그동안 사용자는
+ *  로그인 창을 보며 기다린다. 반면 `prompt: ''` 무팝업 갱신에는 2FA가 개입하지 않는다
+ *  (rauth §2-6 실측: 15회 중 13회 ≤2초). 그런데 갱신이 120초를 상속하면 콜백 wedge 한 번에
+ *  **동기화가 2분 멈춘다** — 사용자에겐 아무 설명 없는 정지다. 여기서 끊고 종전 실패 경로
+ *  (재로그인 배너)로 넘긴다. 늦게 도착한 성공 콜백은 `notifyTokenSettled`가 여전히 받아
+ *  화면을 재조정하므로(v0.29.0 계약) 끊는 대가는 "이번 회차를 기다리지 않는다"뿐이다.
+ *  🔴 `signIn()`의 내부 타이머는 손대지 않는다 — 합류(single-flight)로 설정탭 로그인과 같은
+ *  promise를 공유할 수 있어서, 내부 타이머를 줄이면 **사람이 2FA 중인 로그인까지 끊긴다.** */
+const SILENT_REFRESH_TIMEOUT_MS = 12_000;
+
+/** 지금 이 콜스택이 **사용자 제스처의 유효 창 안**인가.
+ *  ⚠️ API 미지원 브라우저(구형 WebKit 등)에서는 **막지 않는다** — 이 가드의 목적은 헛된 팝업
+ *  시도를 거르는 것이지 갱신 자체를 봉인하는 것이 아니다. 미지원인데 false를 돌려주면
+ *  그 브라우저에선 무팝업 갱신이 통째로 죽는다. */
+function hasTransientActivation(): boolean {
+  const ua = (navigator as Navigator & { userActivation?: { isActive?: boolean } }).userActivation;
+  if (!ua || typeof ua.isActive !== 'boolean') return true;
+  return ua.isActive;
+}
+
+/** silent 갱신 경로에만 씌우는 상한(위 상수 주석). 타임아웃 사유를 이름으로 구분해 로그에 싣는다. */
+function withSilentTimeout<T>(p: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const e = new Error('무팝업 갱신 응답이 지연되었습니다.');
+      e.name = 'SilentRefreshTimeout';
+      reject(e);
+    }, SILENT_REFRESH_TIMEOUT_MS);
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e as Error); },
+    );
+  });
+}
+
 // 마지막 sign-in 시작 시각. pending이 (타임아웃으로) 비워진 뒤 지각 콜백이 도착해도 실제 소요ms를
 // 산출해 auth_token_settled에 싣기 위함 — standalone 콜백 wedge가 "영구 미발화"인지 "지각 발화"인지
 // 다음 실기기 로그로 판별하는 핵심 신호.
@@ -368,8 +404,21 @@ export async function ensureAccessToken(opts?: { force?: boolean }): Promise<boo
     logger.log({ type: 'app', extra: 'auth_ensure:hit' });
     return true;
   }
+  // ── v0.51 rauth P1ⓑ — **제스처 밖이면 시도 자체를 하지 않는다.** ───────────────────────
+  // `signIn()`은 팝업을 여는데, 제스처가 소진된 뒤의 팝업은 브라우저가 막는다
+  // (`popup_failed_to_open`). 그 시도는 실패할 뿐 아니라 **비싸다**: 무팝업 wedge면 타임아웃까지
+  // 붙잡고, 그동안 호출부(업로드 루프)가 멈춘다. 즉시 false를 돌려주면 호출부는 종전 실패 경로
+  // (재로그인 배너 → 사용자 클릭 = 새 제스처)로 곧장 수렴한다 — 그 경로가 실제로 성공하는 길이다.
+  // 🔴 `force`(서버가 이미 401/403을 준 경우)도 예외가 아니다. 서버 거부는 "토큰이 죽었다"는
+  //    증거일 뿐 제스처를 만들어 주지 않는다. 업로드 루프 한복판은 대개 제스처 밖이고,
+  //    거기서 붙잡는 것이 [UA-1]이 막으려던 「zip마다 120초」의 근원이었다.
+  if (!hasTransientActivation()) {
+    logger.log({ type: 'app', extra: `auth_ensure:skipped:no_gesture${opts?.force ? ':forced' : ''}` });
+    return false;
+  }
   try {
-    await signIn();
+    // 제스처 안이지만 상한은 짧게(SILENT_REFRESH_TIMEOUT_MS 주석) — 이 경로엔 2FA가 없다.
+    await withSilentTimeout(signIn());
     logger.log({ type: 'app', extra: `auth_ensure:refreshed${opts?.force ? ':forced' : ''}` });
     return true;
   } catch (e) {
