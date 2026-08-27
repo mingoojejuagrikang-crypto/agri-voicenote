@@ -121,6 +121,8 @@ export function getCurrentEmail(): string | null {
 
 let tokenClient: { requestAccessToken: (opts?: { prompt?: string }) => void } | null = null;
 let pending: {
+  /** v0.51 [AUTH-SF-1] — 진행 중 signIn()의 promise. 동시 호출은 이걸 그대로 돌려받아 **합류**한다. */
+  promise: Promise<{ email: string; token: string }>;
   resolve: (v: { email: string; token: string }) => void;
   reject: (e: Error) => void;
   settled: boolean;
@@ -265,7 +267,17 @@ export async function warmupGoogleAuth(): Promise<void> {
   }
 }
 
-/** Initiate sign-in via popup. MUST be called directly from a click handler. Resolves with email. */
+/** Initiate sign-in via popup. MUST be called directly from a click handler. Resolves with email.
+ *
+ *  ## v0.51 [AUTH-SF-1] — single-flight는 「즉시 reject」가 아니라 **「합류」**다
+ *  종전에는 `if (pending) reject('이미 로그인 진행 중입니다.')`였다. 호출 지점이 한 곳(설정탭
+ *  로그인 버튼)뿐일 땐 무해했지만, 제스처 안 선제 갱신(rauth P1 동기화 클릭 · P2 세션 시작)이
+ *  들어오면 **뒤엣것이 조용히 실패**한다 — 사용자에겐 아무 일도 안 일어난 것처럼 보이고,
+ *  호출부는 "갱신 실패"로 수렴해 종전 실패 경로(재로그인 배너)를 띄운다. 그런데 앞엣것은
+ *  **성공하는 중**이다. rauth P1ⓓ③이 이걸 P1/P2의 **선결 수리**로 지목했다.
+ *  이제 동시 호출은 같은 promise를 돌려받아 **같은 결과**(성공이면 같은 토큰, 실패면 같은 사유)를
+ *  받는다. 타임아웃·resetTokenClient·지각 콜백 재조정 경로는 종전과 **동일**하다 —
+ *  settlePending 하나가 모든 합류자를 함께 settle한다. */
 export function signIn(): Promise<{ email: string; token: string }> {
   const clientId = getClientId();
   if (!clientId) {
@@ -273,31 +285,39 @@ export function signIn(): Promise<{ email: string; token: string }> {
       new Error('Google OAuth Client ID가 설정되지 않았습니다. .env.local의 VITE_GOOGLE_CLIENT_ID를 확인하세요.'),
     );
   }
-  return new Promise((resolve, reject) => {
-    if (pending) {
-      reject(new Error('이미 로그인 진행 중입니다.'));
-      return;
-    }
-    const startedAt = Date.now();
-    lastSignInStartedAt = startedAt;
-    logger.log({ type: 'app', extra: 'auth_signin_start' });
-    // A7: 콜백 wedge 검출 타임아웃. 발화되면 pending을 reject하고 tokenClient 싱글톤을 버려
-    // 다음 시도가 새 클라이언트로 가능하게 한다(고착 해소). settlePending의 settled 가드가
-    // 늦게 도착한 콜백을 안전하게 무시한다.
-    const timer = setTimeout(() => {
-      if (!pending || pending.settled) return;
-      logger.log({ type: 'app', extra: `auth_signin_timeout:ms=${SIGNIN_TIMEOUT_MS}` });
-      resetTokenClient();
-      settlePending({
-        ok: false,
-        error: new Error('로그인 응답이 지연되어 취소되었습니다. 다시 시도해 주세요.'),
-      });
-    }, SIGNIN_TIMEOUT_MS);
-    pending = { resolve, reject, settled: false, startedAt, timer };
+  // [AUTH-SF-1] 합류. `auth_signin_start`는 **선두 호출만** 낸다(SOP-003 파서 계약 — 시작 1건에
+  // settle 1건이 대응해야 ms 분포가 유효하다). 합류는 별도 이벤트로 구분해 남긴다.
+  if (pending) {
+    logger.log({ type: 'app', extra: 'auth_signin_join' });
+    return pending.promise;
+  }
+  let resolveFn!: (v: { email: string; token: string }) => void;
+  let rejectFn!: (e: Error) => void;
+  const promise = new Promise<{ email: string; token: string }>((resolve, reject) => {
+    resolveFn = resolve;
+    rejectFn = reject;
+  });
+  const startedAt = Date.now();
+  lastSignInStartedAt = startedAt;
+  logger.log({ type: 'app', extra: 'auth_signin_start' });
+  // A7: 콜백 wedge 검출 타임아웃. 발화되면 pending을 reject하고 tokenClient 싱글톤을 버려
+  // 다음 시도가 새 클라이언트로 가능하게 한다(고착 해소). settlePending의 settled 가드가
+  // 늦게 도착한 콜백을 안전하게 무시한다.
+  const timer = setTimeout(() => {
+    if (!pending || pending.settled) return;
+    logger.log({ type: 'app', extra: `auth_signin_timeout:ms=${SIGNIN_TIMEOUT_MS}` });
+    resetTokenClient();
+    settlePending({
+      ok: false,
+      error: new Error('로그인 응답이 지연되어 취소되었습니다. 다시 시도해 주세요.'),
+    });
+  }, SIGNIN_TIMEOUT_MS);
+  pending = { promise, resolve: resolveFn, reject: rejectFn, settled: false, startedAt, timer };
+  try {
     // Fast path: client already warmed up → open the popup synchronously within the gesture.
     if (ensureTokenClient()) {
       tokenClient!.requestAccessToken({ prompt: '' });
-      return;
+      return promise;
     }
     // Cold fallback (warm-up not finished): load then request. The popup may be gesture-blocked
     // on this first attempt; a second click hits the fast path above.
@@ -312,7 +332,12 @@ export function signIn(): Promise<{ email: string; token: string }> {
       .catch((e) => {
         settlePending({ ok: false, error: e instanceof Error ? e : new Error(String(e)) });
       });
-  });
+  } catch (e) {
+    // 동기 throw(GIS 내부 예외 등)도 promise 경로로 수렴시킨다 — 종전에는 Promise 생성자 안이라
+    // 자동으로 reject됐다. 합류자도 같은 사유를 받는다.
+    settlePending({ ok: false, error: e instanceof Error ? e : new Error(String(e)) });
+  }
+  return promise;
 }
 
 /** v0.50 [UPLOAD-AUTH-1] — **업로드 직전 유효 토큰을 보장한다**(무팝업 갱신 시도).
