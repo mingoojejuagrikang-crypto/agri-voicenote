@@ -11,7 +11,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useDataStore } from '../stores/dataStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import { useSessionStore } from '../stores/sessionStore';
+import { useSessionStore, isSessionLive } from '../stores/sessionStore';
 import { syncSelected, type SyncReport } from './sync';
 import { deleteSession as dbDeleteSession, saveSession } from './db';
 import type { Session } from '../types';
@@ -355,7 +355,22 @@ export function useDataActions() {
     //
     // ⚠️ `await`는 여기서 하지 않는다 — 제스처의 동기 구간을 끊지 않기 위해 **시작만** 하고,
     //    실제 대기는 아래 `runConfirmedSync` 직전에 한다(그 사이 코드는 순수 로컬 판정이다).
-    const preRefresh = ensureAccessToken();
+    //
+    // 🔴 v0.51 r1 [F-3 / 리뷰 H-3] — **세션이 살아 있으면 이 갱신을 하지 않는다.**
+    //    「세션 중 갱신 절대 금지」(계획서 §2-6 · rauth §2-6 실측)는 P2에만 걸려 있었고 P1엔 없었다.
+    //    그런데 세션 중 데이터탭 진입은 막혀 있지 않고(App.tsx `changeTab`은 제한하지 않으며
+    //    세션이 살아 있으면 VoiceScreen을 keep-alive로 렌더한다 [STT-16]), 3시간 세션 × 1시간
+    //    토큰이면 **2시간차 이후의 동기화 클릭은 「토큰 만료」가 기대값**이다. 즉 P1이 정확히
+    //    녹음 중에 팝업을 연다 — 앱이 1~2초 백그라운드로 가는 [CLIP-SILENT-1]·[CLIP-LOSS-1]의
+    //    바로 그 조건이고, 대가는 **녹음 데이터 유실**이다.
+    //    세션 중에는 종전 경로로 떨어뜨린다: 업로드 직전 `ensureAccessToken` → 실패 시
+    //    `needsLogin` → 재로그인 모달. 그 모달 클릭은 **사용자 명시 의사**라 잔존을 허용한다.
+    //    계측: 「왜 선제 갱신이 없었나」를 로그로 남긴다 — 안 남기면 이 가드는 관측 불가능하고
+    //    (리뷰 M-3이 지적한 그 형태), 아래 업로드 직전 `ensureAccessToken`이 내는 이벤트와
+    //    구분되지 않아 「선제 갱신이 돌았는가」를 로그로 판정할 수 없다.
+    const sessionLive = isSessionLive(useSessionStore.getState().phase);
+    if (sessionLive) logger.log({ type: 'app', extra: 'auth_prerefresh:skipped:session_live' });
+    const preRefresh = sessionLive ? null : ensureAccessToken();
     setSyncModalOpen(false);
     const syncIds = excludeInProgress(ids);
     const sessions = useDataStore.getState().sessions.filter((s) => syncIds.includes(s.id));
@@ -373,8 +388,8 @@ export function useDataActions() {
       if (prompt) { setLegacySyncPrompt(prompt); return; }
     }
     // P1의 대기 지점. `ensureAccessToken`은 throw하지 않으므로(계약) 결과 boolean은 버려도 된다 —
-    // 실패했으면 종전 실패 경로(needsLogin → 재로그인 배너)가 그대로 받는다.
-    await preRefresh;
+    // 실패했으면(또는 [F-3]로 건너뛰었으면) 종전 실패 경로(needsLogin → 재로그인 배너)가 받는다.
+    if (preRefresh) await preRefresh;
     await runConfirmedSync(ids, autoDelete);
   };
   /** 대기열의 **한 세션**에 대한 답을 확정한다. 남은 세션이 있으면 다음 세션을 이어서 묻고,

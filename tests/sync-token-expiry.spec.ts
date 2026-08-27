@@ -255,3 +255,45 @@ test('P1: 만료 임박 상태에서 동기화 클릭 — auth_ensure:refreshed�
   // 그리고 시트 append가 첫 시도에 난다.
   expect(calls.filter((c) => c.url.includes(':append')).length).toBeGreaterThanOrEqual(1);
 });
+
+// ─── v0.51 r1 [F-3 / 리뷰 H-3] — 세션이 살아 있으면 동기화 클릭이 팝업을 열지 않는다 ──────────
+// 「세션 중 갱신 절대 금지」(계획서 §2-6 · rauth §2-6 실측: 팝업이 앱을 1~2초 백그라운드로 보낸다
+// = [CLIP-SILENT-1]·[CLIP-LOSS-1]의 조건)는 P2에만 걸려 있었다. 세션 중 데이터탭 진입은 막혀
+// 있지 않고(세션이 살아 있으면 VoiceScreen이 keep-alive로 남는다 [STT-16]) 3시간 세션 × 1시간
+// 토큰이면 2시간차 이후의 동기화 클릭은 「토큰 만료」가 기대값이라, P1은 정확히 녹음 중에 팝업을 연다.
+// 반증 축: 세션 활성 가드를 지우면 `auth_signin_start`가 찍혀 red.
+test('F-3: 세션 live 중 동기화 확정 — 선제 갱신을 하지 않는다(가드가 어떤 signIn보다 앞선다)', async ({ page }) => {
+  await installGisMock(page);
+  await stubSheets(page);
+  await seedNoToken(page, makeSession());
+  await setSilentRefresh(page, true); // 갱신이 **되는** 국면이어야 「안 했다」가 의미를 갖는다
+
+  // 녹음 중 상태를 만든다 — 세션 스토어 phase만 세우면 제품 판정(isSessionLive)이 그대로 걸린다.
+  await page.evaluate(async () => {
+    const { useSessionStore } = await import('/src/stores/sessionStore.ts');
+    useSessionStore.getState().setPhase('active');
+    const { logger } = await import('/src/lib/logger.ts');
+    logger.clear();
+  });
+
+  await openSyncAndConfirm(page);
+  await page.waitForTimeout(600);
+
+  const extras = await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    return logger.getAll().map((e) => e.extra).filter((x): x is string => typeof x === 'string');
+  });
+  const skipAt = extras.indexOf('auth_prerefresh:skipped:session_live');
+  expect(skipAt, '세션 활성 가드가 안 걸렸다 — 클릭 즉시 팝업이 열린다').toBeGreaterThanOrEqual(0);
+  // 🔴 **순서**가 계약이다: 클릭의 동기 구간에서 갱신이 시작되지 않았다.
+  //    (업로드 직전 `ensureAccessToken`은 v0.50 [UPLOAD-AUTH-1]의 **종전 경로**라 그대로 남는다 —
+  //     그래서 `auth_signin_start` 0건이 아니라 「가드가 그보다 앞선다」로 잰다. 잔존 축은
+  //     빌더 산출물의 open_questions에 올렸다.)
+  const firstSignIn = extras.indexOf('auth_signin_start');
+  if (firstSignIn >= 0) {
+    expect(skipAt, '🔴 선제 갱신이 가드보다 먼저 팝업을 열었다 — 녹음 중 백그라운드 전환 조건')
+      .toBeLessThan(firstSignIn);
+  }
+  // 종전 경로로 수렴한다 — 재로그인 모달이 "다음 행동"을 맡는다(모달 클릭은 사용자 명시 의사).
+  await expect(page.locator('[role="dialog"][aria-labelledby="login-required-title"]')).toBeVisible();
+});
