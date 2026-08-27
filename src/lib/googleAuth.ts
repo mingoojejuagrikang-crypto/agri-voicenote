@@ -89,7 +89,16 @@ export function getStoredToken(): StoredToken | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const t = JSON.parse(raw) as StoredToken;
-    if (t.expires_at < Date.now() + 60_000) return null; // expire 1 min early
+    // v0.51 [rauth P3] — 만료 **조기판정 마진 60초 → 5분**.
+    // 우리 60초는 구글 공식 라이브러리 관행보다 3~5배 짧았다:
+    //   `google-auth-library-nodejs` DEFAULT_EAGER_REFRESH_THRESHOLD_MILLIS = 5분
+    //   `google-auth-library-python` REFRESH_THRESHOLD = 3분 45초
+    // 2026-08-19 실측 10:21:50 실패는 마진 경계를 넘은 지 **11초 뒤**였다 — 5분 마진이면 그
+    // 회차는 동기화 클릭 시점에 이미 "갱신 필요"로 잡혀 P1이 제스처 안에서 처리했을 것이다.
+    // 대가: 유효 토큰을 5분 일찍 버린다 = 갱신 **시점**만 당겨지고 **빈도는 그대로**(1시간 1회).
+    // 🔴 **P1과 세트로만 유효하다**(rauth P3ⓓ) — P1 없이 이것만 키우면 갱신 시도가 더 자주
+    //    제스처 밖에서 실패한다. 앞 커밋이 P1이다.
+    if (t.expires_at < Date.now() + 300_000) return null; // expire 5 min early
     return t;
   } catch {
     return null;
@@ -426,6 +435,27 @@ export async function ensureAccessToken(opts?: { force?: boolean }): Promise<boo
     logger.log({ type: 'app', extra: `auth_ensure:failed:${e instanceof Error ? e.name : 'unknown'}` });
     return false;
   }
+}
+
+/** v0.51 [rauth P2] — **음성 세션 시작 제스처 안**의 선제 갱신.
+ *
+ *  ## 왜
+ *  앱을 열고 동기화 없이 바로 세션을 시작하면 토큰이 없어 이상치 알람용 과거값 프리페치가
+ *  `past_index_skip:not_signed_in`으로 죽는다 — 알람이 전 세션 침묵하는 실전 영향(D-4 계열).
+ *  세션 시작 탭은 확실한 제스처이고 3시간 현장 세션의 시작점이라, 여기서 한 번 갱신해 두면
+ *  그 세션 내내 유효하다.
+ *
+ *  ## 계약 (호출부가 지켜야 하는 것)
+ *  - 🔴 **마이크 획득 이전**에만 부른다. 세션 **중** 갱신은 절대 금지 — GIS 팝업이 앱을 1~2초
+ *    백그라운드로 보내고(rauth §2-6 실측), 그게 정확히 [CLIP-SILENT-1]·[CLIP-LOSS-1]의 조건이다.
+ *  - 🔴 **유효 토큰이면 `null`을 돌려준다** — 호출부가 `await`조차 하지 않게 하기 위해서다.
+ *    공통 경로(토큰 있음)에 마이크로태스크 하나도 끼우지 않아야 `getUserMedia`가 클릭의 동기
+ *    구간에 그대로 남는다([IOS-5]). 갱신이 필요한 드문 경로에서만 await가 생긴다.
+ *  - **절대 throw하지 않는다.** 실패해도 세션은 그대로 시작한다(알람만 종전처럼 늦은 토큰
+ *    복구 경로 `onTokenSettled`에 맡긴다). */
+export function refreshBeforeSessionStart(): Promise<void> | null {
+  if (getStoredToken()) return null;
+  return ensureAccessToken().then(() => undefined, () => undefined);
 }
 
 /** v0.34.0 계측 갭① — 로그아웃 시점이 로그에 없어 "언제부터 토큰이 없었나"를 재구성할 수 없던
