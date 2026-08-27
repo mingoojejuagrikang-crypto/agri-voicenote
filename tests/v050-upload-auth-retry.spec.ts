@@ -16,15 +16,15 @@
  * `withAuthRetry`는 업로드·인증을 **주입으로** 받는다. fetch·GIS·브라우저 없이
  * 「몇 번 불렀는가 · 언제 갱신했는가」를 그대로 관측할 수 있다(driveFolders.spec 계보).
  *
- * ## 🔴 v0.51 경계 정정 — 「강제 갱신」이 **항상 팝업을 여는 것은 아니다**
+ * ## 🔴 v0.51 경계 — 실제 `ensureAccessToken`이 이 재시도에서 무엇을 하는가
  * 이 스펙은 `ensureAuth`를 **주입**으로 받으므로 계약(401이면 force로 1회 재시도)은 그대로다.
- * 다만 실제 주입되는 `ensureAccessToken()`에 v0.51에서 `navigator.userActivation` 가드가
- * 붙었다: **제스처 밖이면 `signIn()` 시도 없이 즉시 false**(`auth_ensure:skipped:no_gesture:forced`).
- * 업로드 루프 한복판은 대개 클릭의 transient activation이 소진된 뒤라, 실기기에서는 이 force
- * 갱신이 「토큰을 새로 받는다」가 아니라 「즉시 포기하고 재로그인 배너로 넘긴다」로 수렴할 수 있다.
- * **의도된 변경이다** — 제스처 밖 팝업은 어차피 막히고, 그걸 기다리는 것이 [UA-1]이 막으려던
- * 「zip마다 120초」의 근원이었다. 그리고 v0.51은 그 만료 자체를 P1(동기화 클릭 첫 줄 선제 갱신)이
- * 앞에서 대부분 없앤다. 여기 [node] 테스트들은 그 축과 무관하게 재시도 **골격**만 고정한다.
+ * 실제 주입되는 `ensureAccessToken()`에는 v0.51에서 `navigator.userActivation` 가드가 붙었지만,
+ * **`force`는 그 가드에서 면제된다**(r1 [F-4]). 면제하지 않으면 `withAuthRetry`가 업로드 왕복
+ * **뒤에** 부르는 특성상 activation이 늘 소진돼 있어, v0.50의 간판 기능이 실기기에서 **상시
+ * no-op**이 됐을 것이다(콜드 리뷰 M-1이 그 축을 잡았다). 대신 [UA-1]의 「zip마다 120초」는
+ * `SILENT_REFRESH_TIMEOUT_MS`(12초) 상한이 막는다 — 가드가 아니라 **상한**이 그 축의 처방이다.
+ * 제스처 밖 force가 실제로 갱신을 **시도**하는지는 `tests/v051-signin-join.spec.ts`가 문다
+ * (여기 [node] 테스트들은 그 축과 무관하게 재시도 **골격**만 고정한다).
  *
  * ## 반증 축
  *  · 재시도를 빼면 → ⓐ red(두 번째 호출이 없다)

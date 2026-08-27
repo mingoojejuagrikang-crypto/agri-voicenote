@@ -65,6 +65,31 @@ async function installAsyncGisMock(page: Page, delayMs: number, opts?: { fail?: 
   );
 }
 
+/** 콜백이 **영원히 도착하지 않는** GIS mock — A7이 타임아웃을 만든 그 조건(standalone 콜백 wedge).
+ *  `navigator.userActivation`도 「제스처 안」으로 세운다: `page.evaluate`에는 실제 사용자 활성화가
+ *  없어 `ensureAccessToken`의 제스처 가드가 먼저 걸려버리기 때문이다(클릭 대신 쓰는 최소 스텁). */
+async function installWedgedGisMock(page: Page) {
+  await page.route('**://www.googleapis.com/oauth2/v3/userinfo', (route) =>
+    route.fulfill({ json: { email: 'joiner@example.com' } }));
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'userActivation', {
+      value: { isActive: true, hasBeenActive: true }, configurable: true,
+    });
+    let issued = 0;
+    // @ts-expect-error 테스트 전용 전역 mock
+    window.google = {
+      accounts: {
+        oauth2: {
+          initTokenClient: () => ({ requestAccessToken: () => { issued += 1; /* 콜백 영구 미발화 */ } }),
+          revoke: (_t: string, cb?: () => void) => { cb?.(); },
+        },
+      },
+    };
+    // @ts-expect-error 테스트 전용 계측
+    window.__gisIssuedCount = () => issued;
+  });
+}
+
 /** 두 signIn()을 **같은 태스크에서** 시작해 겹침을 보장하고, 결과와 인증 계측을 함께 걷어온다. */
 async function raceTwoSignIns(page: Page) {
   return page.evaluate(async () => {
@@ -127,4 +152,89 @@ test('동시 signIn() 2회 — 실패도 합류자가 같은 사유로 함께 �
   expect(out.starts).toBe(1);
   expect(out.joins).toBe(1);
   expect(out.requests).toBe(1);
+});
+
+// ─── v0.51 r1 [F-2 / 리뷰 H-2] — silent 상한은 flight까지 함께 포기한다 ────────────────────
+// 종전에는 12초 상한이 **바깥 promise만** 끊고 `pending`을 살려뒀다. 합류(위 오라클)와 곱해지면
+// 12~120초 사이의 108초 동안 **모든 로그인 시도가 팝업 없이 죽은 flight에 붙는다** — 재로그인
+// 모달의 [로그인] 클릭이 조용히 삼켜지고 모달이 열린 채 고착된다. 종전 실패(`이미 로그인 진행
+// 중입니다.` 즉시 reject)보다 **후퇴**였다(조용·무기한 vs 즉시·가시적).
+// 반증 축: `abandonSilentFlight()` 호출을 지우면 두 번째 `requestAccessToken`이 안 나 red.
+test('F-2: silent 12초 상한 뒤 사람의 재클릭은 **새 flight로 팝업을 다시 연다**', async ({ page }) => {
+  await installWedgedGisMock(page); // 콜백이 영원히 안 오는 GIS(A7이 타임아웃을 만든 그 조건)
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  await page.clock.install();
+  await bootClean(page);
+
+  // ① silent 갱신 시작(제스처 스텁 — 실제 클릭 대신 userActivation을 참으로 세운 상태).
+  // ⚠️ 가상 시계 아래에서는 `setTimeout`이 스스로 돌지 않는다 — 대기를 넣지 않는다.
+  //    `signIn()`은 warmup된 클라이언트에서 `requestAccessToken`을 **동기로** 부르므로 즉시 센다.
+  const started = await page.evaluate(async () => {
+    const auth = await import('/src/lib/googleAuth.ts');
+    (window as unknown as { __ensure?: Promise<boolean> }).__ensure = auth.ensureAccessToken();
+    // @ts-expect-error 테스트 전용 계측
+    return (window.__gisIssuedCount as () => number)();
+  });
+  expect(started, 'silent 갱신이 팝업을 열지 않았다 — 전제 붕괴').toBe(1);
+
+  // ② 12초 경과 — 상한이 발화한다.
+  await page.clock.runFor(13_000);
+  const ensured = await page.evaluate(
+    () => (window as unknown as { __ensure: Promise<boolean> }).__ensure);
+  expect(ensured, '상한이 안 걸렸다').toBe(false);
+
+  // ③ 사람이 재로그인 모달에서 [로그인]을 누른 것과 같은 호출.
+  const after = await page.evaluate(async () => {
+    const auth = await import('/src/lib/googleAuth.ts');
+    const { logger } = await import('/src/lib/logger.ts');
+    const joinsBefore = logger.getAll().filter((e) => e.extra === 'auth_signin_join').length;
+    void auth.signIn().catch(() => undefined);
+    return {
+      // @ts-expect-error 테스트 전용 계측
+      requests: (window.__gisIssuedCount as () => number)(),
+      joins: logger.getAll().filter((e) => e.extra === 'auth_signin_join').length - joinsBefore,
+    };
+  });
+  expect(after.requests, '🔴 죽은 flight에 합류해 팝업이 안 열렸다 — 사용자의 복구 클릭이 삼켜진다').toBe(2);
+  expect(after.joins, '새 flight여야 하는데 합류로 처리됐다').toBe(0);
+});
+
+// ─── v0.51 r1 [F-4 / 리뷰 M-1] — 제스처 밖 `force`는 갱신을 **시도한다** ────────────────────
+// `withAuthRetry`는 업로드 왕복 **뒤에** `ensureAuth({force:true})`를 부르므로 activation이 늘
+// 소진돼 있다. 가드를 걸어두면 v0.50 [UPLOAD-AUTH-1]의 「인증 실패 1회 자동 재시도」가 실기기에서
+// **상시 no-op**이 된다. 상한(12초)이 [UA-1]의 「zip마다 120초」를 대신 막는다.
+// 반증 축: `force` 면제를 지우면 `requestAccessToken`이 0회가 되어 red.
+test('F-4: 제스처 밖이어도 force 갱신은 시도된다(가드 면제) · 일반 갱신은 여전히 차단된다', async ({ page }) => {
+  await installAsyncGisMock(page, 50);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'userActivation', {
+      value: { isActive: false, hasBeenActive: true }, configurable: true,
+    });
+  });
+  await bootClean(page);
+
+  const out = await page.evaluate(async () => {
+    const auth = await import('/src/lib/googleAuth.ts');
+    const { logger } = await import('/src/lib/logger.ts');
+    logger.clear();
+    const plain = await auth.ensureAccessToken();
+    // @ts-expect-error 테스트 전용 계측
+    const afterPlain = (window.__gisIssuedCount as () => number)();
+    const forced = await auth.ensureAccessToken({ force: true });
+    // @ts-expect-error 테스트 전용 계측
+    const afterForced = (window.__gisIssuedCount as () => number)();
+    return {
+      plain, forced, afterPlain, afterForced,
+      extras: logger.getAll().map((e) => e.extra).filter((x): x is string => typeof x === 'string'),
+    };
+  });
+
+  // 일반 갱신: 제스처 밖이라 시도조차 하지 않는다(P1ⓑ 계약 유지).
+  expect(out.plain).toBe(false);
+  expect(out.afterPlain, '제스처 밖 일반 갱신이 팝업을 열었다').toBe(0);
+  expect(out.extras).toContain('auth_ensure:skipped:no_gesture');
+  // force: 가드를 면제받아 실제로 갱신한다([UPLOAD-AUTH-1] 자동 재시도 복원).
+  expect(out.forced, '제스처 밖 force가 갱신을 포기했다 — v0.50 자동 재시도가 상시 no-op이 된다').toBe(true);
+  expect(out.afterForced, 'force가 팝업(=requestAccessToken)을 시도하지 않았다').toBe(1);
+  expect(out.extras).toContain('auth_ensure:refreshed:forced');
 });

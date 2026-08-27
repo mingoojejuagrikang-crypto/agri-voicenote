@@ -129,10 +129,17 @@ export function getCurrentEmail(): string | null {
 // Settings mount), and open the popup SYNCHRONOUSLY inside the click. The token client is
 // created once, so a single set of pending resolvers bridges its callback to signIn().
 
+/** v0.51 r1 [F-2] — flight를 연 주체. 아래 `pending.origin` 주석이 계약이다. */
+export type SignInOrigin = 'user' | 'silent';
+
 let tokenClient: { requestAccessToken: (opts?: { prompt?: string }) => void } | null = null;
 let pending: {
   /** v0.51 [AUTH-SF-1] — 진행 중 signIn()의 promise. 동시 호출은 이걸 그대로 돌려받아 **합류**한다. */
   promise: Promise<{ email: string; token: string }>;
+  /** v0.51 r1 [F-2] — 이 flight를 **연 쪽**. `user` = 사람이 로그인 버튼을 눌렀다(설정탭·재로그인
+   *  모달) · `silent` = `ensureAccessToken()` 경유 무팝업 갱신. 12초 상한이 flight 자체를
+   *  포기해도 되는지를 이 값 하나가 가른다 — 사람의 2FA(120초)를 12초에 끊으면 안 된다. */
+  origin: SignInOrigin;
   resolve: (v: { email: string; token: string }) => void;
   reject: (e: Error) => void;
   settled: boolean;
@@ -171,10 +178,37 @@ function hasTransientActivation(): boolean {
   return ua.isActive;
 }
 
+/** 🔴 v0.51 r1 [F-2 / 리뷰 H-2] — **silent 상한은 flight까지 함께 포기한다.**
+ *
+ *  종전에는 바깥 promise만 12초에 reject했다. `pending`은 살아 있고 `resetTokenClient()`는
+ *  내부 120초 타이머에서만 불렸는데, [AUTH-SF-1] 합류와 곱해지면 **12~120초 사이의 108초 동안
+ *  모든 로그인 시도가 팝업 없이 죽은 flight에 붙는다.** 가장 아픈 지점이 재로그인 모달이다:
+ *  `handleLoginPromptLogin`은 제스처 안 팝업을 위해 `signIn()`을 직접 부르는데, 그 호출이
+ *  합류로 흡수돼 **팝업이 안 열리고 모달이 열린 채 고착**된다(그 제스처는 소모됐다).
+ *  종전 동작(`이미 로그인 진행 중입니다.` 즉시 reject)은 실패했어도 **즉시·가시적**이었으므로
+ *  이건 「조용한 실패 금지」 상시 원칙에 대한 후퇴다.
+ *
+ *  그래서 12초 시점에 `resetTokenClient()` + `settlePending(fail)`로 flight를 정리한다 —
+ *  합류자도 같은 사유로 함께 끊기고(가시적 실패), 다음 클릭은 **새 flight로 팝업을 다시 연다.**
+ *  🔴 단 **선두가 `silent`인 flight만** 그렇게 한다. 사람이 2FA 창을 붙들고 있는 `user` flight에
+ *     silent 갱신이 합류한 경우, 12초에 그 사람을 끊으면 v0.29.0이 120초로 늘린 이유가 무너진다 —
+ *     그 경우 silent 호출자만 자기 promise를 포기하고 flight는 그대로 둔다.
+ *  지각 성공은 종전대로 `notifyTokenSettled` 무조건 발화가 받아 화면을 재조정한다. */
+function abandonSilentFlight(): void {
+  if (!pending || pending.settled || pending.origin !== 'silent') return;
+  logger.log({ type: 'app', extra: `auth_signin_timeout:silent,ms=${SILENT_REFRESH_TIMEOUT_MS}` });
+  resetTokenClient();
+  settlePending({
+    ok: false,
+    error: new Error('로그인 응답이 지연되어 취소되었습니다. 다시 시도해 주세요.'),
+  });
+}
+
 /** silent 갱신 경로에만 씌우는 상한(위 상수 주석). 타임아웃 사유를 이름으로 구분해 로그에 싣는다. */
 function withSilentTimeout<T>(p: Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
+      abandonSilentFlight(); // [F-2] 선두가 silent면 flight 자체를 정리 — 합류자 포함 가시적 실패
       const e = new Error('무팝업 갱신 응답이 지연되었습니다.');
       e.name = 'SilentRefreshTimeout';
       reject(e);
@@ -331,7 +365,7 @@ export async function warmupGoogleAuth(): Promise<void> {
  *  이제 동시 호출은 같은 promise를 돌려받아 **같은 결과**(성공이면 같은 토큰, 실패면 같은 사유)를
  *  받는다. 타임아웃·resetTokenClient·지각 콜백 재조정 경로는 종전과 **동일**하다 —
  *  settlePending 하나가 모든 합류자를 함께 settle한다. */
-export function signIn(): Promise<{ email: string; token: string }> {
+export function signIn(origin: SignInOrigin = 'user'): Promise<{ email: string; token: string }> {
   const clientId = getClientId();
   if (!clientId) {
     return Promise.reject(
@@ -365,7 +399,7 @@ export function signIn(): Promise<{ email: string; token: string }> {
       error: new Error('로그인 응답이 지연되어 취소되었습니다. 다시 시도해 주세요.'),
     });
   }, SIGNIN_TIMEOUT_MS);
-  pending = { promise, resolve: resolveFn, reject: rejectFn, settled: false, startedAt, timer };
+  pending = { promise, origin, resolve: resolveFn, reject: rejectFn, settled: false, startedAt, timer };
   try {
     // Fast path: client already warmed up → open the popup synchronously within the gesture.
     if (ensureTokenClient()) {
@@ -418,16 +452,22 @@ export async function ensureAccessToken(opts?: { force?: boolean }): Promise<boo
   // (`popup_failed_to_open`). 그 시도는 실패할 뿐 아니라 **비싸다**: 무팝업 wedge면 타임아웃까지
   // 붙잡고, 그동안 호출부(업로드 루프)가 멈춘다. 즉시 false를 돌려주면 호출부는 종전 실패 경로
   // (재로그인 배너 → 사용자 클릭 = 새 제스처)로 곧장 수렴한다 — 그 경로가 실제로 성공하는 길이다.
-  // 🔴 `force`(서버가 이미 401/403을 준 경우)도 예외가 아니다. 서버 거부는 "토큰이 죽었다"는
-  //    증거일 뿐 제스처를 만들어 주지 않는다. 업로드 루프 한복판은 대개 제스처 밖이고,
-  //    거기서 붙잡는 것이 [UA-1]이 막으려던 「zip마다 120초」의 근원이었다.
-  if (!hasTransientActivation()) {
-    logger.log({ type: 'app', extra: `auth_ensure:skipped:no_gesture${opts?.force ? ':forced' : ''}` });
+  //
+  // 🔴 v0.51 r1 [F-4 / 리뷰 M-1] — **`force`는 이 가드에서 면제한다.** (초판의 반대 판정이다.)
+  //    `withAuthRetry`는 업로드 왕복 **뒤에** `ensureAuth({force:true})`를 부르므로 그 시점엔
+  //    activation이 늘 소진돼 있다 → 가드를 걸면 v0.50 [UPLOAD-AUTH-1]의 간판 기능
+  //    (「인증 실패 1회 자동 재시도」)이 실기기에서 **상시 no-op**이 된다. 401/403 수신 시점은
+  //    사용자의 업로드 의사가 이미 확립된 뒤이고, 팝업이 막히는 환경이면 `popup_failed_to_open`이
+  //    1초 내에 떨어져 종전 모달 폴백으로 수렴한다. [UA-1]이 막으려던 「zip마다 120초」는
+  //    아래 `withSilentTimeout`(12초)이 대신 막는다 — 가드가 아니라 **상한**이 그 축의 처방이다.
+  if (!opts?.force && !hasTransientActivation()) {
+    logger.log({ type: 'app', extra: 'auth_ensure:skipped:no_gesture' });
     return false;
   }
   try {
-    // 제스처 안이지만 상한은 짧게(SILENT_REFRESH_TIMEOUT_MS 주석) — 이 경로엔 2FA가 없다.
-    await withSilentTimeout(signIn());
+    // 상한은 짧게(SILENT_REFRESH_TIMEOUT_MS 주석) — 이 경로엔 2FA가 없다. `silent` origin이라
+    // 12초 시점에 flight까지 함께 정리된다([F-2] abandonSilentFlight).
+    await withSilentTimeout(signIn('silent'));
     logger.log({ type: 'app', extra: `auth_ensure:refreshed${opts?.force ? ':forced' : ''}` });
     return true;
   } catch (e) {
