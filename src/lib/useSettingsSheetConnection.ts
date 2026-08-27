@@ -19,6 +19,7 @@ import type { Column } from '../types';
 import {
   getAccessToken,
   getCurrentEmail,
+  clearStoredToken,
   getStoredToken,
   isConfigured as isGoogleConfigured,
   onTokenSettled,
@@ -100,6 +101,7 @@ export function useSettingsSheetConnection() {
         logger.log({ type: 'app', extra: `auth_signout:connection_expired${hadRecord ? '' : ':no_record'}` });
         // 🔴 revoke하지 않는다 — 로컬 정리만(googleConnection.ts §계약). revoke하면 grant가 죽어
         //    이후 무팝업 갱신까지 전부 동의 화면으로 되돌아간다. signOut()을 경유하면 안 된다.
+        clearStoredToken(); // [F-9] 5분 마진 탓에 남아 있을 수 있는 원시 토큰 레코드도 정리(revoke 아님)
         clearConnection('connection_expired');
         s.set({ googleConnected: false });
       }

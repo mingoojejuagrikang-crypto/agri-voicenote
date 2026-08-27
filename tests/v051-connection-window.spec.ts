@@ -58,7 +58,7 @@ async function installGisSpy(page: Page) {
 }
 
 /** 토큰 **없이**(만료 시뮬) + 지정한 연결 기록으로 부팅. persist version은 현재(13). */
-async function bootWithConnection(page: Page, lastUsedAgoMs: number | null) {
+async function bootWithConnection(page: Page, lastUsedAgoMs: number | null, opts?: { staleToken?: boolean }) {
   const now = Date.now();
   const state: Record<string, unknown> = {
     googleConnected: true,
@@ -74,11 +74,18 @@ async function bootWithConnection(page: Page, lastUsedAgoMs: number | null) {
     sessionLabelColId: null, sessionAutoLabel: null, preferredVoiceName: '', roundDateColId: null,
   };
   await page.addInitScript(
-    ({ key, payload }) => {
+    ({ key, payload, staleToken }) => {
       // 토큰 키는 **일부러 심지 않는다** — 「창은 살아 있는데 토큰만 만료」가 이 스펙의 주제다.
       localStorage.setItem(key, JSON.stringify(payload));
+      // v0.51 r1 [F-9] — 「조기판정 마진(5분) 안에 든 토큰」을 재현한다: `getStoredToken()`은
+      // null을 돌려주지만 **원시 레코드는 남아 있다**. 강등 경로가 그걸 지우는지 재는 축.
+      if (staleToken) {
+        localStorage.setItem('gs10_google_token', JSON.stringify({
+          access_token: 'about-to-expire', expires_at: Date.now() + 60_000, email: 'tester@example.com',
+        }));
+      }
     },
-    { key: STORE_KEY, payload: { state, version: 13 } },
+    { key: STORE_KEY, payload: { state, version: 13 }, staleToken: !!opts?.staleToken },
   );
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500);
@@ -123,6 +130,14 @@ test('① 창 내 토큰 만료 — 연결됨을 유지하고 auth_token_expired
 
   const conn = await readConnection(page);
   expect(conn.googleConnected, '창이 살아 있는데 강등됐다 — 매시간 풀림 회귀').toBe(true);
+
+  // 🔴 v0.51 r1 [F-6 / 리뷰 M-3] — **「touch는 기록만 한다」의 red 축.**
+  //    `googleConnection.ts`가 🔴로 못박은 최상위 계약이다(부팅·포그라운드 복귀는 제스처가
+  //    아니라서 거기서 갱신하면 rauth P1이 막으려던 「제스처 밖 실패」가 되살아난다).
+  //    이 단언이 없으면 누군가 `touchConnection`에 `void ensureAccessToken()`을 끼워 넣어도
+  //    전 스펙이 green이다 — 그 회귀가 조용히 들어오는 자리를 여기서 막는다.
+  expect(await gisCalls(page), '🔴 touch/마운트 경로가 토큰 갱신을 시도했다 — 제스처 밖 갱신 회귀')
+    .not.toContain('requestAccessToken');
 
   // 화면도 같은 판정이어야 한다(설정탭 Google 버튼).
   await expect(page.locator('button:has-text("tester@example.com")')).toBeVisible();
@@ -191,4 +206,22 @@ test('연결 기록 없음(googleConnection:null) — 창이 없으므로 강등
     .not.toContain('auth_signout:connection_expired');
   const conn = await readConnection(page);
   expect(conn.googleConnected).toBe(false);
+});
+
+// ─── v0.51 r1 [F-9 / 리뷰 L-3] — 창 만료 강등은 원시 토큰 레코드도 정리한다 ──────────────────
+// 강등 분기의 진입 조건이 `!getStoredToken()`이라 「기능상 없는 토큰」이긴 하지만, 5분 조기판정
+// 마진 때문에 **만료 5분 전 토큰이 원시 문자열로 무기한 잔존**할 수 있다. 기능 영향은 없고
+// (모든 읽기가 getStoredToken을 거친다) `settings_hydrated:…,token=Y` 계측이 오독을 유발한다.
+// 반증 축: `clearStoredToken()` 호출을 지우면 키가 남아 red.
+test('F-9: 창 만료 강등 — 조기판정 마진 안에 든 원시 토큰 레코드까지 지운다(revoke 아님)', async ({ page }) => {
+  await installGisSpy(page);
+  await bootWithConnection(page, 28 * DAY + HOUR, { staleToken: true });
+
+  const log = await readAuthLog(page);
+  expect(log, '강등 경로를 안 탔다 — 이 오라클의 전제가 깨졌다').toContain('auth_signout:connection_expired');
+
+  const rawToken = await page.evaluate(() => localStorage.getItem('gs10_google_token'));
+  expect(rawToken, '만료된 창인데 원시 토큰 레코드가 남았다 — settings_hydrated:token=Y가 오독된다').toBeNull();
+  // 로컬 정리만 한다 — revoke는 여전히 부르지 않는다(§2-5).
+  expect(await gisCalls(page)).not.toContain('revoke');
 });

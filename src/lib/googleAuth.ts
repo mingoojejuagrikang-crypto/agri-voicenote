@@ -113,6 +113,16 @@ function clearToken() {
   localStorage.removeItem(STORAGE_KEY);
 }
 
+/** v0.51 r1 [F-9 / 리뷰 L-3] — **저장된 토큰 레코드를 지운다(revoke 없음).**
+ *  창 만료 강등 경로가 쓴다. 그 분기의 진입 조건이 `!getStoredToken()`이라 「기능상 없는 토큰」이긴
+ *  하지만, 5분 조기판정 마진(`getStoredToken`) 때문에 **만료 5분 전 토큰이 원시 문자열로 무기한
+ *  잔존**할 수 있다. 기능 영향은 없고(모든 읽기가 `getStoredToken`을 거친다) `settings_hydrated:
+ *  …,token=Y` 계측이 오독을 유발하는 것이 문제다 — 그 오독을 제거한다.
+ *  🔴 `signOut()`과 다르다: 여기엔 `revoke`가 없다(계획서 §2-5 — revoke하면 grant가 죽는다). */
+export function clearStoredToken(): void {
+  clearToken();
+}
+
 export function getAccessToken(): string | null {
   return getStoredToken()?.access_token || null;
 }
