@@ -164,6 +164,17 @@ test('P2: 유효 토큰이면 갱신을 아예 시도하지 않는다(공통 경
   const seq = await order(page);
   expect(seq, '유효 토큰인데 팝업을 열었다 — 매 세션 시작이 1~2초 느려진다').not.toContain('signin');
   expect(seq).toContain('gum');
+
+  // 🔴 v0.51 r1 [F-7 / 리뷰 L-1] — 계약의 **나머지 절반**: 유효 토큰이면 `null`을 돌려준다.
+  //    이미 resolve된 Promise를 돌려줘도 위 단언들은 green인데, 그 차이가 정확히
+  //    `getUserMedia`가 클릭의 **동기 구간**에 남느냐다(마이크로태스크 하나도 끼우면 안 된다,
+  //    [IOS-5]). 모듈을 직접 불러 반환값 자체를 문다.
+  const returned = await page.evaluate(async () => {
+    const auth = await import('/src/lib/googleAuth.ts');
+    return auth.refreshBeforeSessionStart();
+  });
+  expect(returned, '🔴 유효 토큰인데 Promise를 돌려줬다 — 호출부가 await하게 되어 gUM이 제스처 밖으로 밀린다')
+    .toBeNull();
 });
 
 // ─── v0.51 r1 [F-1 / 리뷰 H-1] — 연결한 적 없는 사용자에게는 갱신을 시도하지 않는다 ──────────
