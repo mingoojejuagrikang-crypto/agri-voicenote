@@ -60,7 +60,7 @@ const SETTINGS = {
     preferredVoiceName: '',
     roundDateColId: null,
   },
-  version: 12,
+  version: 13,
 };
 
 const HEADERS = ['조사일자', '농가명', '조사나무', LONG_NAME];

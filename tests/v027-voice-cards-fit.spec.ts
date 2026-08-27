@@ -63,7 +63,7 @@ const SETTINGS = {
     preferredVoiceName: '',
     roundDateColId: null,
   },
-  version: 12,
+  version: 13,
 };
 
 const HEADERS = ['조사일자', '농가명', '조사나무', LONG_NAME];
@@ -281,7 +281,7 @@ test('무스크롤 — 375x812: 일시정지 상태에서 재개/종료가 잘�
       ttsRate: 1.05, sessionLabelColId: null, sessionAutoLabel: 'a1-375x667-test',
       preferredVoiceName: '', roundDateColId: null,
     },
-    version: 12,
+    version: 13,
   };
   const REALISTIC_HEADERS = ['조사일자', '농가명', '조사나무', '조사과실', '횡경'];
   const REALISTIC_SHEET_ROWS = [[PREV_ROUND, '이원창', '1', '1', '100.0']];

@@ -61,7 +61,7 @@ const BASE_SETTINGS = {
     noisyMode: false,
     preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 /** options 음성 컬럼 fixture — 선택지 버튼 그리드 검증용. */
@@ -479,7 +479,7 @@ async function setupTrendAndStart(page: Page) {
       preferredVoiceName: '',
       roundDateColId: null,
     },
-    version: 12,
+    version: 13,
   };
   await page.route('**://sheets.googleapis.com/**', async (route) => {
     if (route.request().method() === 'GET') {

@@ -104,6 +104,35 @@ const VOICE_MOCK_INIT_SCRIPT = `
 })();
 `;
 
+/** 🔴 v0.51 [rauth P2] — **GIS 오프라인 스텁.** 세션 시작 핸들러가 이제 토큰이 없으면 마이크
+ *  획득 **이전에** 무팝업 갱신을 시도한다(`refreshBeforeSessionStart`). 토큰을 안 심는 음성
+ *  스펙에서는 그 경로가 `window.google` 부재 → **실제 GIS 스크립트를 네트워크에서 받아**
+ *  진짜 팝업을 열려고 든다. 실측 결과: 세션이 백그라운드로 판정돼 STT가 suspend되고
+ *  `value` 이벤트가 아예 안 나 v043 T1~T4가 통째로 red였다(2026-08-27 빌더 회차 실측).
+ *
+ *  기본값은 **즉시 실패**다 — 토큰을 안 심은 스펙은 「로그인 안 된 상태」를 재려던 것이므로
+ *  갱신이 실패해야 그 전제가 보존된다(P2 계약: 실패해도 세션은 그대로 시작한다).
+ *  ⚠️ 자기 GIS mock이 필요한 스펙은 `installVoiceMocks` **뒤에** 자기 것을 addInitScript하면
+ *     나중 스크립트가 이 스텁을 덮는다(sync-token-expiry·v051-* 가 그 형태다).
+ *  ⚠️ 토큰을 심는 스펙에는 애초에 닿지 않는다 — 유효 토큰이면 P2가 null을 돌려주고 끝난다. */
+const GIS_OFFLINE_STUB_SCRIPT = `
+(function() {
+  if (window.google && window.google.accounts) return; // 이미 mock이 있으면 건드리지 않는다
+  window.google = {
+    accounts: {
+      oauth2: {
+        initTokenClient: function(config) {
+          return { requestAccessToken: function() {
+            if (config && config.error_callback) config.error_callback({ type: 'popup_failed_to_open' });
+          } };
+        },
+        revoke: function(_t, cb) { if (cb) cb(); },
+      },
+    },
+  };
+})();
+`;
+
 /** 페이지에 STT/TTS 목 주입 — page.goto 전에 호출한다.
  *  ttsOnendDelayMs: TTS onend 비동기 지연(기본 200ms — [TEST-TTS-MOCK-1] 권장). TTS-대기 전이를
  *  단언하지 않는 순수 파서/즉답 spec만 0으로 낮춰라(그래도 setTimeout(0) = 비동기 유지). */
@@ -118,9 +147,11 @@ export async function installVoiceMocks(page: Page, opts?: {
       opts.ttsOnendDelayMs,
     );
   }
-  const mockScript = opts?.preserveAnimations
+  const base = opts?.preserveAnimations
     ? `window.__preserveTestAnimations = true;\n${VOICE_MOCK_INIT_SCRIPT}`
     : VOICE_MOCK_INIT_SCRIPT;
+  // v0.51 P2 — GIS 오프라인 스텁을 함께 깐다(위 상수 주석: 실제 팝업이 세션을 백그라운드로 보낸다).
+  const mockScript = `${base}\n${GIS_OFFLINE_STUB_SCRIPT}`;
   await page.addInitScript({ content: mockScript });
 }
 

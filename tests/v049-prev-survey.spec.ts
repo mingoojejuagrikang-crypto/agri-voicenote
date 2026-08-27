@@ -93,7 +93,7 @@ function settingsFor(farmName: string, signedIn = false) {
       totalRows: 2,
       roundDateColId: null,
     },
-    version: 12,
+    version: 13,
   };
 }
 

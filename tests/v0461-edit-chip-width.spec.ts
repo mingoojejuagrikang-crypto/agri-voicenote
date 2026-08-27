@@ -68,7 +68,7 @@ const SETTINGS = {
     tableGenerated: true, totalRows: 2,
     ttsRate: 1.05, sessionLabelColId: null, sessionAutoLabel: '편집칩폭', noisyMode: false, preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 const MOCK_INIT_SCRIPT = `

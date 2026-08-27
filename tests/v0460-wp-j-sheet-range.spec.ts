@@ -32,7 +32,7 @@ async function seedSettings(page: Page, state: Record<string, unknown>): Promise
         expires_at: Date.now() + 3_600_000,
         email: 'tester@example.com',
       }));
-      localStorage.setItem(key, JSON.stringify({ state: seeded, version: 12 }));
+      localStorage.setItem(key, JSON.stringify({ state: seeded, version: 13 }));
     },
     { key: STORE_KEY, seeded: state },
   );

@@ -52,7 +52,7 @@ const SETTINGS_30ROWS = {
     noisyMode: false,
     preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 // ─── Mock STT + Instant TTS init script ─────────────────────────────────────

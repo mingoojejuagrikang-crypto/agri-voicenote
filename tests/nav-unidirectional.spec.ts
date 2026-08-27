@@ -56,7 +56,7 @@ const SETTINGS_3ROWS = {
     noisyMode: false,
     preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 const MOCK_INIT_SCRIPT = `

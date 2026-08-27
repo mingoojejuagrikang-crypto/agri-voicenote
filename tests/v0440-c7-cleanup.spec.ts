@@ -100,7 +100,7 @@ async function seedGeneratedSettings(page: Page) {
     localStorage.setItem(key, JSON.stringify(payload));
   }, {
     key: STORE_KEY,
-    payload: { state: { columns: COLUMNS, totalRows: 3, tableGenerated: true }, version: 12 },
+    payload: { state: { columns: COLUMNS, totalRows: 3, tableGenerated: true }, version: 13 },
   });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(400);

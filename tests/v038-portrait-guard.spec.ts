@@ -50,7 +50,7 @@ const SETTINGS = {
     noisyMode: false,
     preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 async function waitForActiveChip(page: Page, name: string) {

@@ -75,7 +75,7 @@ async function seedSettings(page: Page, state: Record<string, unknown>) {
   await page.evaluate(({ key, payload }) => {
     localStorage.clear();
     localStorage.setItem(key, JSON.stringify(payload));
-  }, { key: STORE_KEY, payload: { state, version: 12 } });
+  }, { key: STORE_KEY, payload: { state, version: 13 } });
   await page.reload();
   await page.waitForLoadState('domcontentloaded');
   await page.waitForTimeout(400);

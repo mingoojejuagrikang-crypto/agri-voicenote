@@ -51,7 +51,7 @@ const TWO_COL_SETTINGS = {
     noisyMode: false,
     preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 /** mock synth+STT. ⚠️ 전 발화 지연은 못 쓴다 — speak()가 muteForTts를 걸어 지연 동안 STT

@@ -50,7 +50,7 @@ function settingsWithTolerance(tolerance: number) {
       preferredVoiceName: '',
       roundDateColId: null,
     },
-    version: 12,
+    version: 13,
   };
 }
 

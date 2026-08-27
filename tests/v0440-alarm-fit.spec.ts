@@ -80,7 +80,7 @@ function makeSettings(trendRule: 'increase' | 'decrease', prevValue: string) {
       recognitionTolerance: 0.6, sessionLabelColId: null, sessionAutoLabel: 'c0-alarm-fit',
       preferredVoiceName: '', roundDateColId: null,
     },
-    version: 12,
+    version: 13,
   };
   const headers = ['조사일자', '농가명', '조사나무', '측정항목01'];
   const sheetRows = [[PREV_ROUND, '이원창', '1', prevValue]];

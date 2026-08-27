@@ -45,7 +45,7 @@ const settingsWith = (columns: unknown[], totalRows: number) => ({
     noisyMode: false,
     preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 });
 
 const TWO_COL = [

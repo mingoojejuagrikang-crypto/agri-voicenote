@@ -88,7 +88,7 @@ const SETTINGS_VOICE = {
     ttsRate: 1.05, sessionLabelColId: null, sessionAutoLabel: '테스트세션', noisyMode: false,
     preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

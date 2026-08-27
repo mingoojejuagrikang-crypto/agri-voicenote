@@ -46,7 +46,7 @@ function settings(overrides: Record<string, unknown> = {}) {
       sessionLabelColId: null, sessionAutoLabel: 'v0440-d1', preferredVoiceName: '',
       ...overrides,
     },
-    version: 12,
+    version: 13,
   };
 }
 

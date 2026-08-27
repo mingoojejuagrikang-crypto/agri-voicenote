@@ -86,7 +86,7 @@ export const SETTINGS = {
     preferredVoiceName: '',
     roundDateColId: null,
   },
-  version: 12,
+  version: 13,
 };
 
 export const HEADERS = ['조사일자', '농가명', '조사나무', ...VOICE_COLS.map((c) => c.name)];

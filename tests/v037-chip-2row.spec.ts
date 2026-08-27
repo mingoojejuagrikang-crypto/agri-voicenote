@@ -84,7 +84,7 @@ const SETTINGS = {
     tableGenerated: true, totalRows: 2,
     ttsRate: 1.05, sessionLabelColId: null, sessionAutoLabel: '칩2줄', noisyMode: false, preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 const MOCK_INIT_SCRIPT = `

@@ -51,7 +51,7 @@ const SETTINGS = {
     noisyMode: false,
     preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 /** correction-flow TTS/STT mock — TTS onend를 ttsDelayMs 뒤에 발화시킬 수 있게 확장.

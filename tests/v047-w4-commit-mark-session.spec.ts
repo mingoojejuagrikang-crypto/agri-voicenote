@@ -53,7 +53,7 @@ const SETTINGS = {
     sessionAutoLabel: 'w4-mark-session',
     preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 const markIn = (page: Page, colName: string) =>

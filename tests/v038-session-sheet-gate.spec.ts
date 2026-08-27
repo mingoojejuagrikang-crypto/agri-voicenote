@@ -26,7 +26,7 @@ async function seedReadyA(page: Page): Promise<void> {
         email: 'tester@example.com',
       }));
       localStorage.setItem(key, JSON.stringify({
-        version: 12,
+        version: 13,
         state: {
           googleConnected: true,
           userEmail: 'tester@example.com',

@@ -215,7 +215,7 @@ const SETTINGS = {
     preferredVoiceName: '',
     roundDateColId: null,
   },
-  version: 12,
+  version: 13,
 };
 
 const MOCK_INIT_SCRIPT = `

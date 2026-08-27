@@ -67,7 +67,7 @@ function settings(extra?: Record<string, unknown>) {
       preferredVoiceName: '',
       ...extra,
     },
-    version: 12,
+    version: 13,
   };
 }
 

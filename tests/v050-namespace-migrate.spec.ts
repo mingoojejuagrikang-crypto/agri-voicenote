@@ -93,7 +93,7 @@ async function readNewDb(page: Page, store: string) {
 // sheetUrl은 F28 초기화의 명시적 보존 대상(민구 확정 08-02)이라 마커로 쓴다.
 const SEED_SETTINGS = JSON.stringify({
   state: { sheetUrl: 'https://example.com/ns-t1-marker', inputSettingsDate: '2026-08-01' },
-  version: 12,
+  version: 13,
 });
 
 test('T1+T2 localStorage — 구 키 복사 + 앱이 새 키에 실제로 다시 쓴다(강화 드리프트 가드)', async ({ page }) => {

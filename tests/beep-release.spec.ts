@@ -58,7 +58,7 @@ const SETTINGS = {
     preferredVoiceName: '',
     roundDateColId: null,
   },
-  version: 12,
+  version: 13,
 };
 
 // 앱 로드 전에 window.AudioContext를 가짜로 교체. 세션 오디오(레코더)도 같은 생성자를 쓰므로

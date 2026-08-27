@@ -74,7 +74,7 @@ function makeSettings(colName: string, trendRule?: 'decrease') {
       recognitionTolerance: 0.6, sessionLabelColId: null, sessionAutoLabel: 'fb67-probe',
       preferredVoiceName: '', roundDateColId: null, chipSweepSeconds: 0,
     },
-    version: 12,
+    version: 13,
   };
 }
 

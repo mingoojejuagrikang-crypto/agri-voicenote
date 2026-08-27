@@ -78,7 +78,7 @@ const SETTINGS = {
     totalRows: 2,
     roundDateColId: null,
   },
-  version: 12,
+  version: 13,
 };
 
 function localISO(d: Date): string {

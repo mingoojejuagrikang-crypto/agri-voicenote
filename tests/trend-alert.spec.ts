@@ -74,7 +74,7 @@ const SETTINGS = {
     preferredVoiceName: '',
     roundDateColId: null,
   },
-  version: 12,
+  version: 13,
 };
 
 /** 직전 회차 시트 데이터 — 행1(나무1·과실1): 횡경 100.0 / 행2(나무1·과실2): 횡경 110.0. */

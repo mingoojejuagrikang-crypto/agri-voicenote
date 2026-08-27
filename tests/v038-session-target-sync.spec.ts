@@ -21,7 +21,7 @@ const COLUMNS_B = COLUMNS_A.map((column) => column.id === 'c1'
 
 function settingsB() {
   return {
-    version: 12,
+    version: 13,
     state: {
       googleConnected: true,
       userEmail: 'tester@example.com',
@@ -230,7 +230,7 @@ test('활성 A 세션 중 B 전환 — persist는 시작 시 target·columns 스
       access_token: 'target-token', expires_at: Date.now() + 3_600_000, email: 'tester@example.com',
     }));
     localStorage.setItem(key, JSON.stringify({
-      version: 12,
+      version: 13,
       state: {
         googleConnected: true, userEmail: 'tester@example.com',
         sheetUrl: urlA, sheetTab: '농가', columnsSheetId: sheetA, columnsSheetTab: '농가',

@@ -42,7 +42,7 @@ function settingsWith(voiceCols: number, farm: string) {
       columnsSheetId: 'S1', columnsSheetTab: 'Sheet1',
       columns: cols, tableGenerated: true, totalRows: 2, roundDateColId: null,
     },
-    version: 12,
+    version: 13,
   };
 }
 

@@ -162,7 +162,7 @@ function oneRowSettings(extra?: Record<string, unknown>) {
       tableGenerated: true, totalRows: 1,
       ttsRate: 1.05, sessionLabelColId: null, sessionAutoLabel: 'review-receipt', noisyMode: false, preferredVoiceName: '',
     },
-    version: 12,
+    version: 13,
   };
 }
 
@@ -200,7 +200,7 @@ function oneRowVoiceCorrectionSettings() {
       tableGenerated: true, totalRows: 1, ttsRate: 1.05, sessionLabelColId: null,
       sessionAutoLabel: 'exit-persist-corrected', preferredVoiceName: '', roundDateColId: null,
     },
-    version: 12,
+    version: 13,
   };
 }
 
@@ -390,7 +390,7 @@ test('(b) 마지막 셀 이상치 정정 [확인] → 검토는 확정된 정정
       tableGenerated: true, totalRows: 1, ttsRate: 1.05, sessionLabelColId: null,
       sessionAutoLabel: 'review-receipt-anomaly', preferredVoiceName: '', roundDateColId: null,
     },
-    version: 12,
+    version: 13,
   };
   await bootAndStart(page, settings, { prevRow: [PREV, '이원창', '1', '10.0', '50.0'] });
   await waitForActiveChip(page, '횡경');
@@ -463,7 +463,7 @@ test('(d) 완료행을 "이전"으로 재방문(새 커밋 없음) → 중앙은
       tableGenerated: true, totalRows: 2,
       ttsRate: 1.05, sessionLabelColId: null, sessionAutoLabel: 'review-receipt-prev', noisyMode: false, preferredVoiceName: '',
     },
-    version: 12,
+    version: 13,
   };
   await bootAndStart(page, settings);
   await waitForActiveChip(page, '횡경');
@@ -503,7 +503,7 @@ test('(e) 검토 중 터치 컬럼 인라인 편집 → 검토는 터치값(88)�
       tableGenerated: true, totalRows: 1,
       ttsRate: 1.05, sessionLabelColId: null, sessionAutoLabel: 'review-receipt-touch', noisyMode: false, preferredVoiceName: '',
     },
-    version: 12,
+    version: 13,
   };
   await bootAndStart(page, settings);
   await waitForActiveChip(page, '횡경');

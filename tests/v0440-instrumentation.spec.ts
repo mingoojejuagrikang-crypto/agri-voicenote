@@ -67,7 +67,7 @@ function bargeSettings() {
       ttsRate: 1.05, recognitionTolerance: 0.6,
       sessionLabelColId: null, sessionAutoLabel: 'v0440-inst', preferredVoiceName: '',
     },
-    version: 12,
+    version: 13,
   };
 }
 

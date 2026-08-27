@@ -49,7 +49,7 @@ const SETTINGS = {
     noisyMode: false,
     preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 // correction-flow / clip-modify-rerecord와 동일 계열의 STT·TTS·마이크 스텁(최소판).

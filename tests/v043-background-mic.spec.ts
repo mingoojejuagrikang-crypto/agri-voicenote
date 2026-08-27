@@ -50,7 +50,7 @@ const SETTINGS = {
     tableGenerated: true, totalRows: 3,
     ttsRate: 1.05, sessionLabelColId: null, sessionAutoLabel: 'bg-mic', noisyMode: false, preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 /** 🔑 진짜 MediaStreamTrack을 돌려주는 가짜 마이크. 호출마다 새 destination을 만들어

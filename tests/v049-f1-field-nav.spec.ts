@@ -68,7 +68,7 @@ function settings() {
       noisyMode: false,
       preferredVoiceName: '',
     },
-    version: 12,
+    version: 13,
   };
 }
 

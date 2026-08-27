@@ -40,7 +40,7 @@ const SETTINGS = {
     tableGenerated: true, totalRows: 3,
     ttsRate: 1.05, sessionLabelColId: null, sessionAutoLabel: 'bg-gate', noisyMode: false, preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 const FAKE_MIC_SCRIPT = `

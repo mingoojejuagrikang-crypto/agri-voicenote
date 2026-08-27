@@ -31,7 +31,7 @@ const SETTINGS = {
       { id: 'c3', name: '횡경', type: 'float', input: 'voice', ttsAnnounce: true, trendRule: 'increase', auto: { kind: 'fixed', value: '' } },
     ],
   },
-  version: 12,
+  version: 13,
 };
 
 interface FailureProbe { completedErrorBodies: number }

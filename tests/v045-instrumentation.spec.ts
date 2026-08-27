@@ -32,7 +32,7 @@ const SETTINGS = {
     tableGenerated: true, totalRows: 3,
     ttsRate: 1.05, sessionLabelColId: null, sessionAutoLabel: 'instr45', noisyMode: false, preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 interface LoggedEvent { type: string; parsed?: string; extra?: string; meta?: Record<string, unknown> }

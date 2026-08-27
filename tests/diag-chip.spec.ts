@@ -20,7 +20,7 @@ const SETTINGS_2COL = {
     tableGenerated: true, totalRows: 2,
     ttsRate: 1.05, sessionLabelColId: null, sessionAutoLabel: '진단', noisyMode: false, preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 const MOCK_INIT_SCRIPT = `

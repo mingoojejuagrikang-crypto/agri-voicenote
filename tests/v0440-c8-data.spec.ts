@@ -43,7 +43,7 @@ const F23_SETTINGS = {
       { id: 'c8', name: '횡경', type: 'float', input: 'voice', ttsAnnounce: true, auto: { kind: 'fixed', value: '' }, decimals: 1 },
     ],
   },
-  version: 12,
+  version: 13,
 };
 
 function makeF23Session() {
@@ -281,7 +281,7 @@ function f28Settings(inputSettingsDate: string) {
       roundDateColId: null,
       inputSettingsDate,
     },
-    version: 12,
+    version: 13,
   };
 }
 
@@ -328,7 +328,7 @@ async function seedF28AndBoot(page: Page, dateMode: 'past' | 'today') {
         roundDateColId: null,
         inputSettingsDate: stamp,
       },
-      version: 12,
+      version: 13,
     };
     localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(settings));
     indexedDB.deleteDatabase('agri-voicenote');

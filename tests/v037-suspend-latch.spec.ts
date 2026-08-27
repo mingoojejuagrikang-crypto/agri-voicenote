@@ -48,7 +48,7 @@ const SETTINGS = {
     tableGenerated: true, totalRows: 3,
     ttsRate: 1.05, sessionLabelColId: null, sessionAutoLabel: 'suspend-latch', noisyMode: false, preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 /** D·F 전용 최소 끝 도달 구성. A·B·C·E의 기존 3행 설정은 그대로 격리한다. */

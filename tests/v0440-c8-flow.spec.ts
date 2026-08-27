@@ -55,7 +55,7 @@ function settingsRows(totalRows: number, label: string) {
       noisyMode: false,
       preferredVoiceName: '',
     },
-    version: 12,
+    version: 13,
   };
 }
 

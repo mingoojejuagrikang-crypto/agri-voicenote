@@ -283,7 +283,7 @@ function makeSettings(p: Profile) {
       recognitionTolerance: 0.6, sessionLabelColId: null, sessionAutoLabel: 'wpb-headroom',
       preferredVoiceName: '', roundDateColId: null,
     },
-    version: 12,
+    version: 13,
   };
   const headers = ['조사일자', '농가명', '조사나무', p.colName];
   const sheetRows = [[PREV_ROUND, '이원창', '1', p.prevValue]];

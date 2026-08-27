@@ -53,7 +53,7 @@ const SETTINGS = {
     ttsRate: 1.05, recognitionTolerance: 0.6,
     sessionLabelColId: null, sessionAutoLabel: 'v043-parse-first', noisyMode: false, preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 type LogEv = { type?: string; parsed?: string; extra?: string; text?: string; confidence?: number };
@@ -230,7 +230,7 @@ const SETTINGS_TREND = {
     sessionLabelColId: null, sessionAutoLabel: 'v043-trend-lowconf', noisyMode: false,
     speakerphoneMode: false, preferredVoiceName: '', roundDateColId: null,
   },
-  version: 12,
+  version: 13,
 };
 
 const TREND_HEADERS = ['조사일자', '농가명', '조사나무', '조사과실', '횡경', '종경'];

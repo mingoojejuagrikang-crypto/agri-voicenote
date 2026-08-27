@@ -59,7 +59,7 @@ function makeSettings() {
         recognitionTolerance: 0.6, sessionLabelColId: null, sessionAutoLabel: 'cr-blackout',
         preferredVoiceName: '', roundDateColId: null,
       },
-      version: 12,
+      version: 13,
     },
     headers: ['조사일자', '조사나무', '횡경'],
     sheetRows: [],

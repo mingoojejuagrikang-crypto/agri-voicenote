@@ -281,7 +281,7 @@ const FEEDBACK_STT_SETTINGS = {
     tableGenerated: true, totalRows: 3, ttsRate: 1.05,
     sessionLabelColId: null, sessionAutoLabel: 'feedback-stt-test', noisyMode: false, preferredVoiceName: '',
   },
-  version: 12,
+  version: 13,
 };
 
 // manual-input.spec.ts와 동일한 instant-TTS + MockSTT 주입(이 스펙의 다른 테스트는 세션 불필요라 미사용).

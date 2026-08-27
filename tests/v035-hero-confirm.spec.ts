@@ -75,7 +75,7 @@ const SETTINGS = {
     preferredVoiceName: '',
     roundDateColId: null,
   },
-  version: 12,
+  version: 13,
 };
 
 const HEADERS = ['조사일자', '조사나무', '당도', '산도'];
