@@ -31,6 +31,8 @@ const ALLOWED: Record<string, string> = {
     'P1 선제 갱신(세션 활성 가드 r1[F-3]) · 업로드 직전 ensure와 force 재시도(세션 활성 가드 r2) · 재로그인 모달 signIn(사용자 명시 의사)',
   'src/lib/useSettingsSheetConnection.ts':
     '설정탭 Google 로그인 버튼 — 사용자 명시 의사(signIn 직접 호출이라 자동 갱신 게이트를 지나지 않는다)',
+  'src/lib/syncAuthGuard.ts':
+    '동기화·업로드 경로의 세션 활성 가드 그 자체 — 세션 live면 갱신 없이 false(r2). r4에서 useDataActions에서 분리했고 가드 술어를 이 파일이 소유한다',
   'src/lib/useVoiceSession.ts':
     'P2 세션 시작 선제 갱신 — 마이크 획득 이전 · 연결 가드(refreshBeforeSessionStart 내부 isConnectionAlive) · r4부터 googleAuthRefresh에서 직접 import',
 };
