@@ -2570,3 +2570,22 @@ TTS 구간(`:2522-2523`)에 오버레이가 열리면 **모달 뒤에서 STT 인
 - **회귀:** `tests/v050-sheet-number-format.spec.ts` 5건.
 - **현재 상태:** 🟡 **MONITORING** — **실호출 미검증**(개발 환경에서 실계정 `batchUpdate` 불가).
   민구가 테이블 생성을 1회 하면 `sheet_number_format:ok|failed:cols=N[:status=]`로 즉시 판정된다.
+
+### [AUTH-SF-1] signIn() single-flight가 「즉시 reject」라 동시 갱신 호출이 조용히 실패
+- **증상:** 로그인/갱신이 진행 중일 때 두 번째 `signIn()` 호출이 `'이미 로그인 진행 중입니다.'`로
+  즉시 reject — 앞 호출이 성공하는 중인데도 뒤 호출부는 실패 경로(재로그인 배너)로 수렴한다.
+- **원인:** module-level `pending` 싱글톤의 single-flight가 **합류 없는 즉시 reject**로 구현돼
+  있었다. 호출 지점이 설정탭 버튼 하나일 땐 무해했지만, v0.51의 제스처 안 선제 갱신
+  (rauth P1 동기화 클릭 · P2 세션 시작)이 호출 지점을 늘리면서 경합이 실경로가 됐다
+  (rauth P1ⓓ③이 선결 수리로 지목).
+- **해결·회피(v0.51):** 동시 호출은 진행 중 flight의 **같은 promise에 합류** — 같은 결과(성공이면
+  같은 토큰, 실패면 같은 사유)를 받는다. `auth_signin_start`는 선두만 내고 합류는
+  `auth_signin_join`으로 분리 계측(start 1건:settle 1건 파서 계약 유지). 파생 방어:
+  flight `origin`(user/silent) 구분 — silent 선두 flight만 12초 상한에서 통째 정리, 사람 합류 시
+  origin 승격 · 콜백 세대/epoch 격리(버려진 클라이언트의 지각 콜백은 settle 금지, 로그아웃 경계를
+  넘은 콜백은 저장까지 드랍).
+- **회귀:** `tests/v051-signin-join.spec.ts` · `tests/auth-signin-timeout.spec.ts`(무수정 green =
+  타임아웃·지각 콜백 계약 보존의 증거).
+- **출처:** `plans/2026-08-27-agri-voicenote-login-sliding-window.md` §2-4 ·
+  리뷰 합집합 `deliverables/2026-08-27-login-sliding-window-review-union.md`(teamops)
+- **현재 상태:** ✅수정됨 (v0.51 로그인 슬라이딩 회차)
