@@ -169,13 +169,15 @@ test('[UI] 10-B/10-C — persist migrate coercion: 구버전(v10) 손상/누락 
   await page.goto(BASE);
   await page.waitForLoadState('networkidle');
 
-  // migrate 후 재영속 — version이 11이 되고(bump 없음 = 최신이 11), 손상값이 치유되어 있어야 한다.
+  // migrate 후 재영속 — version이 **현재 persist version**이 되고, 손상값이 치유되어 있어야 한다.
+  // 🔴 v0.51 r1 [F-11] 12→13: persist bump 때 이 숫자가 스윕에서 빠져 게이트 전량에서 잡혔다.
+  //    교훈 — 재정합 스윕 축은 「googleConnected」가 아니라 **「version 숫자」 grep**이어야 한다.
   await expect
     .poll(async () => page.evaluate((key) => {
       const raw = localStorage.getItem(key);
       return raw ? (JSON.parse(raw) as { version: number }).version : null;
     }, SETTINGS_KEY))
-    .toBe(12);
+    .toBe(13);
   const stored = await page.evaluate((key) => {
     const raw = localStorage.getItem(key);
     return JSON.parse(raw!) as { state: { autoScreenCapture: unknown; beepPositiveId: unknown; beepNegativeId: unknown; beepVolume: unknown } };
@@ -196,7 +198,7 @@ test('[UI] 10-B/10-C — persist migrate coercion: 구버전(v10) 손상/누락 
   //    (위 beepPositiveId·beepNegativeId·beepVolume 단언) — 필드는 살아 있고 재생만 고정값을
   //    쓴다(beep.ts FIXED_*). 즉 이 테스트가 재는 migrate 계약은 온전하고, 사라진 것은
   //    "치유 결과가 UI에 보이나"라는 표시 축뿐이다. UI 부재는 위 WP-I 절이 잰다.
-  console.log('✓ v10 손상값 → migrate coercion 치유 + version 12 (칩 UI 축은 WP-I로 제거)');
+  console.log('✓ v10 손상값 → migrate coercion 치유 + version 13 (칩 UI 축은 WP-I로 제거)');
 });
 
 test('[UI] 10-B — 자동 캡처 토글: 기본 on, 탭=off 전환 + 영속', async ({ page }) => {
