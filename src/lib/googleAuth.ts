@@ -13,6 +13,7 @@
  */
 
 import { logger } from './logger';
+import { clearConnection, upsertConnection } from './googleConnection';
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
 const SCOPE = [
@@ -221,10 +222,17 @@ function ensureTokenClient(): boolean {
       try {
         const email = await fetchEmail(resp.access_token);
         storeToken({ access_token: resp.access_token, expires_at, email });
+        // v0.51 — 토큰이 실제로 확정된 이 지점이 **연결 기록의 유일한 개시·갱신 지점**이다.
+        // (storeToken 직후 · pending 상태와 무관 — 아래 notifyTokenSettled와 같은 이유로
+        //  지각 콜백에서도 반드시 서야 한다. 지각 성공은 "연결됐다"는 사실 자체를 바꾸지 않는다.)
+        upsertConnection(email);
         value = { email, token: resp.access_token };
       } catch {
         // Even if email lookup fails, we still have a usable token.
         storeToken({ access_token: resp.access_token, expires_at });
+        // 이메일 조회만 실패한 것이고 토큰은 유효하다 — 연결은 성립했다. email은 null로 둔다
+        // (기존 기록이 있으면 upsertConnection이 그쪽 값을 보존한다).
+        upsertConnection(null);
         value = { email: '연결됨', token: resp.access_token };
       }
       // v0.29.0 (Mack, A5 finding #1) — notify subscribers UNCONDITIONALLY, before settlePending.
@@ -378,6 +386,11 @@ export async function ensureAccessToken(opts?: { force?: boolean }): Promise<boo
  *  로깅하지 않는다. */
 export async function signOut(reason: 'manual' | 'settings_reset' = 'manual') {
   logger.log({ type: 'app', extra: `auth_signout:${reason}` });
+  // v0.51 — 명시적 로그아웃은 **연결 기록도 함께** 지운다. 안 지우면 4주 창이 살아남아, 다음
+  // 마운트에서 강등 분기가 "토큰 無 + 창 유효 = 연결됨 유지"로 판정해 로그아웃이 되돌아간다.
+  // (창 만료의 자동 정리도 같은 clearConnection을 쓰지만 그쪽은 revoke를 **거치지 않는다** —
+  //  아래 revoke는 사용자 명시 의사인 이 경로에만 남는다. googleConnection.ts 모듈 주석 계약.)
+  clearConnection(reason);
   const t = getStoredToken();
   if (t && window.google?.accounts?.oauth2) {
     await new Promise<void>((resolve) => {
