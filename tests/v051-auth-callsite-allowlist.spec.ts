@@ -32,11 +32,11 @@ const ALLOWED: Record<string, string> = {
   'src/lib/useSettingsSheetConnection.ts':
     '설정탭 Google 로그인 버튼 — 사용자 명시 의사(signIn 직접 호출이라 자동 갱신 게이트를 지나지 않는다)',
   'src/lib/useVoiceSession.ts':
-    'P2 세션 시작 선제 갱신 — 마이크 획득 이전 · 연결 가드(refreshBeforeSessionStart 내부 isConnectionAlive)',
+    'P2 세션 시작 선제 갱신 — 마이크 획득 이전 · 연결 가드(refreshBeforeSessionStart 내부 isConnectionAlive) · r4부터 googleAuthRefresh에서 직접 import',
 };
 
 /** googleAuth 자신은 정의처라 대상에서 제외한다. */
-const SELF = 'src/lib/googleAuth.ts';
+const SELF_MODULES = ['src/lib/googleAuth.ts', 'src/lib/googleAuthRefresh.ts'];
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -47,10 +47,17 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** 파일이 googleAuth에서 가져오는 심볼 이름들(별칭 앞의 원래 이름). */
+/** 파일이 **인증 모듈군**에서 가져오는 심볼 이름들(별칭 앞의 원래 이름).
+ *
+ *  🔴 v0.51 r4 — `googleAuth.ts`가 `max-lines`를 넘어 분리되면서 이 오라클이 **정확히 red를 냈다**
+ *  (`refreshBeforeSessionStart`가 `./googleAuthRefresh`로 옮겨가자 `useVoiceSession`이 집합에서
+ *  사라졌다). 그게 이 스펙이 살아 있다는 증거다 — 「호출부 집합」은 파일이 갈려도 하나다.
+ *  그래서 판정 대상을 **모듈 하나가 아니라 인증 모듈군**(basename이 `googleAuth`로 시작)으로
+ *  넓힌다. 앞으로 정책층이 더 갈려도(`googleAuthXxx.ts`) 집합 판정은 그대로 성립한다.
+ *  ⚠️ `googleTokenStore`는 대상이 아니다 — 인증을 **개시**하지 않는 읽기/쓰기 leaf다. */
 function importedFromGoogleAuth(src: string): string[] {
   const names: string[] = [];
-  const re = /import\s*\{([^}]*)\}\s*from\s*['"][^'"]*googleAuth['"]/g;
+  const re = /import\s*\{([^}]*)\}\s*from\s*['"][^'"]*\/googleAuth[A-Za-z]*['"]/g;
   for (const m of src.matchAll(re)) {
     for (const part of m[1].split(',')) {
       const name = part.trim().split(/\s+as\s+/)[0].trim();
@@ -65,7 +72,7 @@ test('[node] F-20 — 인증 개시 함수의 호출부 집합이 allowlist와 �
   const found: string[] = [];
   for (const abs of walk(root)) {
     const rel = relative(process.cwd(), abs);
-    if (rel === SELF) continue;
+    if (SELF_MODULES.includes(rel)) continue; // 정의처(기계부·정책층)는 대상이 아니다
     const names = importedFromGoogleAuth(readFileSync(abs, 'utf8'));
     if (names.some((n) => (INITIATORS as readonly string[]).includes(n))) found.push(rel);
   }

@@ -41,7 +41,7 @@ import { buildAnomalyAlert } from './anomalyAlert';
 import { readonlySheetsAuth } from './sheets';
 import { withoutPendingCandidate } from './pendingValidation';
 import { isSheetSourceBlocked, sessionTargetFromSettings } from './sheetConnection';
-import { refreshBeforeSessionStart } from './googleAuth'; // v0.51 [rauth P2] — 세션 시작 선제 갱신
+import { refreshBeforeSessionStart } from './googleAuthRefresh'; // v0.51 [rauth P2] — 세션 시작 선제 갱신
 import { ensureUniqueSessionLabel } from './sessionLabel';
 // [ENV-12] Stage 3 — 클립 캡처·보존 장부는 useClipCapture가 소유한다(이 파일은 호출만).
 import { useClipCapture, type PendingCommandClip } from './useClipCapture';

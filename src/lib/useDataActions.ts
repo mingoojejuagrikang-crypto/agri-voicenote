@@ -18,7 +18,10 @@ import type { Session } from '../types';
 import { exportLogZipsPerSession } from './exportLog';
 import { uploadLogToBothDrives } from './driveUpload';
 import { withAuthRetry, isAuthError, sanitizeUploadError } from './uploadAuthRetry';
-import { signIn, ensureAccessToken, getStoredToken } from './googleAuth';
+import { signIn, getStoredToken } from './googleAuth';
+// v0.51 r4 — 갱신 **정책층**은 별도 모듈이다(경계: 정책 / flight 기계). 재수출로 감추면
+// F-20 allowlist가 호출부 집합을 못 본다 — 그래서 여기서 직접 가리킨다.
+import { ensureAccessToken } from './googleAuthRefresh';
 import { useExportActions } from './useExportActions';
 import { useRecoverActions } from './useRecoverActions';
 import { logger } from './logger';
