@@ -5,8 +5,10 @@
  * 거짓 표시했고([AUTH-7] stale 표시), 이상치 알람의 실제 가용성(과거값 인덱스)은 아예 보이지
  * 않았다(07-13 §4: 알람 침묵을 사용자가 알 방법이 없음). 이 카드는 세 상태를 분리해 보인다:
  *
- *  1. Google 연결 — `getStoredToken()` **실시간 판정**(만료 반영). persist 값이 아니라 토큰
- *     스토리지를 직접 읽고, 30s 폴링 + onTokenSettled 구독으로 갱신 → stale 표시 해소.
+ *  1. Google 연결 — **실시간 판정**(persist 값을 그대로 믿지 않는다). 30s 폴링 + onTokenSettled
+ *     구독으로 갱신 → stale 표시 해소.
+ *     🔴 v0.51 — 판정 축이 「유효 토큰」에서 **「유효 토큰 ∪ 살아 있는 4주 연결창」**으로 바뀌었다.
+ *     강등 분기(`useSettingsSheetConnection`)와 같은 술어여야 화면 두 곳이 갈리지 않는다.
  *  2. 시트 연결 — 시트 URL(파싱 성공) + 탭 선택 여부. 저장 목록의 파일명으로 표기.
  *  3. 과거값 준비 — pastValues 상태 스냅샷: "N행 · M회차 준비됨(x시간 전)". 신선 캐시(green) /
  *     영속 폴백(amber, 오래된 비교선) / 불러오는 중 / 미준비 + **재시도 버튼**(백오프 리셋).
@@ -18,6 +20,7 @@ import { useEffect, useState } from 'react';
 import { T } from '../tokens';
 import { useSettingsStore } from '../stores/settingsStore';
 import { getStoredToken, onTokenSettled } from '../lib/googleAuth';
+import { isConnectionAlive } from '../lib/googleConnection';
 import { parseSpreadsheetId, readonlySheetsAuth } from '../lib/sheets';
 import {
   getPastIndexStatus,
@@ -109,13 +112,25 @@ export function ConnectionStatusCard() {
     return () => { unsubIndex(); unsubToken(); window.clearInterval(timer); };
   }, []);
 
-  // 1) Google 연결 — 토큰 실시간 판정([AUTH-7] 해소: persist가 아니라 지금 유효한 토큰).
+  // 1) Google 연결 — **연결창 기준 실시간 판정**(v0.51). 강등 분기(useSettingsSheetConnection)와
+  //    **같은 술어**를 쓴다: 유효 토큰이 있거나 4주 연결창이 살아 있으면 연결된 것이다.
+  //
+  //    v0.33.0 항목5의 원래 판정은 「토큰만」이었고, 그건 [AUTH-7](persist가 true인데 모든 호출이
+  //    실패하는 거짓 표시)의 해소였다. v0.51에서 그 전제가 바뀐다 — 창 안에서 토큰이 만료돼도
+  //    제스처 지점(동기화 클릭·세션 시작)에서 무팝업으로 조용히 갱신되므로, 매시간 '재로그인 필요'로
+  //    깜빡이는 쪽이 오히려 사실과 멀다. 🔴 남는 대가는 **제스처 밖 경로**(부팅 프리페치 등)가
+  //    여전히 토큰 없이 실패할 수 있다는 것이고, 그건 계획서 §3 한계로 민구가 승인한 축이다.
+  //    (아래 30s 폴링 틱이 창 만료 순간도 그대로 잡는다 — 판정이 시각 함수라서.)
   const token = getStoredToken();
+  const connectionAlive = isConnectionAlive();
+  const linked = !!token || connectionAlive;
   const knewAccount = !!(s.userEmail || s.googleConnected);
-  const googleValue = token
-    ? `로그인됨 · ${token.email ?? s.userEmail ?? ''}`
+  // ⚠️ 텍스트에 '연결됨'을 쓰지 않는다 — 파일 머리 주석의 strict mode 계약(설정탭 Google 버튼과
+  //    `text=연결됨` 로케이터 충돌). 창만 살아 있는 경우도 같은 '로그인됨' 문구를 쓴다.
+  const googleValue = linked
+    ? `로그인됨 · ${token?.email ?? s.userEmail ?? ''}`
     : knewAccount ? '재로그인 필요' : '미로그인';
-  const googleTone: 'ok' | 'warn' | 'off' = token ? 'ok' : knewAccount ? 'warn' : 'off';
+  const googleTone: 'ok' | 'warn' | 'off' = linked ? 'ok' : knewAccount ? 'warn' : 'off';
 
   // 2) 시트 연결 — URL 파싱 + 탭 선택. 저장 목록의 파일명으로 표기(요약 팝업과 동일 규칙).
   const sheetId = parseSpreadsheetId(s.sheetUrl);

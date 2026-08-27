@@ -26,6 +26,7 @@ import {
   signOut as googleSignOut,
   warmupGoogleAuth,
 } from './googleAuth';
+import { clearConnection, isConnectionAlive } from './googleConnection';
 import {
   fetchHeaderAndSample,
   fetchSpreadsheetMeta,
@@ -71,16 +72,33 @@ export function useSettingsSheetConnection() {
     if (t && !s.googleConnected) {
       s.set({ googleConnected: true, userEmail: getCurrentEmail() });
     } else if (!t && s.googleConnected) {
-      // v0.13.0 R1 — 토큰 만료/소실 시 googleConnected를 강등한다. 토큰은 ~1시간이면 만료되는데
-      // (refresh token 없음, [AUTH-4]) googleConnected는 통째로 persist되어 true로 재하이드레이트
-      // 됐다. 그래서 UI는 '연결됨'이라 거짓 표시하지만 모든 시트 읽기/쓰기는 토큰 없음으로 실패 →
-      // 사용자가 '연결이 풀렸다'고 느끼고 매번 URL을 다시 붙여넣던 혼란의 근본. 정직하게 강등해
-      // '재로그인 필요'를 노출하고, 재로그인 후엔 저장 URL을 자동 재연결(아래 onGoogleClick)한다.
-      // v0.34.0 계측 갭① — 토큰 소실이 '발견'되는 유일한 지점(만료는 이벤트가 아니라 상태)이라
-      // 여기서 token_expired를 남긴다. googleConnected=true→false 전이에서만 오므로 로그아웃
-      // 상태의 매 마운트마다 반복되지 않는다. 수동 로그아웃은 signOut('manual'|...)이 별도 로깅.
-      logger.log({ type: 'app', extra: 'auth_signout:token_expired' });
-      s.set({ googleConnected: false });
+      // ── v0.51 — **강등 분기의 의미가 바뀌었다**(계획서 §2-2 · 민구 08-27) ─────────────
+      //
+      // v0.13.0 R1의 원래 규칙은 「토큰 없음 = 연결 풀림」이었다. 토큰은 ~1시간이면 만료되는데
+      // (refresh token 없음 [AUTH-4]) googleConnected는 persist라 true로 재하이드레이트돼,
+      // UI는 '연결됨'인데 모든 시트 호출은 실패하는 거짓 표시가 났다([AUTH-7]). 그때는 강등이
+      // **옳았다** — 거짓 「연결됨」보다 정직했다.
+      //
+      // 지금은 무팝업 갱신(`prompt:''`)이 실측되고(rauth §2-6) 제스처 지점에서 조용히 갱신하므로,
+      // 정직한 대안이 「강등」 말고 「조용한 갱신」이다. 그래서 판정 축을 **토큰이 아니라 연결창**
+      // 으로 옮긴다: 창이 살아 있으면 유지하고, 창이 만료됐을 때만 강등한다. 이것이 민구가 보던
+      // 「매시간 로그인 풀림」을 「4주 미사용 시에만 풀림」으로 바꾸는 한 지점이다.
+      //
+      // 🔴 **check-then-touch**: 여기서 창 유효를 **먼저** 판정한다. 부팅 touch(App.tsx)는
+      //    이미 지나갔지만 touchConnection이 죽은 창을 되살리길 거부하므로 29일차 진입은
+      //    정확히 만료로 떨어진다(googleConnection.ts 계약).
+      // ⚠️ 계측: 종전 `auth_signout:token_expired`는 **은퇴**한다 — 그 조건(토큰 만료)이 더는
+      //    강등 사유가 아니기 때문이다. 대신 유지는 `auth_token_expired_kept`(강등 아님),
+      //    진짜 만료는 `auth_signout:connection_expired`로 갈린다(SOP-003 매핑표 갱신 대상).
+      if (isConnectionAlive()) {
+        logger.log({ type: 'app', extra: 'auth_token_expired_kept' });
+      } else {
+        logger.log({ type: 'app', extra: 'auth_signout:connection_expired' });
+        // 🔴 revoke하지 않는다 — 로컬 정리만(googleConnection.ts §계약). revoke하면 grant가 죽어
+        //    이후 무팝업 갱신까지 전부 동의 화면으로 되돌아간다. signOut()을 경유하면 안 된다.
+        clearConnection('connection_expired');
+        s.set({ googleConnected: false });
+      }
     }
     // S-1: preload GIS + token client so the first 로그인 click opens the popup in one shot
     // (avoids the "popup_failed_to_open" that required a second click).
