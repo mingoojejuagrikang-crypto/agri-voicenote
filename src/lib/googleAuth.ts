@@ -13,7 +13,7 @@
  */
 
 import { logger } from './logger';
-import { clearConnection, isLinkedAccount, upsertConnection } from './googleConnection';
+import { clearConnection, isConnectionAlive, upsertConnection } from './googleConnection';
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
 const SCOPE = [
@@ -105,6 +105,24 @@ export function getStoredToken(): StoredToken | null {
   }
 }
 
+/** v0.51 r3 [F-16 / codex cx-M1] — **마진을 적용하지 않은** 원시 저장 토큰.
+ *
+ *  `getStoredToken()`은 만료 5분 전부터 null을 돌려준다(P3 조기판정). 그 술어를 `signOut()`의
+ *  **revoke 대상 조회**에 쓰면, 실제로는 아직 4분 남은 살아 있는 토큰을 「없다」고 보고 revoke를
+ *  건너뛴다 — 사용자가 「연결 해제」를 눌렀는데 **Google 쪽 grant는 그대로 살아 있는** 상태가 된다
+ *  (해제의 의미가 반쪽이 되고, 이후 무팝업 갱신이 계속 성립한다).
+ *  「쓸 수 있는가」(마진 O)와 「지워야 할 것이 있는가」(마진 X)는 **다른 질문**이라 술어를 나눈다. */
+function getRawStoredToken(): StoredToken | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const t = JSON.parse(raw) as StoredToken;
+    return typeof t?.access_token === 'string' && t.access_token ? t : null;
+  } catch {
+    return null;
+  }
+}
+
 function storeToken(t: StoredToken) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(t));
 }
@@ -143,6 +161,20 @@ export function getCurrentEmail(): string | null {
 export type SignInOrigin = 'user' | 'silent';
 
 let tokenClient: { requestAccessToken: (opts?: { prompt?: string }) => void } | null = null;
+/** v0.51 r3 [F-14] — tokenClient **세대**. `resetTokenClient()`가 올린다(타임아웃 · silent
+ *  abandon · signOut). 콜백은 생성 시점 세대를 클로저로 들고 있다가 발화 시점과 비교해,
+ *  자기가 이미 버려진 클라이언트의 것이면 저장·알림·settle을 전부 건너뛴다. */
+let clientGeneration = 0;
+/** v0.51 r3 [F-14] — **로그아웃 경계**. `signOut()`이 올린다. 세대와 **다른 축**이다:
+ *  · 세대 불일치 = 「이 클라이언트는 버려졌다」 → `pending`을 settle하지 않는다(그 pending은 이미
+ *    다른 flight의 것이다). 하지만 토큰 자체는 진짜이므로 v0.29.0의 지각 재조정(storeToken +
+ *    notifyTokenSettled)은 **그대로 돈다** — 느린 2FA가 120초를 넘긴 축이 여기 산다.
+ *  · epoch 불일치 = 「그 사이 사용자가 로그아웃했다」 → 저장·연결 upsert **자체를 드랍**한다.
+ *    방금 끊은 연결이 지각 콜백으로 부활하면 안 된다. v0.29.0 계약은 **같은 epoch 안에서만**이다. */
+let authEpoch = 0;
+/** 현재 tokenClient의 메타(세대 + **마지막 요청 시점의 epoch**). 콜백이 이 객체를 클로저로 붙들기
+ *  때문에, 새 클라이언트가 만들어져도 옛 콜백은 **자기 클라이언트의** 값을 그대로 본다. */
+let tokenClientMeta: { generation: number; requestEpoch: number } | null = null;
 let pending: {
   /** v0.51 [AUTH-SF-1] — 진행 중 signIn()의 promise. 동시 호출은 이걸 그대로 돌려받아 **합류**한다. */
   promise: Promise<{ email: string; token: string }>;
@@ -284,6 +316,9 @@ function settlePending(outcome:
  *  다음 signIn()이 ensureTokenClient로 새 클라이언트를 만든다(콜백 wedge 해소). */
 function resetTokenClient(): void {
   tokenClient = null;
+  // 🔴 v0.51 r3 [F-14] — **버리는 순간 세대를 올린다.** 새 클라이언트를 만들 때 올리면,
+  //    「버린 뒤 · 새로 만들기 전」에 도착한 지각 콜백이 여전히 현재 세대로 통과한다.
+  clientGeneration += 1;
   logger.log({ type: 'app', extra: 'auth_tokenclient_reset' });
 }
 
@@ -293,6 +328,11 @@ function ensureTokenClient(): boolean {
   const clientId = getClientId();
   const g = window.google;
   if (!clientId || !g?.accounts?.oauth2) return false;
+  // 이 클라이언트가 속한 세대. 아래 콜백이 클로저로 붙들고, 발화 시점의 `clientGeneration`과
+  // 비교해 **자기가 아직 현재 클라이언트인지**를 판정한다([F-14]).
+  const generation = clientGeneration;
+  const meta = { generation, requestEpoch: authEpoch };
+  tokenClientMeta = meta;
   tokenClient = g.accounts.oauth2.initTokenClient({
     client_id: clientId,
     scope: SCOPE,
@@ -302,6 +342,34 @@ function ensureTokenClient(): boolean {
       const settledMs = lastSignInStartedAt ? Date.now() - lastSignInStartedAt : -1;
       const late = !pending || pending.settled; // pending이 없거나 이미 settle됐으면 지각 콜백
       logger.log({ type: 'app', extra: `auth_token_settled:ms=${settledMs},late=${late}` });
+      // ── 🔴 v0.51 r3 [F-14 / codex cx-H2] — **세대가 다르면 이 콜백은 통째로 죽은 것이다.** ──
+      //
+      // v0.29.0은 「지각 성공도 진짜 토큰이다」라며 `storeToken`+알림을 pending과 **무관하게**
+      // 무조건 돌렸다. 그 계약은 flight가 **하나뿐**일 때만 옳다. r1이 `abandonSilentFlight`를
+      // 넣으면서 「버려진 flight A → 새 flight B」가 정상 흐름이 됐고, 그러면:
+      //   ① A의 지각 콜백이 B의 `pending`을 **A의 토큰으로** settle한다(계정 오귀속 가능 —
+      //      A와 B 사이에 사용자가 계정을 바꿔 로그인했을 수 있다).
+      //   ② `signOut()` 도중 살아 있던 flight의 지각 성공이 `upsertConnection`으로 **방금 끊은
+      //      연결을 부활**시킨다.
+      // 세대 검사가 둘을 함께 막는다: `resetTokenClient()`(타임아웃·abandon·signOut)가 세대를
+      // 올리므로, 그 이전 클라이언트의 콜백은 여기서 **저장·알림·settle 전부** 건너뛴다.
+      // 🔑 v0.29.0의 지각 재조정 계약은 **같은 세대 안에서는 그대로** 유지된다(느린 2FA 축).
+      // ⓐ **로그아웃 경계를 넘은 콜백은 통째로 죽은 것이다.** `signOut()` 도중 살아 있던 flight의
+      //    지각 성공이 `storeToken`+`upsertConnection`을 돌리면 **방금 끊은 연결이 부활**한다.
+      if (meta.requestEpoch !== authEpoch) {
+        logger.log({ type: 'app', extra: `auth_token_settled:stale_epoch,ms=${settledMs}` });
+        return;
+      }
+      // ⓑ **버려진 클라이언트의 콜백은 남의 flight를 settle하면 안 된다.** r1이
+      //    `abandonSilentFlight`를 넣으면서 「버려진 flight A → 새 flight B」가 정상 흐름이 됐고,
+      //    그러면 A의 지각 콜백이 B의 `pending`을 **A의 토큰으로** resolve한다(그 사이 사용자가
+      //    계정을 바꿔 로그인했을 수 있다 = 계정 오귀속).
+      //    🔑 단 **저장·알림은 계속한다** — 토큰 자체는 진짜이고, v0.29.0이 세운 지각 재조정
+      //       계약(느린 2FA가 120초를 넘긴 축)이 정확히 이 경로다. settle만 건너뛴다.
+      const staleGeneration = generation !== clientGeneration;
+      if (staleGeneration) {
+        logger.log({ type: 'app', extra: `auth_token_settled:stale_generation,ms=${settledMs}` });
+      }
       if (!resp.access_token) {
         settlePending({ ok: false, error: new Error('No access token received') });
         return;
@@ -333,6 +401,8 @@ function ensureTokenClient(): boolean {
       // at mount). Calling it here — decoupled from the settle-once gate — lets subscribers
       // (SettingsScreen, useVoiceSession) reconcile even after signIn()'s promise already rejected.
       notifyTokenSettled(value);
+      // [F-14ⓑ] 버려진 클라이언트면 여기서 멈춘다 — 알림까지는 했고, 남의 flight는 건드리지 않는다.
+      if (staleGeneration) return;
       settlePending({ ok: true, value });
     },
     error_callback: (err) => {
@@ -385,7 +455,18 @@ export function signIn(origin: SignInOrigin = 'user'): Promise<{ email: string; 
   // [AUTH-SF-1] 합류. `auth_signin_start`는 **선두 호출만** 낸다(SOP-003 파서 계약 — 시작 1건에
   // settle 1건이 대응해야 ms 분포가 유효하다). 합류는 별도 이벤트로 구분해 남긴다.
   if (pending) {
-    logger.log({ type: 'app', extra: 'auth_signin_join' });
+    // 🔴 v0.51 r3 [F-17 / codex cx-M2] — **사람이 합류하면 flight의 origin을 승격한다.**
+    //    r1 [F-2]는 「선두가 silent인 flight는 12초에 통째로 정리」로 재로그인 모달의 고착을
+    //    풀었다. 그런데 그 12초 안에 **사용자가** 로그인 버튼을 눌러 합류하면, 그 사람의 요청까지
+    //    12초에 잘린다(사람은 2FA를 진행 중일 수 있다 — 120초 계약의 대상이다).
+    //    승격하면 `abandonSilentFlight`가 이 flight를 건너뛰고, silent 호출자는 **자기 promise만**
+    //    12초에 포기한다(r1 설계 그대로). 강등은 없다 — user는 흡수만 한다.
+    if (origin === 'user' && pending.origin === 'silent') {
+      pending.origin = 'user';
+      logger.log({ type: 'app', extra: 'auth_signin_join:promoted_user' });
+    } else {
+      logger.log({ type: 'app', extra: 'auth_signin_join' });
+    }
     return pending.promise;
   }
   let resolveFn!: (v: { email: string; token: string }) => void;
@@ -413,6 +494,7 @@ export function signIn(origin: SignInOrigin = 'user'): Promise<{ email: string; 
   try {
     // Fast path: client already warmed up → open the popup synchronously within the gesture.
     if (ensureTokenClient()) {
+      if (tokenClientMeta) tokenClientMeta.requestEpoch = authEpoch; // [F-14] 요청 시점 epoch 각인
       tokenClient!.requestAccessToken({ prompt: '' });
       return promise;
     }
@@ -421,6 +503,7 @@ export function signIn(origin: SignInOrigin = 'user'): Promise<{ email: string; 
     loadGisScript()
       .then(() => {
         if (ensureTokenClient()) {
+          if (tokenClientMeta) tokenClientMeta.requestEpoch = authEpoch; // [F-14]
           tokenClient!.requestAccessToken({ prompt: '' });
         } else {
           settlePending({ ok: false, error: new Error('Google Identity Services unavailable') });
@@ -474,6 +557,31 @@ export async function ensureAccessToken(opts?: { force?: boolean }): Promise<boo
     logger.log({ type: 'app', extra: 'auth_ensure:skipped:no_gesture' });
     return false;
   }
+  // ── 🔴 v0.51 r3 [F-13 / codex cx-H1] — **창이 죽었으면 자동 갱신은 없다.** ──────────────
+  //
+  // 창 만료 강등은 설계상 `revoke`를 하지 않는다(계획서 §2-5 — revoke하면 grant가 죽어 이후
+  // 무팝업 갱신이 전부 동의 화면이 된다). 그 말은 **만료 뒤에도 Google 쪽 grant는 살아 있다**는
+  // 뜻이고, 그래서 다음 동기화 클릭의 `prompt:''`가 조용히 토큰을 받아 온다 →
+  // 콜백의 `upsertConnection`이 **새 4주 창을 연다.** 즉 「4주 미사용이면 풀린다」가 표시용으로
+  // 전락하고, 창은 사실상 영구히 되살아난다.
+  //
+  // 정책(민구/Larry 확정): **자동 갱신의 자격은 「살아 있는 창」 하나다.**
+  //   · `googleConnected` 플래그는 게이트에서 **제외**한다 — 강등이 아직 안 돈 시점(설정탭
+  //     미마운트)에도 플래그가 true로 남아 사전강등 부활 구멍이 된다. eviction 복원은 IDB 미러가
+  //     연결 **기록까지** 되살리므로 플래그에 기댈 필요가 없고, 잔여 corner는 모달 1클릭으로 복구된다.
+  //   · 창 만료 후의 재연결 경로는 **재로그인 모달의 [로그인]뿐**이다(사용자 명시 의사 —
+  //     `signIn()` 직접 호출이라 이 게이트를 지나지 않는다).
+  //   · 🔴 **`force`도 이 게이트를 지난다** — 실측으로 확인한 축이다(빌더 r3): 창이 죽은 상태로
+  //     동기화를 누르면 시트 단계는 `needsLogin`으로 죽지만 **업로드가 계속 진행**되고, 토큰 없는
+  //     업로드가 인증 오류를 내 `withAuthRetry`의 `{force:true}`가 돈다 → 게이트를 면제하면
+  //     거기서 `prompt:''`가 토큰을 받아 **죽은 창이 그 클릭 한 번으로 되살아난다**(cx-H1이 지목한
+  //     바로 그 경로). F-4의 면제는 **제스처 가드**(`hasTransientActivation`)에 대한 것이고 —
+  //     그건 그대로 살아 있다 — 「연결이 살아 있는가」는 다른 질문이다.
+  //     연결이 살아 있는 사용자의 401 자동 재시도(=[UPLOAD-AUTH-1]의 실제 목적)는 영향받지 않는다.
+  if (!isConnectionAlive()) {
+    logger.log({ type: 'app', extra: `auth_ensure:skipped:no_connection${opts?.force ? ':forced' : ''}` });
+    return false;
+  }
   try {
     // 상한은 짧게(SILENT_REFRESH_TIMEOUT_MS 주석) — 이 경로엔 2FA가 없다. `silent` origin이라
     // 12초 시점에 flight까지 함께 정리된다([F-2] abandonSilentFlight).
@@ -512,7 +620,7 @@ export function refreshBeforeSessionStart(): Promise<void> | null {
   //    `upsertConnection`이 4주 창을 **되살린다** — §2-5의 「명시적 해제 = 최상위 의사」와 충돌.
   //    계획서 §2-6의 P2 전제(*"앱 열고 동기화 없이 바로 세션을 시작하면 토큰이 없어서"*)는
   //    **이미 연결된 사용자**를 상정한 문장이라 이 가드는 계약을 좁히지 않는다.
-  if (!isLinkedAccount()) return null;
+  if (!isConnectionAlive()) return null;
   return ensureAccessToken().then(() => undefined, () => undefined);
 }
 
@@ -528,7 +636,18 @@ export async function signOut(reason: 'manual' | 'settings_reset' = 'manual') {
   // (창 만료의 자동 정리도 같은 clearConnection을 쓰지만 그쪽은 revoke를 **거치지 않는다** —
   //  아래 revoke는 사용자 명시 의사인 이 경로에만 남는다. googleConnection.ts 모듈 주석 계약.)
   clearConnection(reason);
-  const t = getStoredToken();
+  // v0.51 r3 [F-14 / codex cx-H2] — **진행 중 flight를 이 로그아웃 경계에서 무효화한다.**
+  //   `signOut` 중에 살아 있던 인증 요청이 나중에 성공 콜백을 내면 `storeToken`+`upsertConnection`이
+  //   돌아 **방금 끊은 연결이 부활**한다. `resetTokenClient()`가 세대를 올려 그 콜백을 통째로
+  //   드랍시킨다(아래 콜백의 세대 검사). 이것이 triage가 말한 「epoch bump」의 구현이다 —
+  //   `authEpoch`를 올리면 구 epoch 콜백은 `storeToken`·`upsertConnection` **자체를 드랍**한다
+  //   (세대와 다른 축 — 세대는 「settle 금지」, epoch는 「저장 금지」다. 위 콜백 ⓐⓑ 참조).
+  authEpoch += 1;
+  resetTokenClient();
+  // 즉시 새 클라이언트를 세워 둔다(스크립트는 이미 로드돼 있다). 안 그러면 다음 로그인 클릭이
+  // cold path(`loadGisScript().then`)로 가 **팝업이 제스처 밖에서 열려 차단**된다 — S-1 회귀.
+  ensureTokenClient();
+  const t = getRawStoredToken(); // [F-16] 마진 무시 — 「지워야 할 것이 있는가」는 다른 질문이다
   if (t && window.google?.accounts?.oauth2) {
     await new Promise<void>((resolve) => {
       window.google!.accounts.oauth2.revoke(t.access_token, () => resolve());

@@ -26,6 +26,16 @@ test.setTimeout(60_000);
 
 const SETTINGS = {
   state: {
+    // 🔴 v0.51 r3 [F-13] — 자동 갱신의 자격은 **살아 있는 4주 창** 하나다. 이 스펙의 전제는
+    //    「연결된 사용자인데 토큰만 만료」이므로 그 창을 명시적으로 심는다. 안 심으면 P1이
+    //    `auth_ensure:skipped:no_connection`으로 멈춰(정상 동작) 이 스펙이 재려는 축이 사라진다.
+    googleConnected: true,
+    userEmail: 'tester@example.com',
+    googleConnection: {
+      email: 'tester@example.com',
+      connectedAt: Date.now() - 2 * 60 * 60 * 1000,
+      lastUsedAt: Date.now() - 2 * 60 * 60 * 1000,
+    },
     sheetUrl: 'https://docs.google.com/spreadsheets/d/SHEET_ID_EXP/edit',
     sheetTab: 'Sheet1',
     // 순수 토큰 만료에선 sheetUrl/sheetTab이 살아 있어 재로그인 후 바로 재개(reconnect no-op).
@@ -147,8 +157,9 @@ async function readOrderedLog(page: Page): Promise<string[]> {
   });
 }
 
-/** 토큰 없이 부팅(만료 시뮬). settings/세션은 시드하되 gs10_google_token은 일부러 미설정. */
-async function seedNoToken(page: Page, session: unknown) {
+/** 토큰 없이 부팅(만료 시뮬). settings/세션은 시드하되 gs10_google_token은 일부러 미설정.
+ *  `connection`으로 4주 창 상태를 갈아끼운다(기본 = SETTINGS의 살아 있는 창). */
+async function seedNoToken(page: Page, session: unknown, connection?: unknown) {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.evaluate(async ({ sess, settings, idb, schemaSrc }) => {
     localStorage.clear();
@@ -167,7 +178,23 @@ async function seedNoToken(page: Page, session: unknown) {
       };
       open.onerror = () => resolve();
     });
-  }, { sess: session, settings: SETTINGS, idb: IDB, schemaSrc: APPLY_APP_SCHEMA_SOURCE });
+  }, {
+    sess: session,
+    // 🔴 `connection: null`은 「명시적 해제」다 — `googleConnected`도 함께 내려야 한다.
+    //    안 내리면 v13 마이그레이션이 `googleConnected:true`를 보고 **새 창을 합성**해(승계 계약)
+    //    "기록 없음" 전제가 사라진다(빌더 r3 실측).
+    settings: connection === undefined
+      ? SETTINGS
+      : {
+          ...SETTINGS,
+          state: {
+            ...SETTINGS.state,
+            googleConnection: connection,
+            ...(connection === null ? { googleConnected: false, userEmail: null } : {}),
+          },
+        },
+    idb: IDB, schemaSrc: APPLY_APP_SCHEMA_SOURCE,
+  });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500);
   await page.locator('[data-testid="tab-data"]').click();
@@ -302,3 +329,40 @@ test('F-3: 세션 live 중 동기화 확정 — 선제 갱신을 하지 않는�
   // 종전 경로로 수렴한다 — 재로그인 모달이 "다음 행동"을 맡는다(모달 클릭은 사용자 명시 의사).
   await expect(page.locator('[role="dialog"][aria-labelledby="login-required-title"]')).toBeVisible();
 });
+
+
+// ─── v0.51 r3 [F-13 / codex cx-H1] — 창이 죽었으면 동기화 클릭도 조용히 재연결하지 않는다 ──────
+// 창 만료 강등은 설계상 `revoke`를 하지 않는다(계획서 §2-5). 그러면 **Google 쪽 grant는 살아
+// 있으므로** 다음 동기화 클릭의 `prompt:''`가 조용히 토큰을 받아 오고, 콜백의 `upsertConnection`이
+// **새 4주 창을 연다** → 「4주 미사용이면 풀린다」가 표시용으로 전락하고 창이 사실상 영구가 된다.
+// 정책: 자동 갱신의 자격은 **살아 있는 창** 하나. 만료 후 재연결 경로는 모달 [로그인](명시 의사)뿐.
+// 반증 축: `ensureAccessToken`의 `isConnectionAlive()` 게이트를 지우면 GIS가 호출돼 red.
+for (const [name, connection] of [
+  ['창 만료(29일 미사용)', { email: 'tester@example.com', connectedAt: Date.now() - 60 * 86_400_000, lastUsedAt: Date.now() - 29 * 86_400_000 }],
+  ['명시적 해제(기록 없음)', null],
+] as const) {
+  test(`F-13: ${name} 상태에서 동기화 확정 — GIS 호출 0회 + 모달로 수렴`, async ({ page }) => {
+    await installGisMock(page);
+    await stubSheets(page);
+    await seedNoToken(page, makeSession(), connection);
+    await setSilentRefresh(page, true); // 갱신이 **되는** 국면이어야 「안 했다」가 의미를 갖는다
+
+    // GIS 호출 계측 — mock의 requestAccessToken이 불렸는지 직접 센다.
+    await page.evaluate(async () => {
+      const { logger } = await import('/src/lib/logger.ts');
+      logger.clear();
+    });
+    await openSyncAndConfirm(page);
+    await page.waitForTimeout(600);
+
+    const extras = await page.evaluate(async () => {
+      const { logger } = await import('/src/lib/logger.ts');
+      return logger.getAll().map((e) => e.extra).filter((x): x is string => typeof x === 'string');
+    });
+    expect(extras.filter((x) => x === 'auth_signin_start').length,
+      '🔴 죽은 창이 동기화 클릭 한 번으로 되살아났다 — 4주 만료가 표시용으로 전락한다').toBe(0);
+    expect(extras, '연결 게이트 계측이 없다').toContain('auth_ensure:skipped:no_connection');
+    // 재연결 경로는 모달 [로그인]뿐이다(사용자 명시 의사).
+    await expect(page.locator('[role="dialog"][aria-labelledby="login-required-title"]')).toBeVisible();
+  });
+}

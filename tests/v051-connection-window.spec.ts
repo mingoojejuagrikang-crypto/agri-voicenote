@@ -58,7 +58,11 @@ async function installGisSpy(page: Page) {
 }
 
 /** 토큰 **없이**(만료 시뮬) + 지정한 연결 기록으로 부팅. persist version은 현재(13). */
-async function bootWithConnection(page: Page, lastUsedAgoMs: number | null, opts?: { staleToken?: boolean }) {
+async function bootWithConnection(
+  page: Page,
+  lastUsedAgoMs: number | null,
+  opts?: { staleToken?: boolean; validToken?: boolean },
+) {
   const now = Date.now();
   const state: Record<string, unknown> = {
     googleConnected: true,
@@ -74,7 +78,7 @@ async function bootWithConnection(page: Page, lastUsedAgoMs: number | null, opts
     sessionLabelColId: null, sessionAutoLabel: null, preferredVoiceName: '', roundDateColId: null,
   };
   await page.addInitScript(
-    ({ key, payload, staleToken }) => {
+    ({ key, payload, staleToken, validToken }) => {
       // 토큰 키는 **일부러 심지 않는다** — 「창은 살아 있는데 토큰만 만료」가 이 스펙의 주제다.
       localStorage.setItem(key, JSON.stringify(payload));
       // v0.51 r1 [F-9] — 「조기판정 마진(5분) 안에 든 토큰」을 재현한다: `getStoredToken()`은
@@ -84,8 +88,17 @@ async function bootWithConnection(page: Page, lastUsedAgoMs: number | null, opts
           access_token: 'about-to-expire', expires_at: Date.now() + 60_000, email: 'tester@example.com',
         }));
       }
+      // v0.51 r3 [F-15] — 「창 만료 × 토큰 유효」 사분면을 만든다.
+      if (validToken) {
+        localStorage.setItem('gs10_google_token', JSON.stringify({
+          access_token: 'still-good', expires_at: Date.now() + 3600_000, email: 'tester@example.com',
+        }));
+      }
     },
-    { key: STORE_KEY, payload: { state, version: 13 }, staleToken: !!opts?.staleToken },
+    {
+      key: STORE_KEY, payload: { state, version: 13 },
+      staleToken: !!opts?.staleToken, validToken: !!opts?.validToken,
+    },
   );
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500);
@@ -224,4 +237,82 @@ test('F-9: 창 만료 강등 — 조기판정 마진 안에 든 원시 토큰 �
   expect(rawToken, '만료된 창인데 원시 토큰 레코드가 남았다 — settings_hydrated:token=Y가 오독된다').toBeNull();
   // 로컬 정리만 한다 — revoke는 여전히 부르지 않는다(§2-5).
   expect(await gisCalls(page)).not.toContain('revoke');
+});
+
+
+// ─── v0.51 r3 [F-15 / codex cx-H3] — 유효 토큰 = 사용 증거 → 죽은 창을 복구한다 ───────────────
+// 종전에는 「창 만료 × 토큰 유효」 사분면에 **전이가 없었다**: 강등은 `!token`일 때만 돌고 승격은
+// `googleConnected`만 세웠다. 그래서 살아 있는 토큰이 죽은 기록을 무한정 덮고, 토큰이 마침내
+// 죽는 순간 사용자는 **직전까지 정상 사용 중이었는데도** 곧바로 강등된다([F-13] 게이트 때문에
+// 자동 갱신도 막혀 재로그인이 강제된다).
+// 반증 축: 마운트의 복구 upsert를 지우면 창이 죽은 채 남아 red.
+test('F-15: 창 만료 + 유효 토큰 — 마운트가 연결 기록을 복구한다(강등 없음)', async ({ page }) => {
+  await installGisSpy(page);
+  await bootWithConnection(page, 29 * DAY, { validToken: true });
+
+  const log = await readAuthLog(page);
+  expect(log, '복구 계측이 없다 — 사분면이 여전히 무전이다').toContain('auth_connection_recovered:valid_token');
+  expect(log.some((x) => x.startsWith('auth_signout')), '유효 토큰인데 강등했다').toBe(false);
+
+  const conn = await readConnection(page);
+  expect(conn.googleConnected).toBe(true);
+  expect(conn.lastUsedAt, '창이 복구되지 않았다 — 토큰이 죽는 순간 곧바로 강등된다').toBeGreaterThan(0);
+  const alive = await page.evaluate(async () => {
+    const c = await import('/src/lib/googleConnection.ts');
+    return c.isConnectionAlive();
+  });
+  expect(alive, '기록은 남았는데 여전히 만료 상태다').toBe(true);
+  // 복구는 **기록만** 한다 — 토큰 갱신을 시도하지 않는다(touch 계약과 같은 축).
+  expect(await gisCalls(page)).not.toContain('requestAccessToken');
+});
+
+// ─── v0.51 r3 [F-19 / codex cx-L1] — 창 경계·스로틀·반복 visible의 red 축 ────────────────────
+// 종전 오라클은 27일(여유)·28일+1h(초과)만 쟀다. **정확히 28일**은 `>` 인가 `>=` 인가에 걸리는
+// 지점이고, 스로틀은 「1시간 이내면 안 쓴다」의 경계(59분/61분)가 계약이다. 둘 다 부호 하나로
+// 뒤집히는데 red 축이 없었다.
+test('F-19-a: 창 경계 — 정확히 28일이면 만료다(> 이지 >= 가 아니다)', async ({ page }) => {
+  await installGisSpy(page);
+  await bootWithConnection(page, 28 * DAY);
+
+  const log = await readAuthLog(page);
+  expect(log, '경계에서 유지 경로를 탔다 — 창이 하루 더 산다').not.toContain('auth_token_expired_kept');
+  expect(log).toContain('auth_signout:connection_expired');
+});
+
+test('F-19-b: touch 스로틀 경계 — 59분은 안 쓰고 61분은 쓴다', async ({ page }) => {
+  await installGisSpy(page);
+  const before59 = Date.now() - 59 * 60_000;
+  await bootWithConnection(page, 59 * 60_000);
+  const c59 = await readConnection(page);
+  expect(c59.lastUsedAt, '🔴 스로틀 안(59분)인데 썼다 — 포그라운드 왕복마다 persist가 돈다')
+    .toBeLessThanOrEqual(before59 + 2000);
+  expect(await readAuthLog(page)).not.toContain(
+    (await readAuthLog(page)).find((x) => x.startsWith('auth_connection_touch')) ?? 'NONE');
+
+  const before61 = Date.now();
+  await bootWithConnection(page, 61 * 60_000);
+  const c61 = await readConnection(page);
+  expect(c61.lastUsedAt, '🔴 스로틀 밖(61분)인데 안 썼다 — 창이 연장되지 않는다')
+    .toBeGreaterThanOrEqual(before61 - 2000);
+});
+
+test('F-19-c: 포그라운드 복귀를 반복해도 스로틀 안에서는 쓰기가 1회를 넘지 않는다', async ({ page }) => {
+  await installGisSpy(page);
+  await bootWithConnection(page, 2 * HOUR); // 부팅 touch 1회가 나간 뒤 = 이후는 스로틀 안
+
+  const touchesAfterBoot = await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    logger.clear();
+    for (let i = 0; i < 5; i += 1) {
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      document.dispatchEvent(new Event('visibilitychange'));
+    }
+    await new Promise((r) => setTimeout(r, 200));
+    return logger.getAll().map((e) => e.extra)
+      .filter((x): x is string => typeof x === 'string' && x.startsWith('auth_connection_touch')).length;
+  });
+
+  expect(touchesAfterBoot, '🔴 포그라운드 복귀마다 persist 쓰기가 돌았다 — 스로틀이 안 걸린다').toBe(0);
 });

@@ -27,7 +27,7 @@ import {
   signOut as googleSignOut,
   warmupGoogleAuth,
 } from './googleAuth';
-import { clearConnection, getConnection, isConnectionAlive } from './googleConnection';
+import { clearConnection, getConnection, isConnectionAlive, upsertConnection } from './googleConnection';
 import {
   fetchHeaderAndSample,
   fetchSpreadsheetMeta,
@@ -70,8 +70,22 @@ export function useSettingsSheetConnection() {
 
   useEffect(() => {
     const t = getStoredToken();
-    if (t && !s.googleConnected) {
-      s.set({ googleConnected: true, userEmail: getCurrentEmail() });
+    if (t) {
+      // 🔴 v0.51 r3 [F-15 / codex cx-H3] — **유효 토큰 = 사용 증거 → 죽은 창을 복구한다.**
+      //
+      // 종전에는 「창 만료 × 토큰 유효」 사분면에 **전이가 없었다**: 강등 분기는 `!t`일 때만 돌고,
+      // 승격 분기는 `googleConnected`만 세웠다. 그래서 살아 있는 토큰이 죽은 기록을 무한정 덮고,
+      // 연결 기록은 만료된 채 잔존한다 — 그 상태에서 토큰이 마침내 죽으면 사용자는 **직전까지
+      // 정상 사용 중이었는데도** 곧바로 강등된다(그리고 [F-13] 게이트가 자동 갱신을 막으므로
+      // 재로그인이 강제된다).
+      // 정책 확정: 유효 토큰을 들고 앱을 쓰고 있다는 것 자체가 「사용」이므로 창을 되살린다.
+      // 4주 만료의 **실경로**(4주 미사용 → 토큰도 이미 사망)와는 충돌하지 않는다 — 이 사분면은
+      // 부분 복원·상태 불일치에서만 생긴다.
+      if (!isConnectionAlive()) {
+        upsertConnection(t.email ?? null);
+        logger.log({ type: 'app', extra: 'auth_connection_recovered:valid_token' });
+      }
+      if (!s.googleConnected) s.set({ googleConnected: true, userEmail: getCurrentEmail() });
     } else if (!t && s.googleConnected) {
       // ── v0.51 — **강등 분기의 의미가 바뀌었다**(계획서 §2-2 · 민구 08-27) ─────────────
       //

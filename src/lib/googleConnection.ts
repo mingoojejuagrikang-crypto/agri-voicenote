@@ -60,27 +60,39 @@ export function isConnectionAliveAt(rec: GoogleConnection | null, now: number): 
   return !!rec && rec.lastUsedAt + CONNECTION_WINDOW_MS > now;
 }
 
-/** 현재 영속된 연결 기록(형태 손상은 null). */
-export function getConnection(): GoogleConnection | null {
+/** 🔴 v0.51 r3 [F-18 / codex cx-M3] — **읽기 시점 정규화.**
+ *
+ *  `isConnectionRecord`는 「number인가」만 본다. 그래서 `Number.MAX_VALUE`나 먼 미래 타임스탬프가
+ *  통과하고, 그러면 `lastUsedAt + 28일 > now`가 **영원히 참**이 되어 창이 절대 만료되지 않는다.
+ *  게다가 `touchConnection`의 스로틀(`now - lastUsedAt < 1시간`)도 음수로 항상 참이라 **치유
+ *  기록조차 남기지 못한다.** 손상 경로는 실재한다: 마이그레이션은 `version < 13`에서만 돌므로
+ *  **이미 v13인 저장본의 손상은 아무도 정규화하지 않는다.**
+ *
+ *  그래서 저장 시점이 아니라 **읽기 시점**에 정규화한다 — 현행본 손상까지 덮는 유일한 자리다.
+ *   · safe integer가 아니거나 0 이하 → **기록 없음**(만료 쪽이 안전한 기본값).
+ *   · `lastUsedAt`이 미래 → `now`로 클램프(「방금 썼다」로 읽는다).
+ *   · `connectedAt > lastUsedAt` → `lastUsedAt`으로 클램프(순서 불변식).
+ *  정규화 결과가 원본과 다르면 `touchConnection`이 **스로틀을 무시하고** 저장본을 치유한다
+ *  (여기서 쓰지 않는 이유: 이 함수는 렌더 중에도 불린다 — `ConnectionStatusCard`). */
+function normalizeConnection(rec: GoogleConnection, now: number): GoogleConnection | null {
+  const ok = (v: number) => Number.isSafeInteger(v) && v > 0;
+  if (!ok(rec.connectedAt) || !ok(rec.lastUsedAt)) return null;
+  const lastUsedAt = Math.min(rec.lastUsedAt, now);
+  const connectedAt = Math.min(rec.connectedAt, lastUsedAt);
+  return lastUsedAt === rec.lastUsedAt && connectedAt === rec.connectedAt
+    ? rec
+    : { ...rec, connectedAt, lastUsedAt };
+}
+
+/** 현재 영속된 연결 기록. 형태 손상·비정상 수치는 null, 경계 위반은 정규화([F-18]). */
+export function getConnection(now: number = Date.now()): GoogleConnection | null {
   const c = useSettingsStore.getState().googleConnection;
-  return isConnectionRecord(c) ? c : null;
+  return isConnectionRecord(c) ? normalizeConnection(c, now) : null;
 }
 
 /** **연결창이 살아 있는가.** 토큰 유무와 무관하다 — 그게 이 설계의 요점이다. */
 export function isConnectionAlive(now: number = Date.now()): boolean {
-  return isConnectionAliveAt(getConnection(), now);
-}
-
-/** v0.51 r1 [F-1] — **「이 사용자는 계정을 연결한 적이 있는가」.**
- *  제스처 안 선제 갱신(P2 세션 시작)이 물어야 하는 질문이다. 「토큰이 없다」만 보고 갱신하면
- *  **명시적으로 연결을 해제한 사용자**와 **한 번도 로그인한 적 없는 사용자**에게도 세션 시작
- *  버튼마다 GIS 팝업이 열린다 — 게다가 해제는 `revoke`를 거쳤으므로 `prompt:''`가 무팝업이 아니라
- *  **전체 동의 화면**이 되고, 승인해 버리면 방금 끊은 계정으로 4주 창이 **되살아난다**(§2-5의
- *  「명시적 해제 = 최상위 의사」와 정면 충돌).
- *  창(`isConnectionAlive`)과 스토어 플래그(`googleConnected`)를 **둘 다** 본다: 창 기록만 유실된
- *  기기(eviction [AUTH-8])에서도 연결된 사용자의 갱신 경로는 살아 있어야 한다. */
-export function isLinkedAccount(now: number = Date.now()): boolean {
-  return isConnectionAlive(now) || useSettingsStore.getState().googleConnected;
+  return isConnectionAliveAt(getConnection(now), now);
 }
 
 /** 남은 일수(내림). 계측 문자열용 — 판정에 쓰지 마라(판정은 isConnectionAlive 하나). */
@@ -94,10 +106,15 @@ export function connectionDaysLeft(rec: GoogleConnection | null, now: number = D
  *  - 🔴 **이미 만료된 창은 되살리지 않는다** — check-then-touch를 배선 순서와 무관하게 만든다.
  *  - 스로틀: 마지막 기록으로부터 1시간 이내면 쓰기를 건너뛴다. */
 export function touchConnection(now: number = Date.now()): void {
-  const rec = getConnection();
+  const raw = useSettingsStore.getState().googleConnection;
+  const rec = getConnection(now);
   if (!rec) return;
   if (!isConnectionAliveAt(rec, now)) return;
-  if (now - rec.lastUsedAt < TOUCH_THROTTLE_MS) return;
+  // [F-18] 정규화가 원본을 고쳤으면 **스로틀을 무시하고** 저장본을 치유한다. 안 그러면 먼 미래
+  // 타임스탬프가 스로틀(음수 경과)에 걸려 영원히 안 고쳐지고 창도 영원히 안 죽는다.
+  const healed = !!raw && (rec.lastUsedAt !== (raw as GoogleConnection).lastUsedAt
+    || rec.connectedAt !== (raw as GoogleConnection).connectedAt);
+  if (!healed && now - rec.lastUsedAt < TOUCH_THROTTLE_MS) return;
   // 🔑 계측은 **연장 직전 남은 일수**다. 연장 후 값을 실으면 항상 28이라 정보가 0이 된다 —
   //    알고 싶은 것은 "사용자가 만료에 얼마나 가까워졌다가 돌아왔나"(창 길이 튜닝의 근거)다.
   const leftBefore = connectionDaysLeft(rec, now);
@@ -108,7 +125,7 @@ export function touchConnection(now: number = Date.now()): void {
 /** 토큰이 실제로 확정된 순간(googleAuth 콜백의 `storeToken` 직후) 연결 기록을 세우거나 갱신한다.
  *  `connectedAt`은 기존 기록이 있으면 보존한다 — "언제부터 연결돼 있었나"는 진단 정보다. */
 export function upsertConnection(email: string | null, now: number = Date.now()): void {
-  const prev = getConnection();
+  const prev = getConnection(now);
   const next: GoogleConnection = {
     email: email ?? prev?.email ?? null,
     connectedAt: prev?.connectedAt ?? now,

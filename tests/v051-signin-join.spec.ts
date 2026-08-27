@@ -116,9 +116,23 @@ async function raceTwoSignIns(page: Page) {
   });
 }
 
-async function bootClean(page: Page) {
+async function bootClean(page: Page, opts?: { linked?: boolean }) {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => { localStorage.clear(); });
+  await page.evaluate(({ linked, twoHoursAgo }) => {
+    localStorage.clear();
+    // v0.51 r3 [F-13] — `ensureAccessToken`의 자동 갱신은 **살아 있는 4주 창**을 요구한다.
+    // 그 게이트를 재는 스펙이 아니라면(F-2 flight 정리 축) 창을 심어 둬야 경로에 도달한다.
+    if (linked) {
+      localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify({
+        state: {
+          googleConnected: true,
+          userEmail: 'joiner@example.com',
+          googleConnection: { email: 'joiner@example.com', connectedAt: twoHoursAgo, lastUsedAt: twoHoursAgo },
+        },
+        version: 13,
+      }));
+    }
+  }, { linked: !!opts?.linked, twoHoursAgo: Date.now() - 2 * 60 * 60 * 1000 });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(200);
 }
@@ -164,7 +178,7 @@ test('F-2: silent 12초 상한 뒤 사람의 재클릭은 **새 flight로 팝업
   await installWedgedGisMock(page); // 콜백이 영원히 안 오는 GIS(A7이 타임아웃을 만든 그 조건)
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await page.clock.install();
-  await bootClean(page);
+  await bootClean(page, { linked: true }); // [F-13] 게이트가 아니라 flight 정리를 재는 스펙이다
 
   // ① silent 갱신 시작(제스처 스텁 — 실제 클릭 대신 userActivation을 참으로 세운 상태).
   // ⚠️ 가상 시계 아래에서는 `setTimeout`이 스스로 돌지 않는다 — 대기를 넣지 않는다.
