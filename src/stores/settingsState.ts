@@ -9,7 +9,7 @@
  * ⚠️ import 방향은 **단방향**이다 — 이 파일은 `settingsStore.ts`를 import하지 않는다
  * (`settingsMigrate.ts`가 여기를 import하고, 스토어가 둘 다 import한다).
  */
-import type { Column, SheetConfig, SavedSheet } from '../types';
+import type { Column, SheetConfig, SavedSheet, GoogleConnection } from '../types';
 import { reconcileColumnFlags } from '../lib/columnFlags';
 import type { FolderCache } from '../lib/driveFolders';
 import { defaultDesignatedDate } from '../lib/weekTuesday';
@@ -31,9 +31,33 @@ export function minConfidenceForTolerance(tolerance: number): number {
   return Math.round(tolerance * 100) / 100;
 }
 
+/** v0.51 — 연결 기록(`googleConnection`)의 **형태 SSOT**. 손상된 영속본은 「연결 없음」으로
+ *  취급한다(만료 쪽이 안전한 기본값이다 — 거짓 「연결됨」은 [AUTH-7]로 돌아가는 길이다).
+ *
+ *  🔴 **판정·갱신 규칙(`lib/googleConnection.ts`)이 아니라 여기 사는 이유**: 그 모듈은 라이브
+ *  스토어(`settingsStore`)를 읽으므로, `settingsMigrate`가 그걸 import하면
+ *  `settingsStore → settingsMigrate → googleConnection → settingsStore` 순환이 된다.
+ *  하이드레이션(=migrate)은 스토어 **모듈 평가 도중** 돌기 때문에
+ *  `[LOGEVENTS-CYCLE-1]`의 "위험 조건"이 실제로 성립하는 자리다. 형태 검사만 이 leaf로 내리면
+ *  마이그레이션과 런타임이 **같은 술어**를 쓰면서도 순환이 생기지 않는다
+ *  (`googleConnection.ts`가 이 함수를 재수출한다 — 호출부는 그쪽 한 곳만 알면 된다). */
+export function isConnectionRecord(v: unknown): v is GoogleConnection {
+  if (v === null || typeof v !== 'object') return false;
+  const c = v as Partial<GoogleConnection>;
+  return (
+    (typeof c.email === 'string' || c.email === null) &&
+    typeof c.connectedAt === 'number' && Number.isFinite(c.connectedAt) &&
+    typeof c.lastUsedAt === 'number' && Number.isFinite(c.lastUsedAt)
+  );
+}
+
 export interface SettingsState {
   googleConnected: boolean;
   userEmail: string | null;
+  /** v0.51 — 「계정 연결」 4주 슬라이딩 창 기록. **토큰과 분리된** 앱 차원의 연결 개념이고,
+   *  판정·갱신 규칙(28일 창 · 시간당 1회 touch · 죽은 창 부활 금지 · 만료 시 revoke 금지)은
+   *  `lib/googleConnection.ts`가 SSOT다. `googleConnected`는 그 판정의 **화면용 투영**이 된다. */
+  googleConnection: GoogleConnection | null;
   sheet: SheetConfig | null;
   sheetUrl: string;
   sheetTab: string;
@@ -180,6 +204,7 @@ export function makeSettingsDefaults(): SettingsDefaults {
   return {
     googleConnected: false,
     userEmail: null,
+    googleConnection: null,
     sheet: null,
     sheetUrl: '',
     sheetTab: '',

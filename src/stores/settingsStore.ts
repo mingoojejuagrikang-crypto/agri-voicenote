@@ -151,7 +151,8 @@ export const useSettingsStore = create<SettingsState>()(
       // v0.50 개명 — 구 키 'survey-011-settings-v3'는 namespaceBoot(부팅 첫 import)가
       // 부재 시 복사한다. 🔴 이 문자열은 namespaceMigrate.ts의 NEW_SETTINGS_KEY와 일치 계약.
       name: 'agri-voicenote-settings-v3',
-      version: 12,
+      // v0.51 — v13: 계정 연결 4주 슬라이딩 창(`googleConnection`) 신설 + 기존 로그인 상태 승계.
+      version: 13,
       // v0.14.0 C — localStorage + IDB 내구 미러(eviction 방어).
       storage: createJSONStorage(() => mirroredStorage),
       // v0.35.1 — 폐기된 영속 키 제거의 SSOT. migrate가 아닌 merge에 두는 이유: 같은 persist

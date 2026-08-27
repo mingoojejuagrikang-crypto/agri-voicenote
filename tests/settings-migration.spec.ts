@@ -80,7 +80,7 @@ async function bootWith(page: Page, payload: unknown) {
 test('v4→v6 migrate — 샘플키 자동 유추 + junk 정규화 + 최신 버전', async ({ page }) => {
   await bootWith(page, V4_PAYLOAD);
 
-  await expect.poll(async () => (await readStore(page)).version).toBe(12);
+  await expect.poll(async () => (await readStore(page)).version).toBe(13);
   const stored = await readStore(page);
 
   // 샘플키 유추 규칙: auto && !date → true. junk 'yes'(c3)는 boolean 아니라 유추 적용.
@@ -130,7 +130,7 @@ const V5_PAYLOAD = {
 test('v5→v6 migrate — trendAlertEnabled 삭제 + trendRule 초기화 + pctThreshold 정규화', async ({ page }) => {
   await bootWith(page, V5_PAYLOAD);
 
-  await expect.poll(async () => (await readStore(page)).version).toBe(12);
+  await expect.poll(async () => (await readStore(page)).version).toBe(13);
   const stored = await readStore(page);
 
   // 전역 마스터 토글 제거.
@@ -161,7 +161,7 @@ test('v5→v6 migrate idempotent — 이미 v6면 사용자가 새 의미로 설
   };
   await bootWith(page, v6Payload);
 
-  await expect.poll(async () => (await readStore(page)).version).toBe(12);
+  await expect.poll(async () => (await readStore(page)).version).toBe(13);
   const stored = await readStore(page);
   // v6 이상은 새 의미 — trendRule/pctThreshold 보존.
   expect(colById(stored, 'c8').trendRule).toBe('increase');
@@ -183,7 +183,7 @@ test('다운그레이드 라운드트립 방어 — v5로 재기록돼도 마커
   };
   await bootWith(page, downgradedPayload);
 
-  await expect.poll(async () => (await readStore(page)).version).toBe(12);
+  await expect.poll(async () => (await readStore(page)).version).toBe(13);
   const stored = await readStore(page);
   // 마커가 있으므로 재클리어하지 않고 사용자가 v6에서 설정한 값 보존.
   expect(colById(stored, 'c8').trendRule).toBe('increase');
@@ -257,7 +257,7 @@ test('W2 ① v8→v10 migrate — 유효 savedSheets 보존', async ({ page }) =
   };
   await bootWith(page, payload);
 
-  await expect.poll(async () => (await readStore(page)).version).toBe(12);
+  await expect.poll(async () => (await readStore(page)).version).toBe(13);
   const stored = await readStore(page);
   const saved = stored.state.savedSheets as Array<{ sheetId: string }>;
   expect(saved.map((s) => s.sheetId)).toEqual(['SHEET_A', 'SHEET_B']);
@@ -332,18 +332,20 @@ test('v11→v12 migrate — columns 출처를 추측해 backfill하지 않는다
   };
   await bootWith(page, payload);
 
-  await expect.poll(async () => (await readStore(page)).version).toBe(12);
+  await expect.poll(async () => (await readStore(page)).version).toBe(13);
   const stored = await readStore(page);
   expect(stored.state.columnsSheetId).toBeNull();
   expect(stored.state.columnsSheetTab).toBeNull();
 });
 
-// ─── v0.35.1 — 같은 버전(v12) 폐기 키 제거: merge-strip (리뷰 라운드1 Codex·Flash 공통 지적) ───
+// ─── v0.35.1 — 같은 버전(현재 v13) 폐기 키 제거: merge-strip (리뷰 라운드1 Codex·Flash 공통 지적) ───
 // 저장본도 현재 version이면 zustand는 migrate를 호출하지 않는다.
 // 폐기 키 제거는 merge 단계(DEPRECATED_PERSIST_KEYS strip)가 담당해야 하고, 이 테스트가 그 계약을
-// 고정한다: 이미 v12인 기기에 남은 review* 6키 + legacy 폴더 캐시 2키가 하이드레이션에서 제거되고
-// 다음 저장(설정 조작)에 다시 직렬화되지 않는다.
-test('v12 동일 버전: 폐기 키(review* 6종 + legacy 폴더 캐시)가 merge에서 제거되어 다음 저장에 안 남는다', async ({ page }) => {
+// 고정한다: 이미 현재 버전인 기기에 남은 review* 6키 + legacy 폴더 캐시 2키가 하이드레이션에서
+// 제거되고 다음 저장(설정 조작)에 다시 직렬화되지 않는다.
+// v0.51 — persist version이 12→13으로 오르면서 페이로드 version도 함께 올렸다. 12로 두면 migrate가
+// 돌아버려 「같은 버전이라 migrate가 안 도는데도 제거되는가」라는 이 테스트의 전제 자체가 사라진다.
+test('현재 버전 동일 저장본: 폐기 키(review* 6종 + legacy 폴더 캐시)가 merge에서 제거되어 다음 저장에 안 남는다', async ({ page }) => {
   const V12_LEFTOVER_PAYLOAD = {
     state: {
       googleConnected: false, userEmail: null, sheet: null, sheetUrl: '', sheetTab: '',
@@ -355,7 +357,7 @@ test('v12 동일 버전: 폐기 키(review* 6종 + legacy 폴더 캐시)가 merg
       reviewBaselineBack: 2, reviewGroupCols: ['c3'], reviewMeasureCols: null, reviewSelectedRows: null,
       teamFolderId: 'stale-team-folder', userLogFolderId: 'stale-log-folder',
     },
-    version: 12,
+    version: 13,
   };
   await bootWith(page, V12_LEFTOVER_PAYLOAD);
   await page.waitForTimeout(400);
@@ -370,7 +372,7 @@ test('v12 동일 버전: 폐기 키(review* 6종 + legacy 폴더 캐시)가 merg
   await page.waitForTimeout(200);
 
   const stored = await readStore(page);
-  expect(stored.version).toBe(12);
+  expect(stored.version).toBe(13);
   for (const k of [
     'reviewFilters', 'reviewTargetRound', 'reviewBaselineBack',
     'reviewGroupCols', 'reviewMeasureCols', 'reviewSelectedRows',
@@ -381,4 +383,82 @@ test('v12 동일 버전: 폐기 키(review* 6종 + legacy 폴더 캐시)가 merg
   // 대체 필드는 기본값으로 존재(계정 결합 캐시 — 초기 null).
   expect(stored.state.teamFolderCache).toBeNull();
   expect(stored.state.userLogFolderCache).toBeNull();
+});
+
+// ─── v13 (v0.51) — 「계정 연결」 4주 슬라이딩 창 도입 + 기존 로그인 상태 승계 ───────────────
+// 민구 확정(08-27 결정②): 업데이트 직후 **재로그인 0회**. v12 이하 저장본에 googleConnected:true가
+// 있으면 연결 기록을 `{connectedAt: now, lastUsedAt: now}`로 합성해 업데이트가 곧 4주 창의 시작이
+// 되게 한다. 🔴 이 합성은 **블래스트 반경이 있다** — googleConnected:true를 시딩하는 기존 스펙들이
+// 전부 "연결 살아있음" 전제로 바뀐다(빌더 산출물의 전수 판정표 참조).
+
+test('v12→v13 migrate — googleConnected:true면 연결 기록을 합성한다(재로그인 0회)', async ({ page }) => {
+  const before = Date.now();
+  const payload = {
+    state: { ...V4_PAYLOAD.state, googleConnected: true, userEmail: 'tester@example.com' },
+    version: 12,
+  };
+  await bootWith(page, payload);
+
+  await expect.poll(async () => (await readStore(page)).version).toBe(13);
+  const stored = await readStore(page);
+  const conn = stored.state.googleConnection as { email: string; connectedAt: number; lastUsedAt: number };
+  expect(conn, '연결 기록이 합성되지 않았다 — 전 사용자가 업데이트 후 재로그인해야 한다').toBeTruthy();
+  expect(conn.email).toBe('tester@example.com');
+  // 마이그레이션 시점(now) 기준 — 진짜 마지막 사용 시각은 v12 저장본에 없다(의도된 추정).
+  expect(conn.connectedAt).toBeGreaterThanOrEqual(before);
+  expect(conn.lastUsedAt).toBeGreaterThanOrEqual(before);
+  // ⚠️ `googleConnected` 자체가 유지되는가는 **이 마이그레이션의 계약이 아니다** — 강등 분기의
+  //    의미 변경(토큰 無 + 창 유효 → 유지)이 담당하고, tests/v051-connection-window.spec.ts가 고정한다.
+});
+
+test('v12→v13 migrate — 미로그인(googleConnected:false)에는 창을 만들지 않는다', async ({ page }) => {
+  await bootWith(page, { state: { ...V4_PAYLOAD.state, googleConnected: false }, version: 12 });
+
+  await expect.poll(async () => (await readStore(page)).version).toBe(13);
+  const stored = await readStore(page);
+  expect(stored.state.googleConnection, '연결한 적 없는 사용자에게 창이 생겼다').toBeNull();
+});
+
+test('v13 coercion — 손상된 연결 기록은 null로 치유한다(만료 쪽이 안전 기본값)', async ({ page }) => {
+  await bootWith(page, {
+    state: {
+      ...V4_PAYLOAD.state,
+      googleConnected: true,
+      userEmail: 'tester@example.com',
+      // 형태 손상: lastUsedAt이 문자열 — isConnectionRecord 실패 → null 치유 → 그 다음 v13 게이트가
+      // googleConnected:true를 보고 **새로** 합성한다(치유가 승계를 막지 않는다는 순서 계약).
+      googleConnection: { email: 'x@y.z', connectedAt: 'nope', lastUsedAt: 'nope' },
+    },
+    version: 12,
+  });
+
+  await expect.poll(async () => (await readStore(page)).version).toBe(13);
+  const stored = await readStore(page);
+  const conn = stored.state.googleConnection as { email: string; connectedAt: number; lastUsedAt: number };
+  expect(typeof conn.connectedAt).toBe('number');
+  expect(typeof conn.lastUsedAt).toBe('number');
+  expect(conn.email).toBe('tester@example.com');
+});
+
+test('v13 idempotent — 이미 있는 연결 기록은 다운그레이드 라운드트립에도 덮지 않는다', async ({ page }) => {
+  // v13에서 20일 전에 열린 연결이, 어떤 이유로 version만 12로 재기록된 저장본(다운그레이드
+  // 라운드트립 — v6 마커 방어와 같은 축). 합성이 lastUsedAt을 now로 밀면 창이 **부당하게 연장**된다.
+  const OLD = Date.now() - 20 * 24 * 60 * 60 * 1000;
+  await bootWith(page, {
+    state: {
+      ...V4_PAYLOAD.state,
+      googleConnected: true,
+      userEmail: 'tester@example.com',
+      googleConnection: { email: 'tester@example.com', connectedAt: OLD, lastUsedAt: OLD },
+    },
+    version: 12,
+  });
+
+  await expect.poll(async () => (await readStore(page)).version).toBe(13);
+  const stored = await readStore(page);
+  const conn = stored.state.googleConnection as { connectedAt: number; lastUsedAt: number };
+  expect(conn.connectedAt).toBe(OLD);
+  // 부팅 touch(App.tsx)는 창이 살아 있으면 lastUsedAt을 now로 민다 — 그건 정상 동작이므로
+  // 여기서는 「마이그레이션이 connectedAt을 덮지 않았다」만 고정한다(창 슬라이딩 계약은 별도 스펙).
+  expect(conn.lastUsedAt).toBeGreaterThanOrEqual(OLD);
 });

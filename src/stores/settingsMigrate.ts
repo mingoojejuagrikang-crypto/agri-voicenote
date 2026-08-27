@@ -1,5 +1,5 @@
 /**
- * 설정 persist의 **버전 마이그레이션 이력** (`agri-voicenote-settings-v3` — 구 `survey-011-settings-v3`, v0.50 개명 · version 12).
+ * 설정 persist의 **버전 마이그레이션 이력** (`agri-voicenote-settings-v3` — 구 `survey-011-settings-v3`, v0.50 개명 · version 13).
  *
  * [ENV-12] 2026-08-15 — `settingsStore.ts`에서 **본문 무수정**으로 옮겼다(들여쓰기만 6칸 제거).
  * 🔴 **이 파일에서 문장 순서를 바꾸지 마라.** 무조건 coercion 블록이 먼저 돌고 그 뒤에
@@ -20,6 +20,7 @@ import {
 import { normalizeChipSweepSeconds } from '../lib/chipSweep';
 import {
   applySemanticDefaults,
+  isConnectionRecord,
   RECOGNITION_TOLERANCE_MIN,
   RECOGNITION_TOLERANCE_MAX,
   type SettingsState,
@@ -109,6 +110,12 @@ export function migrateSettings(persisted: unknown, version: number): SettingsSt
   // 업데이트 후 첫 업로드에서 1회 재검색, 무해).
   if (s.teamFolderCache !== null && !isFolderCache(s.teamFolderCache)) s.teamFolderCache = null;
   if (s.userLogFolderCache !== null && !isFolderCache(s.userLogFolderCache)) s.userLogFolderCache = null;
+  // v0.51 — 계정 연결 기록(4주 슬라이딩 창). 구버전 영속본엔 없고, 형태 손상은 null로 치유한다
+  // (teamFolderCache와 같은 무조건 coercion 패턴). null = 연결 없음 = 창 만료 취급이 안전 기본값이다.
+  // 승계(기존 googleConnected:true 사용자)는 아래 `version < 13` 게이트가 담당한다 —
+  // 🔴 순서가 계약이다: 여기 coercion이 먼저 undefined를 null로 만들어야 그 게이트가 "기록 없음"을
+  // 정확히 판별한다(파일 머리 주석의 「coercion 먼저, version 게이트 나중」).
+  if (s.googleConnection !== null && !isConnectionRecord(s.googleConnection)) s.googleConnection = null;
   // v0.7.0 — 조사시기(회차) 컬럼 id는 유지(UI만 v0.8.0 조회탭으로 이전 — WS4).
   if (typeof s.roundDateColId !== 'string' && s.roundDateColId !== null) s.roundDateColId = null;
   // v0.44.0 §C8 F28 — 입력값 설정 스탬프. 구버전 영속본엔 없으므로 null(발동 안 함)로 치유
@@ -217,6 +224,30 @@ export function migrateSettings(persisted: unknown, version: number): SettingsSt
   if (version < 12) {
     s.columnsSheetId = null;
     s.columnsSheetTab = null;
+  }
+
+  // ── v13 (v0.51) — 「계정 연결」 4주 슬라이딩 창 도입 + 기존 로그인 상태 **승계** ──────────
+  // 민구 확정(08-27, 계획서 §2-7 결정②): 업데이트 직후 **재로그인 0회**. 기존에 `googleConnected:
+  // true`로 쓰던 사용자에게 연결 기록을 `{connectedAt: now, lastUsedAt: now}`로 합성해, 업데이트가
+  // 곧 4주 창의 시작이 되게 한다. 합성하지 않으면(대안) 전 사용자가 업데이트 후 1회 재로그인해야
+  // 하는데, 이번 회차의 목적 자체가 "로그인이 자꾸 풀린다"의 해소라 그 대가가 목적과 충돌한다.
+  //
+  // 🔴 **`now`를 쓰는 것이 의도다.** 진짜 마지막 사용 시각을 알 방법이 없다 — v12 저장본에는 그
+  // 정보가 없다(v0.38.0 v12 블록의 "출처를 추측해 backfill하지 않는다"와 같은 판단을 반대 방향으로
+  // 내린 것이 아니다: 여기서 추측하는 값은 **사용자에게 유리한 쪽으로만** 틀리고, 틀려도 최대
+  // 4주 뒤 자연히 만료된다. 잘못 보존되면 남의 시트에 기록되던 그 축과는 위험 구조가 다르다).
+  //
+  // 🔴 **토큰은 보지 않는다.** 연결 기록은 토큰과 분리된 개념이고(lib/googleConnection.ts),
+  // 토큰 유무로 승계를 가르면 "업데이트를 토큰 만료 뒤에 받은 사람만 재로그인"이라는 임의 차별이 된다.
+  //
+  // idempotent: 이미 기록이 있으면(v13 이상에서 내려온 다운그레이드 라운드트립) 덮지 않는다.
+  if (version < 13 && !s.googleConnection && s.googleConnected === true) {
+    const now = Date.now();
+    s.googleConnection = {
+      email: typeof s.userEmail === 'string' ? s.userEmail : null,
+      connectedAt: now,
+      lastUsedAt: now,
+    };
   }
 
   return s as SettingsState;

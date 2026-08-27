@@ -57,6 +57,21 @@ export interface SavedSheet {
   addedAt: number;
 }
 
+/** v0.51 — **「계정 연결」 기록.** Google 액세스 토큰(`gs10_google_token`, ~1시간·연장 불가
+ *  [AUTH-4])과 **분리된 앱 차원의 개념**이다. 토큰 수명이 그대로 UX에 노출돼 "매시간 로그인이
+ *  풀린다"였던 것을(민구 08-27) 「4주 미사용 시에만 풀린다」로 바꾸는 상태가 이것이다.
+ *  판정·갱신 규칙(28일 창·시간당 1회 touch·죽은 창 부활 금지)은 `lib/googleConnection.ts`가 SSOT.
+ *  저장은 settingsStore persist(v13) — 신규 raw localStorage 키가 아니라 여기에 두는 이유는
+ *  [AUTH-8] eviction 대응 IDB 미러·breadcrumb를 그대로 물려받기 위해서다. */
+export interface GoogleConnection {
+  /** 연결된 계정. userinfo 조회가 실패하면 null일 수 있다(토큰은 유효 — googleAuth 콜백 계약). */
+  email: string | null;
+  /** 이 연결이 처음 열린 시각(ms). 슬라이딩 창 판정에는 쓰지 않는다(진단·표시용). */
+  connectedAt: number;
+  /** 마지막 「앱 사용」 시각(ms). **창 판정의 기준** — `lastUsedAt + 28일 > now`면 연결 유효. */
+  lastUsedAt: number;
+}
+
 /** A single row in the day's pre-built table */
 export interface SessionRow {
   index: number;

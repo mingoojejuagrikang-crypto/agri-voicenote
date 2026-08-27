@@ -26,6 +26,7 @@ import { logger } from './lib/logger';
 import { bgEnterSnapshot, lifecycleSignal, visibilityContext } from './lib/logEvents';
 import { useSessionStore, isSessionLive } from './stores/sessionStore';
 import { onTokenSettled } from './lib/googleAuth';
+import { touchConnection } from './lib/googleConnection';
 
 export default function App() {
   const [tab, setTab] = useState<TabId>('settings');
@@ -74,6 +75,11 @@ export default function App() {
     // v0.5.0 W7(T-19): 앱 기동 계측 — 다음 로그 분석에서 "앱이 떴는데 세션이 없다"와
     // "앱 자체가 안 떴다"를 구분할 수 있게 한다.
     logger.log({ type: 'app', extra: 'app_boot', meta: { appVersion: logger.device().appVersion } });
+    // v0.51 — 「앱 사용」 = 앱을 여는 것. 연결창을 4주 더 민다(시간당 1회 스로틀).
+    // 🔴 **기록만 한다 — 토큰 갱신은 시도하지 않는다.** 부팅은 사용자 제스처가 아니라서 여기서
+    //    signIn()을 부르면 제스처 밖 팝업 차단으로 되돌아간다(rauth P1). 갱신은 P1(동기화 클릭)·
+    //    P2(세션 시작)에서만. 이미 만료된 창은 touchConnection이 스스로 거부한다(check-then-touch).
+    touchConnection();
     void hydrateSessions();
     // v0.33.0 항목5 — 과거값 인덱스 영속 폴백 복원(idempotent, 토큰 무관). 부팅 시점에 미리
     // 하이드레이션해 두면 미로그인 세션의 첫 값 커밋부터 폴백 알람이 작동한다.
@@ -171,6 +177,10 @@ export default function App() {
         voiceTelemetryRef.current?.suspendForBackground();
       }
       if (document.visibilityState === 'visible') {
+        // v0.51 — 포그라운드 복귀도 「앱 사용」이다(부팅 touch와 같은 계약: 기록만, 갱신 없음,
+        // 시간당 1회 스로틀, 죽은 창 부활 금지). 세션 중 GIS 팝업 왕복에서 돌아온 복귀도 여기를
+        // 지나지만 스로틀과 aliveness 가드 덕에 무해하다.
+        touchConnection();
         // #4 — 캡처 복구 + STT 복원. 복원에 성공하면 인식기의 onStart가 안내를 1회 발화한다.
         voiceTelemetryRef.current?.resumeFromBackground();
         awaySignals.clear();
