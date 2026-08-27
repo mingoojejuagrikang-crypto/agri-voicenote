@@ -184,7 +184,11 @@ test('연결 기록 없음(googleConnection:null) — 창이 없으므로 강등
   await bootWithConnection(page, null);
 
   const log = await readAuthLog(page);
-  expect(log).toContain('auth_signout:connection_expired');
+  // v0.51 r1 [F-8] — 「4주 미사용으로 닫혔다」와 「창을 가진 적이 없다」는 원인이 다르다.
+  // SOP-003 판독에서 갈리도록 서픽스를 분리했다(②의 진짜 만료는 서픽스 없음).
+  expect(log).toContain('auth_signout:connection_expired:no_record');
+  expect(log, '기록 부재가 진짜 만료와 같은 문자열로 뭉쳤다')
+    .not.toContain('auth_signout:connection_expired');
   const conn = await readConnection(page);
   expect(conn.googleConnected).toBe(false);
 });

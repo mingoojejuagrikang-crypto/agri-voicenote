@@ -26,7 +26,7 @@ import {
   signOut as googleSignOut,
   warmupGoogleAuth,
 } from './googleAuth';
-import { clearConnection, isConnectionAlive } from './googleConnection';
+import { clearConnection, getConnection, isConnectionAlive } from './googleConnection';
 import {
   fetchHeaderAndSample,
   fetchSpreadsheetMeta,
@@ -93,7 +93,11 @@ export function useSettingsSheetConnection() {
       if (isConnectionAlive()) {
         logger.log({ type: 'app', extra: 'auth_token_expired_kept' });
       } else {
-        logger.log({ type: 'app', extra: 'auth_signout:connection_expired' });
+        // v0.51 r1 [F-8 / 리뷰 L-2] — **사유를 가른다.** 「4주 미사용으로 창이 닫혔다」와
+        // 「창을 가진 적이 없다」(v13 승계를 못 받은 기기·신규 시딩)는 원인이 전혀 다른데
+        // 종전엔 한 문자열로 뭉쳐 SOP-003 판독에서 분리가 불가능했다.
+        const hadRecord = !!getConnection();
+        logger.log({ type: 'app', extra: `auth_signout:connection_expired${hadRecord ? '' : ':no_record'}` });
         // 🔴 revoke하지 않는다 — 로컬 정리만(googleConnection.ts §계약). revoke하면 grant가 죽어
         //    이후 무팝업 갱신까지 전부 동의 화면으로 되돌아간다. signOut()을 경유하면 안 된다.
         clearConnection('connection_expired');
