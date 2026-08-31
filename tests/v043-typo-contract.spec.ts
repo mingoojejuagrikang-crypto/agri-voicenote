@@ -209,7 +209,16 @@ test('[node] 인라인 fontSize 계약 강제 검사기 (UI-g)', () => {
   //   "이번 세션의 음성 클립 N건 중 M건이 저장되지 않았습니다…"). 위반 0 그대로. 65 → 66.
   //   근거: 값은 시트까지 정상으로 가고 화면·시트 어디에도 이상이 없어, 세션이 끝난 뒤
   //   **이 한 줄이 유일한 사후 통지**다(조사 산출물 §6 — 2026-08-19 실기기 2세션 소실).
-  expect(contractCount, '계약 참조 (통과)').toBe(66);
+  // v0.51 P2-2(민구 요청 08-31 — 도움말 음성/버튼 구분표): **정당 파손 — 방향이 계약 쪽이다.**
+  //   `CommandHelpPopup.tsx`가 «명령 한 줄 반복»에서 «묶음 3개 + 손전용 목록 + 국면 단서»로
+  //   재구성되면서 계약 참조 **7건**이 늘었다(위반 0 그대로 — 신규 인라인이 전부 VOICE_TYPE 참조):
+  //     GroupHeading 3(captionSm 마크 · captionSm 제목 · captionXs 부연) ·
+  //     HAND_ONLY_FEATURES 행 2(captionSm 라벨 · captionSm 설명) ·
+  //     CommandRow의 `touchNote` 1(captionXs) · 하단 국면 단서 블록 1(captionXs). 66 → 73.
+  //   🔴 같은 회차에 **조절판 음성 명령 5종이 제거**됐지만 이 수에는 영향이 없다 —
+  //   그것들은 `voiceCommands.ts`(배열 데이터)에 있었고 이 검사기는 `.tsx`의 인라인
+  //   `fontSize:`만 센다. 도움말은 그 배열을 **동적 렌더**하므로 줄 수가 아니라 항목 수가 준다.
+  expect(contractCount, '계약 참조 (통과)').toBe(73);
   expect(allowlistCount, 'ALLOWLIST (허용)').toBe(4);
   expect(commentCount, '주석 (skip)').toBe(3);
   expect(violationCount, '위반 (0건이어야 함)').toBe(0);
