@@ -200,6 +200,66 @@ export function holdTtsSkipped(reason: 'tts_busy'): string {
   return `hold_tts_skipped:${reason}`;
 }
 
+/** 🔴 v0.51 H3 (민구 실기기 08-31) — **홀드의 「시작」과 「취소」를 남긴다.**
+ *
+ *  ## 왜 계측하나 — 지금 취소가 로그에 **한 줄도 안 남는다**
+ *  민구 제보: *"진행바가 0으로 갔다가 저절로 다시 차오른다."* 소스 전수(§12-2)가 그 왕복이
+ *  **`pointerup`(또는 cancel) → `pointerdown`** 이었음을 **증명**했지만, 그 왕복의 **물리적 원인**은
+ *  두 갈래로 갈리고 **로그만으로는 구분되지 않는다**:
+ *   · **C1″** — 엄지 접촉의 간헐 끊김(사람 손가락 쪽)
+ *   · **X2**  — iOS가 `pointercancel` 뒤 같은 손가락에 **새 `pointerdown`을 발행**(브라우저 쪽)
+ *  🔑 **둘을 가르는 유일한 신호가 「취소 직후 새 홀드가 얼마 만에 시작됐는가」** 이고,
+ *  그래서 `abort`만으로는 부족하다 — **`…_start`가 이 묶음의 핵심**이다.
+ *  그리고 H2(3초→2초)·H7′(유예 창)의 **효과를 재려면** 취소율의 전후 비교가 필요하다.
+ *
+ *  ## 🔴 새 이벤트 **타입**을 만들지 않는다 (SOP-003 파서 계약)
+ *  기존 `type=command`에 `parsed=screen_off_start|screen_off_abort|screen_on_abort`를 싣는다.
+ *  🟢 기존 오라클 안전 확인(실측): `v0470-w7-hold-blackout.spec.ts:136`의 필터는
+ *  **`e.parsed === parsed` 정확 일치**라 `screen_off_start`/`_abort`가 `screen_off` 집계에
+ *  **안 걸린다.** 테스트 ②의 *"취소된 홀드가 screen_off를 남기면 안 된다"* 는 그대로 산다.
+ *  🔴 **다만 분석 쪽(SOP-003)이 `parsed`를 접두 매칭하면 오염된다** — 그 SOP의 접두 매칭 조항은
+ *  `extra`에 대한 것이고(§237 ③) `parsed`에 `screen_off` 집계는 없음을 확인했다. 그래도
+ *  로그 판독 레인과 **교차 확인이 필요하다**(이 회차 인계 사항).
+ *
+ *  ## 대가 — 링버퍼 잠식
+ *  취소가 잦으면 그만큼 다른 로그를 밀어낸다. 그래서 **`at`은 50ms 단위로 반올림**해
+ *  카디널리티를 낮춘다(정밀도는 판정에 필요 없다 — 우리가 보는 것은 «수십 ms인가 수백 ms인가»다).
+ *
+ *  @param reason 취소 사유. `secondary` = H1 가드가 남의 포인터를 걸러낸 경우(참고: 그 경로는
+ *         `stopHold` 자체에 도달하지 않으므로 **방출되지 않는다** — 유니온에 두는 것은 다음
+ *         편집자가 그 사실을 알고 넣게 하기 위해서다).
+ *  @param atMs 홀드 시작으로부터 경과 ms. 호출부가 반올림하지 않아도 여기서 한다. */
+export function holdAbort(fields: {
+  phase: 'screen_off' | 'screen_on';
+  reason: 'up' | 'cancel' | 'leave' | 'unmount' | 'secondary';
+  atMs: number;
+  /** 🔴 v0.51 [P1-2] — **새 홀드가 시작되면서 밀려난 취소**다(유예가 만료돼 스스로 끝난 것이 아니다).
+   *
+   *  왜 굳이 가르나: 이 abort는 바로 뒤 `screen_off_start`와 **같은 밀리초**에 찍힌다.
+   *  그 모양이 **X2 시그니처(「취소 직후 곧바로 재시작」 = iOS가 `pointercancel` 뒤 새
+   *  `pointerdown`을 발행)와 구분되지 않는다** — 그런데 C1″와 X2를 가르는 것이 H3의 존재
+   *  이유다. 표식이 없으면 **계측이 자기 판정을 스스로 오염시킨다.**
+   *  👉 판독 시 `displaced=1`인 쌍은 **간격 0을 X2 근거로 쓰면 안 된다.** */
+  displaced?: boolean;
+}): string {
+  return kv({
+    src: 'hold',
+    reason: fields.reason,
+    at: Math.round(fields.atMs / 50) * 50,
+    ...(fields.displaced ? { displaced: 1 } : null),
+  });
+}
+
+/** 🔴 v0.51 H3 — 홀드 **시작**. 위 `holdAbort`의 짝이고, **C1″/X2 판별의 축**이다
+ *  (취소 직후 이 이벤트까지의 간격이 곧 «접촉 끊김이었나, 브라우저 재발행이었나»를 가른다).
+ *
+ *  @param via `'grace'`면 **H7′ 유예가 흡수한 재접촉**이다. 🔑 흡수된 왕복은 `abort`를
+ *         남기지 않으므로(그게 처방의 목적이다) **이 표식이 그 건수를 세는 유일한 수단**이다.
+ *         「유예를 넣었더니 리셋이 사라졌다」와 「원래 안 났다」를 이것이 가른다. */
+export function holdStart(via?: 'grace'): string {
+  return via ? kv({ src: 'hold', resume: via }) : kv({ src: 'hold' });
+}
+
 /** 🔴 v0.47.0-r2 P2(FB-C · 민구 실기기 08-09) — **수동입력 이상치 보류 중 음성 차단을 안내했다.**
  *
  *  왜 계측하나: 07-14 결정(수동입력 이상치는 터치 [확인]/[수정] 전용)은 유지하되, 종전엔 차단이

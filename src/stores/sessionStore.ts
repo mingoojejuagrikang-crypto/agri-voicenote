@@ -114,10 +114,13 @@ interface SessionState {
    *  그 상태로 세 회차가 「버튼을 옮기자」는 설계를 논의했다. 실측으로 정정한다.
    *
    *  **진입(v0.47.0 W7 기준 2경로):** ①음성 `screenOff`('화면' — `useVoiceSession`, `src:voice`)
-   *  ②**히어로(중앙) 3초 홀드**(`HeroHoldToBlackout`, `src:hold`). 두 경로는 같은 `screen_off`
+   *  ②**히어로(중앙) 홀드**(`HeroHoldToBlackout`, `src:hold`). 두 경로는 같은 `screen_off`
    *  이벤트를 내고 `extra`의 `src:`로만 갈린다.
-   *  **해제:** 검은 화면 **중앙 영역 짧은 탭**(`BlackoutOverlay` — 종전 0.9초 홀드를 민구가
-   *  08-08에 대체했다) + 갇힘 방지용 키보드 Enter/Space.
+   *  🔴 **홀드 길이는 여기 적지 않는다** — 08-08 3초 → **08-31 민구 재확정 2초**(접촉 끊김 노출
+   *  창 축소). 값과 근거의 SSOT는 `HeroHoldToBlackout`의 `HOLD_TO_BLACKOUT_MS` 주석이다.
+   *  **해제:** 검은 화면 **중앙 영역 2초 홀드**(`BlackoutOverlay` — 08-08 짧은 탭을 민구가
+   *  08-09에 대체했다) + 갇힘 방지용 키보드 Enter/Space.
+   *  ⚠️ 끄기 2초와 켜기 2초는 **값이 같을 뿐 다른 상수다**(각 파일의 주석 참조).
    *  🔴 **여기(메모리 전용 스토어)에 두는 것이 계약이다.** `settingsStore`(persist)에 두면 앱을
    *  껐다 켜도 검은 화면이 남아 **사용자가 복구 방법을 모르는 상태로 갇힌다.** 새로고침 = 해제.
    *  🔑 `resetAll`에도 넣는다 — 세션이 끝났는데 화면이 검으면 당황한다(uiModalOpen과 다른 판단:

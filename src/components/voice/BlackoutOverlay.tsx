@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
 import { VOICE_TYPE } from './heroLayout';
 import { logger } from '../../lib/logger';
+import { holdAbort } from '../../lib/logEvents';
 
 /**
  * v0.46.0 WP-F — **검은 화면 모드**(제보 F13② · 민구 R2 확정)
@@ -182,7 +183,20 @@ export function BlackoutOverlay({ onRelease }: { onRelease: () => void }) {
   /** 멀티터치 방어 — 홀드를 시작한 그 포인터만 홀드를 끝낼 수 있다. */
   const pointerIdRef = useRef<number | null>(null);
 
-  const cancelHold = useCallback(() => {
+  const cancelHold = useCallback((reason?: 'up' | 'cancel' | 'leave') => {
+    // 🔴 v0.51 H3 — **켜기 쪽도 취소를 남긴다.** 끄기와 대칭이어야 «어느 홀드가 얼마나 자주
+    //    끊기는가»를 한 눈금으로 비교할 수 있다(끄기만 계측하면 «이 기기·이 손가락이 원래
+    //    그런가»를 가를 대조군이 없다).
+    //    ⚠️ 술어는 끄기 쪽과 **같다** — 도는 홀드가 있을 때만. 완주 프레임이 `tickRef`를 먼저
+    //    비우므로, 해제 성공 뒤 따라오는 up이 가짜 abort를 남기지 않는다.
+    //    `reason`이 없으면(내부 정리 호출) 계측하지 않는다.
+    if (reason && tickRef.current !== null) {
+      logger.log({
+        type: 'command',
+        parsed: 'screen_on_abort',
+        extra: holdAbort({ phase: 'screen_on', reason, atMs: performance.now() - startRef.current }),
+      });
+    }
     if (tickRef.current !== null) {
       window.clearTimeout(tickRef.current);
       tickRef.current = null;
@@ -255,9 +269,12 @@ export function BlackoutOverlay({ onRelease }: { onRelease: () => void }) {
   /** 🔴 **해제 경로에 맨 `onPointerUp`이 하나도 없다.** up은 «취소»만 한다 —
    *  진입 제스처가 남긴 다운 없는 잔여 up은 취소할 홀드조차 없어 아무 일도 일어나지 않는다.
    *  이것이 이 회차 버그(떼는 순간 복귀)를 구조로 닫는 지점이다. */
-  const endHold = useCallback((e: PointerEvent<HTMLDivElement>) => {
+  const endHold = useCallback((
+    e: PointerEvent<HTMLDivElement>,
+    reason: 'up' | 'cancel' | 'leave',
+  ) => {
     if (pointerIdRef.current !== null && e.pointerId !== pointerIdRef.current) return;
-    cancelHold();
+    cancelHold(reason);
   }, [cancelHold]);
 
   return (
@@ -303,9 +320,10 @@ export function BlackoutOverlay({ onRelease }: { onRelease: () => void }) {
       <div
         data-testid="blackout-center-hit"
         onPointerDown={beginHold}
-        onPointerUp={endHold}
-        onPointerCancel={endHold}
-        onPointerLeave={endHold}
+        // 🔴 H3 — 사유는 핸들러 자리에서만 알 수 있다(끄기 쪽과 같은 형태).
+        onPointerUp={(e) => endHold(e, 'up')}
+        onPointerCancel={(e) => endHold(e, 'cancel')}
+        onPointerLeave={(e) => endHold(e, 'leave')}
         style={{
           width: CENTER_HIT_W,
           height: CENTER_HIT_H,

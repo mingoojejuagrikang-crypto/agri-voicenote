@@ -1,5 +1,6 @@
 /**
- * v0.47.0 W7 오라클 — **히어로 3초 홀드 진입 · 중앙 2초 홀드 해제.** (민구 지시 08-08 → 08-09 반전)
+ * v0.47.0 W7 오라클 — **히어로 홀드 진입 · 중앙 2초 홀드 해제.** (민구 지시 08-08 → 08-09 반전)
+ * 🔴 **v0.51 H2 — 진입 홀드가 3초 → 2초가 됐다**(민구 재확정 08-31). 아래 `HOLD_MS` 주석이 SSOT.
  *
  * > 08-08: *"화면 중앙 히어로 영역을 사용자가 터치하면 안내음성/문구+진행바와 함께 3초 유지하면
  * >  화면 끔. 화면 꺼진 상태에서 중앙 영역 잠깐이라도 터치하면 화면 켬으로 하자."*
@@ -22,8 +23,8 @@
  * 이 파일은 **새로 생긴 두 계약**을 진다: 진입 제스처와, 해제의 위치 조건.
  *
  * ## 재는 축
- *  ① 히어로 3초 홀드 → 진입한다. 홀드 중 **문구+진행바**가 뜬다(민구가 명시한 피드백).
- *  ② 🔴 **3초 미만에 떼면 진입하지 않는다.** 오터치 방어가 이 기능의 전제다 — 현장에서
+ *  ① 히어로 홀드(`HOLD_MS`) → 진입한다. 홀드 중 **문구+진행바**가 뜬다(민구가 명시한 피드백).
+ *  ② 🔴 **`HOLD_MS` 미만에 떼면 진입하지 않는다.** 오터치 방어가 이 기능의 전제다 — 현장에서
  *     화면이 제멋대로 꺼지면 값이 날아간 것처럼 보인다.
  *  ③ 🔴 **가장자리는 해제하지 않는다.** 08-05에 「두 번 탭」을 기각시킨 근거(*"주머니에서도
  *     두 번 눌린다 — 옷 스침은 연속 접촉"*)가 08-08 확정에서는 **위치 조건**으로 이전됐다.
@@ -56,8 +57,17 @@ import { fireStt, waitForTtsIdle } from './fixtures/stt';
 test.setTimeout(120_000);
 
 /** 제품 상수 `HOLD_TO_BLACKOUT_MS`와 같아야 한다. 🔴 **import하지 않는 건 의도다**
- *  (`v0460-g-dot-pill`과 같은 계약): 제품이 값을 바꾸면 계약은 여기 남아 오라클이 신호를 낸다. */
-const HOLD_MS = 3000;
+ *  (`v0460-g-dot-pill`과 같은 계약): 제품이 값을 바꾸면 계약은 여기 남아 오라클이 신호를 낸다.
+ *
+ *  🔴 **v0.51 H2 — 3000 → 2000**(민구 재확정 08-31). 이 리터럴은 제품과 **함께** 바뀐 것이지
+ *  red를 지우려고 따라간 것이 아니다: 근거는 `HeroHoldToBlackout`의 상수 주석이 SSOT다
+ *  (접촉 끊김 노출 창을 1/3 줄인다).
+ *  🔴 **아래 `WAKE_HOLD_MS`와 값이 같아졌지만 합치지 마라** — 근거가 다른 두 계약이다.
+ *  🟢 이 변경으로 red가 되는 기존 케이스는 **0건**임을 확인했다(전수): `holdHero` 호출 4개 중
+ *     둘은 `HOLD_MS` 파생이라 자동 축소되고(:182 `*0.4` · :349 `+400`), 나머지 둘은
+ *     200ms·1300ms 고정이라 2000 미만을 유지한다. **2000~3000 사이를 눌러 놓고 「진입 안 함」을
+ *     단언하는 케이스가 없다**는 것이 이 전수의 결론이다. */
+const HOLD_MS = 2000;
 
 /** 🔴 r2 P6 — 해제 홀드. 제품 상수 `HOLD_TO_WAKE_MS`와 같아야 한다(위 `HOLD_MS`와 같은 이유로
  *  일부러 import하지 않는다 — 제품이 값을 바꾸면 계약이 여기 남아 오라클이 신호를 낸다). */
@@ -136,7 +146,7 @@ async function screenLogs(page: Page, parsed: 'screen_off' | 'screen_on'): Promi
   return all.filter((e) => e.parsed === parsed);
 }
 
-test('① 히어로 3초 홀드로 진입한다 + 홀드 중 문구·진행바가 뜬다', async ({ page }) => {
+test('① 히어로 홀드(HOLD_MS)로 진입한다 + 홀드 중 문구·진행바가 뜬다', async ({ page }) => {
   await boot(page, PHONE_402);
   await waitForTtsIdle(page);
   await expect(overlay(page), '전제: 시작은 검은 화면이 아니다').toHaveCount(0);
@@ -147,7 +157,7 @@ test('① 히어로 3초 홀드로 진입한다 + 홀드 중 문구·진행바�
   await page.mouse.down();
 
   // 민구가 명시한 피드백 — *"안내음성/문구+진행바와 함께"*. 진행바가 없으면 사용자는
-  //   3초가 얼마나 남았는지 모른 채 손가락을 떼고 "안 된다"고 판단한다.
+  //   시간이 얼마나 남았는지 모른 채 손가락을 떼고 "안 된다"고 판단한다.
   await expect(page.locator('[data-testid="hero-hold-cue"]'), '홀드 중 안내 문구').toBeVisible({ timeout: 1500 });
   // 🔴 V-FIX2(리뷰 U10) — **화면 문구와 TTS가 글자까지 같다.** 상수는 배열 SSOT 하나로 묶여
   //    있지만 «렌더»는 별개다 — 두 줄 중 하나를 떨어뜨리는 리팩토링은 상수만 봐서는 안 잡힌다.
@@ -165,17 +175,17 @@ test('① 히어로 3초 홀드로 진입한다 + 홀드 중 문구·진행바�
     .poll(async () => Number(await fill.getAttribute('data-progress')), { timeout: 2000 })
     .toBeGreaterThan(0);
   const mid = Number(await fill.getAttribute('data-progress'));
-  expect(mid, '아직 3초가 안 됐으므로 1 미만').toBeLessThan(1);
+  expect(mid, '아직 홀드 시간이 안 찼으므로 1 미만').toBeLessThan(1);
 
   await page.waitForTimeout(HOLD_MS);
   await page.mouse.up();
   await expect(
     overlay(page),
-    '3초를 유지했는데 화면이 안 꺼진다 — 진입 경로가 음성 하나로 돌아간 것이다',
+    '홀드를 유지했는데 화면이 안 꺼진다 — 진입 경로가 음성 하나로 돌아간 것이다',
   ).toBeVisible({ timeout: 3000 });
 });
 
-test('② 🔴 3초 미만에서 떼면 진입하지 않는다 (오터치 방어가 전제다)', async ({ page }) => {
+test('② 🔴 HOLD_MS 미만에서 떼면 진입하지 않는다 (오터치 방어가 전제다)', async ({ page }) => {
   await boot(page, PHONE_402);
   await waitForTtsIdle(page);
 
@@ -303,7 +313,7 @@ test('⑥ 🔴 TTS 재생·큐잉 중에는 홀드 안내를 큐잉하지 않는
 /** V-FIX3(리뷰 U11) — `prefers-reduced-motion: reduce`에서 진행 표현이 **저빈도 계단**이 되고,
  *  **홀드 시간 판정은 그대로**다. 「reduce면 아무것도 안 그린다」로 가지 않은 이유는 위치 기반
  *  진입에서 피드백이 사라지면 *"왜 안 꺼지지"* 가 되기 때문이다. */
-test('⑦ reduced-motion — 진행 표현은 0.25 계단, 3초 판정은 불변 (V-FIX3)', async ({ page }) => {
+test('⑦ reduced-motion — 진행 표현은 0.25 계단, 홀드 시간 판정은 불변 (V-FIX3)', async ({ page }) => {
   await boot(page, PHONE_402);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await waitForTtsIdle(page);
@@ -313,9 +323,10 @@ test('⑦ reduced-motion — 진행 표현은 0.25 계단, 3초 판정은 불변
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
 
-  // 🔴 V-FIX3b(2차 재검증) — **즉시** 떠야 한다. reduce의 첫 계단은 750ms 뒤이고 안내 TTS는
+  // 🔴 V-FIX3b(2차 재검증) — **즉시** 떠야 한다. reduce의 첫 계단은 `HOLD_MS/4` 뒤이고 안내 TTS는
   //    400ms 뒤라, 표시가 진행값에 묶여 있으면 «소리는 나는데 화면은 그대로»인 구간이 생긴다.
-  //    300ms 안에 못 뜨면 그 회귀다(400·750 둘 다보다 앞이라 두 축을 한 번에 가른다).
+  //    300ms 안에 못 뜨면 그 회귀다(400·첫 계단 둘 다보다 앞이라 두 축을 한 번에 가른다).
+  //    🔴 v0.51 H2 — 첫 계단이 750 → **500ms**가 됐다. 300ms 문턱은 그대로 유효하다(여전히 앞선다).
   const fill = page.locator('[data-testid="hero-hold-fill"]');
   await expect(
     page.locator('[data-testid="hero-hold-cue"]'),
@@ -338,7 +349,7 @@ test('⑦ reduced-motion — 진행 표현은 0.25 계단, 3초 판정은 불변
   await page.mouse.up();
   await expect(
     overlay(page),
-    'reduce에서 3초 판정이 늦어졌다 — 시각 표현만 바꾸는 계약이 깨졌다',
+    'reduce에서 홀드 시간 판정이 늦어졌다 — 시각 표현만 바꾸는 계약이 깨졌다',
   ).toBeVisible({ timeout: 2000 });
 });
 

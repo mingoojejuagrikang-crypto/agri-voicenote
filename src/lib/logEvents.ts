@@ -76,4 +76,6 @@ export {
   holdTtsSkipped,
   // v0.47.0-r2 P2(FB-C) — 수동입력 보류 중 음성 차단을 **안내**한 사건(종전 무음 차단의 해소).
   manualHoldGuide,
+  // v0.51 H3 — 홀드 시작·취소 계측(C1″ vs X2 판별 + H2·H7′ 효과 측정).
+  holdStart, holdAbort,
 } from './logEventsInstrumentation';
