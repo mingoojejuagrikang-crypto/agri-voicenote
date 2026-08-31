@@ -64,7 +64,12 @@ export const NAV_MIN_HEIGHT = NAV_PAD_TOP + NAV_TOUCH_TARGET + NAV_PAD_BOTTOM;
 
 export function TabBar({ tab, setTab }: Props) {
   // v0.37.0 FB-I(민구, "네비는 항상 보여야 함) — 나비의 **실측 높이**를 --nav-h로 발행(SSOT).
-  //   수동 입력 시트(ModalBase bottomInset)가 이 값만큼 위로 올라앉아 나비를 덮지 않는다. 손계산은
+  //   🔴 **종전 주석의 「수동 입력 시트가 이 값을 소비한다」는 거짓이었다**(2026-08-31 실측 정정):
+  //   `grep -rn bottomInset src` → 정의만 있고 **호출부 0건**이었고, 그 시트는 그리드 인라인이라
+  //   애초에 오버레이가 아니다. 세 회차가 "이미 쓰고 있다"고 믿었다.
+  //   **첫 소비자는 v0.51 P0-1의 보기 전용 오버레이 5종이다** — 「?」 도움말 · 설정 도움말
+  //   (설정탭·데이터탭 공용) · 설정 요약 · 표 미리보기(**비게이트만**) · 세션 상세.
+  //   그것들이 이 값만큼 위로 앉아 나비를 남긴다. 손계산은
   //   버튼 padding/border/폰트/노치(--sab)로 언더슈트해 나비 상단을 자르므로(잘림=실패 방향), 렌더된
   //   offsetHeight(패딩·보더·라이브 --sab 포함)를 ResizeObserver로 추종한다 — 회전·safe-area·폰트
   //   변화에도 정확. :root의 --nav-h:100px는 err-large 첫 페인트 폴백.

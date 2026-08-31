@@ -39,7 +39,16 @@ export function SettingsHelpModal({
   testid?: string;
 }) {
   return (
-    <ModalBase onClose={onClose} testid={testid} role="dialog" ariaModal ariaLabel={title} zIndex={60} pad={24}>
+    // 🔴 v0.51 P0-1(민구 확정 08-31) — **보기 전용 오버레이는 나비를 덮지 않는다.**
+    //   이 모달은 액션 prop이 `onClose` 하나뿐이다(= 읽기만 한다). 읽는 중에 탭을 못 누를 이유가
+    //   없고, 08-31 실기기에서 그게 **개선요청 채널을 막았다**(입력탭 「?」 팝업 건).
+    //   🟢 여기엔 STT 누수 위험이 없다 — `requestOverlayClose` 배선은 입력탭 `ActiveState`만
+    //   구독하지만, 설정·데이터탭 도움말은 애초에 음성 인식을 정지시키지 않는다(입력탭과 결정적
+    //   차이). 다른 정리 의무도 없다: 이 컴포넌트는 타이머·구독·캡처를 하나도 들지 않는다(실측).
+    <ModalBase
+      onClose={onClose} testid={testid} role="dialog" ariaModal ariaLabel={title} zIndex={60} pad={24}
+      bottomInset="var(--nav-h)"
+    >
       <div
         onClick={(e) => e.stopPropagation()}
         style={{

@@ -134,7 +134,11 @@ test('④ 최소 터치 타깃 56px와 --nav-h 발행은 유지된다', async ({
   const m = await measure(page);
   expect(m.btnHeight, `탭 버튼 높이(${m.btnHeight})가 최소 타깃 ${NAV_TOUCH_TARGET}px 이상`)
     .toBeGreaterThanOrEqual(NAV_TOUCH_TARGET);
-  // --nav-h는 수동 입력 시트(ModalBase bottomInset)가 소비하는 SSOT다. 실측 높이와 어긋나면
-  // 시트가 네비를 덮거나 뜬다(v0.37.0 FB-I가 고친 그 결함).
+  // 🔴 --nav-h는 `ModalBase`의 `bottomInset`을 쓰는 오버레이들이 소비하는 SSOT다. 실측 높이와
+  // 어긋나면 그 오버레이가 네비를 덮거나(잘림) 뜬다(v0.37.0 FB-I가 고친 그 결함).
+  // ⚠️ **종전 주석의 「수동 입력 시트가 소비한다」는 거짓이었다**(2026-08-31 실측 정정 —
+  //   `grep -rn bottomInset src`가 정의만 찾고 호출부를 0건 찾았다. 그 시트는 그리드 인라인이다).
+  //   실제 첫 소비자는 v0.51 P0-1의 보기 전용 오버레이들이다 — 그래서 이 단언은 **그때부터**
+  //   실효를 가진다(종전에는 아무도 안 읽는 값을 지키고 있었다).
   expect(m.navH, `--nav-h(${m.navH}) = 실측 offsetHeight(${m.barHeight})`).toBe(m.barHeight);
 });

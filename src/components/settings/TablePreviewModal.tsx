@@ -32,7 +32,17 @@ export function TablePreviewModal({
   const isGate = !!onConfirm;
 
   return (
-    <ModalBase onClose={onClose} blur animation="fade-up 200ms ease-out">
+    // 🔴 v0.51 P0-1 (민구 확정 08-31 — Q9 ①) — **「승인 단계일 때만 막는다.」**
+    //   이 한 컴포넌트가 두 얼굴을 가진다: `onConfirm`이 있으면 *"이 설정으로 진행할까요?"* 라는
+    //   **게이트 카드**이고, 없으면 그냥 **표 미리보기**다. 진행 승인을 요구하는 화면에서 탭이
+    //   눌리면 사용자는 승인·거절 중 어느 것도 하지 않고 흐름을 벗어난다 — 그건 막는다.
+    //   보기만 하는 쪽은 읽는 중에 탭을 못 누를 이유가 없다. 👉 분기 기준을 `isGate`로 못박는다.
+    //   ⚠️ 분류는 **인스턴스의 현재 상태가 아니라 「그 순간 그 모달이 할 수 있는 것」** 으로 한다
+    //   (`TypeReviewModal`을 `onApplyAll` 때문에 「막는다」로 재분류한 것과 같은 기준).
+    <ModalBase
+      onClose={onClose} blur animation="fade-up 200ms ease-out"
+      bottomInset={isGate ? undefined : 'var(--nav-h)'}
+    >
       <div
         onClick={(e) => e.stopPropagation()}
         data-testid={isGate ? 'gate-card' : 'table-preview-card'}

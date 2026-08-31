@@ -19,7 +19,11 @@ export function SessionDetailModal({
 }) {
   const close = () => { clipPlayer.stop(); onClose(); };
   return (
-    <Backdrop onClose={close}>
+    // 🔴 v0.51 P0-1 (민구 확정 08-31 — Q9 ②) — **데이터탭 모달 7종 중 이것만 나비를 남긴다.**
+    //   이 모달은 지난 세션의 값을 **읽는** 화면이다(셀 편집은 그 안에서 즉시 저장되므로 «작성
+    //   중 이탈로 유실»이 없다 — 나머지 6종의 내보내기·복원·삭제 확인과 갈리는 지점이다).
+    //   ⚠️ `Backdrop`의 기본값은 여전히 「덮는다」이고, 이 한 줄이 유일한 예외다.
+    <Backdrop onClose={close} bottomInset="var(--nav-h)">
       <div
         data-testid="session-detail-modal"
         onClick={(e) => e.stopPropagation()}

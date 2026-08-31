@@ -199,6 +199,8 @@ export function SettingsSummaryModal({
 }) {
   const prevSurvey = usePrevSurvey(columns, roundDateColId);
   return (
+    // 🔴 v0.51 P0-1(민구 확정 08-31) — **보기 전용이므로 나비를 남긴다.** 액션 prop이 `onClose`
+    //   하나뿐인 요약 표시 모달이다(작성 중 입력도, 파괴적 확인도 없다 — 이탈로 잃을 것이 없다).
     <ModalBase
       onClose={onClose}
       testid="settings-summary-modal"
@@ -207,6 +209,7 @@ export function SettingsSummaryModal({
       ariaLabel="설정 요약"
       blur
       animation="fade-up 200ms ease-out"
+      bottomInset="var(--nav-h)"
     >
       <div
         onClick={(e) => e.stopPropagation()}
