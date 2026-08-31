@@ -393,7 +393,6 @@ export function ActiveState({
             waveActive={!paused}
             getAudioLevel={getAudioLevel}
             getTimeDomainData={getTimeDomainData}
-            uiCommand={uiCommand}
             onPrevRow={onPrevRow}
             onNextRow={onNextRow}
             onTogglePause={onTogglePause}

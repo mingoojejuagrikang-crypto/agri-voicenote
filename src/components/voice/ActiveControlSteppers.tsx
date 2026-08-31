@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { T } from '../../tokens';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useSessionStore } from '../../stores/sessionStore';
@@ -8,7 +8,6 @@ import { speak, setBargeInEnabled } from '../../lib/speech';
 import {
   CHIP_SWEEP_LEVEL_MAX, chipSweepSecondsForLevel, chipSweepLevelForSeconds,
 } from '../../lib/chipSweep';
-import type { VoiceUiCommandSignal } from '../../lib/voiceCommands';
 import { ACTIVE_ZONE_RATIOS, VOICE_TYPE } from './heroLayout';
 import { StepperControl, clampStep } from './StepperControl';
 import { BargeInToggle } from './BargeInToggle';
@@ -57,8 +56,7 @@ const DRAWER_MAX_HEIGHT =
  *  v0.44.0 §D1 — 세 번째 항목 [말끊기 ON/OFF](BargeInToggle, 기본 ON)를 그 아래 전폭 1행으로
  *  추가(민구 확정 08-02: "바지인 기능 토글을 입력탭의 서랍메뉴에 포함"). 접힌 요약 필은 종전
  *  두 값만 유지한다 — 문자열이 길어지면 375 폭 오버레이 필이 줄바꿈돼 §C5-b 겹침 관례를 해친다. */
-export function ActiveControlSteppers({ uiCommand, open, canExpand, onOpenChange }: {
-  uiCommand: VoiceUiCommandSignal | null;
+export function ActiveControlSteppers({ open, canExpand, onOpenChange }: {
   /** 확장 여부 — **부모가 소유**한다. 열려 있는 동안 하단 인디케이터·`<`·`>`를 숨겨야 하는데
    *  (fb-27-6 오탭 원인 제거), 그 판단이 이 컴포넌트 밖에서 필요하기 때문이다. */
   open: boolean;
@@ -111,14 +109,16 @@ export function ActiveControlSteppers({ uiCommand, open, canExpand, onOpenChange
   // v0.33.0 B-6 — recognitionTolerance 로깅 디바운스(이전엔 탭마다 즉시 로깅 → 연타 시 링버퍼 잠식).
   // ttsDebounceRef와 동일 패턴·동일 350ms 창, 최종값만 기록.
   const tolLogDebounceRef = useRef<number | null>(null);
-  const setOpen = (
-    updater: boolean | ((v: boolean) => boolean),
-    source: 'touch' | 'voice',
-  ) => {
+  /** 🔴 v0.51 — `source` 인자가 사라졌다. 유일한 `'voice'` 호출부가 위에서 제거된 uiCommand
+   *  디스패치였고, 남은 호출부는 접힌 필 하나(터치)뿐이다.
+   *  🟢 **로그 어휘는 그대로 둔다** — `inputControlPanelOpened`의 유니온은 `'touch' | 'voice'`를
+   *  유지한다. 과거 로그에 `src=voice`가 남아 있고, 어휘를 좁히면 그 로그가 «모르는 값»이 된다
+   *  (SOP-003 대조가 어휘 안정성에 기댄다). 여기서 더 이상 방출되지 않을 뿐이다. */
+  const setOpen = (updater: boolean | ((v: boolean) => boolean)) => {
     const next = typeof updater === 'function' ? updater(open) : updater;
     const allowedNext = canExpand ? next : false;
     if (allowedNext && !open) {
-      logger.log({ type: 'app', extra: inputControlPanelOpened(source) });
+      logger.log({ type: 'app', extra: inputControlPanelOpened('touch') });
     }
     onOpenChange(allowedNext);
   };
@@ -163,21 +163,15 @@ export function ActiveControlSteppers({ uiCommand, open, canExpand, onOpenChange
       logger.log({ type: 'app', extra: settingChanged('chipSweepSeconds', value) });
     }, 350);
   };
-  const handledUiCommandSeqRef = useRef(0);
-  useEffect(() => {
-    if (!uiCommand || uiCommand.seq <= handledUiCommandSeqRef.current) return;
-    handledUiCommandSeqRef.current = uiCommand.seq;
-    const current = useSettingsStore.getState();
-    switch (uiCommand.id) {
-      case 'toggleInputControls': setOpen((v) => !v, 'voice'); break;
-      case 'recognitionDown': setTolerance(current.recognitionTolerance - 0.05); break;
-      case 'recognitionUp': setTolerance(current.recognitionTolerance + 0.05); break;
-      case 'guidanceSlower': setTtsRate(current.ttsRate - 0.05); break;
-      case 'guidanceFaster': setTtsRate(current.ttsRate + 0.05); break;
-    }
-    // 이벤트 seq가 유일한 실행 트리거다. 설정/로컬 상태 변경으로 같은 명령을 재실행하지 않는다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uiCommand?.seq]);
+  // 🔴 v0.51 (민구 확정 08-31) — **여기 있던 uiCommand 디스패치가 통째로 사라졌다.**
+  //   종전에는 `toggleInputControls`·`recognitionDown/Up`·`guidanceSlower/Faster` 5종을
+  //   음성 신호로 받아 이 패널의 손 조작과 **같은 동작**을 시켰다(v0.38.0 #4-③의 설계).
+  //   08-31 확정: ***"조절판은 손으로만."*** → 그 5개 명령이 `voiceCommands.ts`에서 제거되면서
+  //   이 effect가 받을 신호가 **하나도 남지 않았다**(`VOICE_UI_COMMAND_IDS`는 이제 help·screenOff뿐이고
+  //   둘 다 이 컴포넌트의 관심사가 아니다). 죽은 배선을 남기면 다음 사람이 «음성으로도 되나 보다»
+  //   라고 읽는다 — `uiCommand` prop과 함께 지웠다.
+  //   🔴 **기능은 그대로 산다** — 아래 스텝퍼·토글·요약 필이 전부 그대로다. 없앤 것은 «말로 부르는
+  //   경로» 하나뿐이고, 도움말은 그 사실을 「손으로만 되는 것」 묶음으로 가르친다.
   const sweepLevel = chipSweepLevelForSeconds(s.chipSweepSeconds);
   const tolPct = Math.round(s.recognitionTolerance * 100);
   // v0.37.0 FB-K(민구) — 모호한 "입력 조절"·"인식"·"안내" 라벨을 뜻이 분명한 "허용 인식률"·
@@ -245,7 +239,7 @@ export function ActiveControlSteppers({ uiCommand, open, canExpand, onOpenChange
           // v0.33.0 B-7 — 입력 조절 패널 열림/닫힘 계측(ui_suspend/ui_resume의 command 컨벤션).
           // updater 밖에서 로깅(StrictMode의 updater 중복 호출로 이벤트가 2배로 찍히지 않게).
           logger.log({ type: 'command', parsed: open ? 'ui_close' : 'ui_open', extra: 'input_control_panel' });
-          setOpen((v) => !v, 'touch');
+          setOpen((v) => !v);
         }}
         style={{
           minHeight: 42,

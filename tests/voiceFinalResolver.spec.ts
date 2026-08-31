@@ -116,13 +116,25 @@ test('일반 값 대기 — 명령 없으면 값 경로', () => {
 test('v0.38.0 #4-③ — 가시 UI 명령은 매핑되고 숫자·단위 발화는 명령으로 오인되지 않는다', () => {
   const uiCommands = [
     ['도움말', 'help'],
-    ['입력 조절', 'toggleInputControls'],
-    ['인식률 낮추기', 'recognitionDown'],
-    ['인식률 높이기', 'recognitionUp'],
-    ['안내속도 느리게', 'guidanceSlower'],
-    ['안내속도 빠르게', 'guidanceFaster'],
+    ['화면', 'screenOff'],
   ] as const;
   for (const [spoken, expected] of uiCommands) expect(detectCommand(spoken)).toBe(expected);
+
+  // 🔴 v0.51 (민구 확정 2026-08-31) — **조절판 5종이 여기서 사라졌다. 그 자리를 반대 단언이 잇는다.**
+  //
+  //  왜 지웠나: 민구 원문 ***"조절판은 손으로만"*** — ㉠ 이 명령이 필요한 순간은 「인식이 안 되는
+  //  순간」인데 명령 자체가 신뢰도 0.7을 넘어야 한다(**순환**), ㉡ 6~7음절 최장이라 문턱이 가장 높다,
+  //  ㉢ 결과(%)는 조절판을 봐야 안다.
+  //
+  //  🔴 **줄만 지우면 안 된다.** 지운 자리에 아무 오라클도 없으면 누군가 «편의로» 되살렸을 때
+  //  아무도 모른다 — 그리고 그 순간 도움말(「손으로만 되는 것」)과 파서가 **정면으로 어긋난다**
+  //  (v0.51이 고친 것이 정확히 그 «가르치지 않는데 동작하는» 불일치다).
+  //  👉 **부활 감지 오라클**로 뒤집어 단언한다.
+  for (const gone of ['입력 조절', '입력조절', '인식률 낮추기', '인식률 높이기', '안내속도 느리게', '안내속도 빠르게']) {
+    expect(detectCommand(gone), `${gone}가 다시 명령으로 잡힌다 — 「손으로만」 계약 위반`).toBeNull();
+  }
+  // 🟢 기능 자체는 산다 — 스텝퍼·토글·요약 필은 그대로다(제거된 것은 «말로 부르는 경로»뿐).
+  //    그 생존은 `v020-dials-layout` · `v026-tolerance-strict` T1~T3이 계속 진다.
 
   for (const measurement of ['12', '12.3', '십이 점 삼', '12 밀리미터', '당도 15.2', '영 점 오']) {
     expect(detectCommand(measurement), `${measurement}는 측정값 발화`).toBeNull();

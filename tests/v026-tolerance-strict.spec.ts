@@ -236,9 +236,13 @@ test('T4 — 명령어 팝업: 마지막 명령까지 스크롤 접근 가능하
   await expect(closeBtn).toBeVisible({ timeout: 3000 });
   await expect(page.locator('[data-testid="command-help-popup"]')).toContainText('도움말 중 입력 정지');
 
-  // v0.38.0 #4-③ — 가시 버튼 명령 6개 추가로 목록은 의도적으로 스크롤 가능하다. 마지막 명령도
+  // v0.38.0 #4-③ — 가시 버튼 명령 추가로 목록은 의도적으로 스크롤 가능하다. 마지막 명령도
   // 잘리지 않고 접근 가능하며, 하단 닫기는 목록 스크롤과 분리돼 항상 화면 안에 남아야 한다.
-  const lastDesc = page.locator('text=음성 안내 속도를 한 단계 높입니다').first();
+  // 🔴 v0.51 — 종전 기준점('음성 안내 속도를 한 단계 높입니다')은 **조절판 음성 명령 5종과 함께
+  //   사라졌다**(민구 확정 08-31 «조절판은 손으로만»). 마지막 명령이 `screenOff`로 바뀌었으므로
+  //   기준점도 그 문구로 옮긴다 — 🔑 이 문구는 **V-FIX4 계약**이라(도움말이 틀린 해제법을
+  //   가르치면 사용자가 «켜지지 않는 화면»에 갇힌다) 앞으로도 임의로 바뀌지 않는다.
+  const lastDesc = page.locator('text=2초 누르면 다시 켜집니다').first();
   await lastDesc.scrollIntoViewIfNeeded();
   await expect(lastDesc).toBeVisible();
   const box = (await lastDesc.boundingBox())!;
@@ -251,18 +255,41 @@ test('T4 — 명령어 팝업: 마지막 명령까지 스크롤 접근 가능하
   await expect(closeBtn).toBeHidden({ timeout: 2000 });
 });
 
-test('T6 — 음성으로 도움말·입력 조절·인식률·안내속도 버튼을 동일 동작시킨다', async ({ page }) => {
+/** 🔴 **v0.51 — 이 테스트의 계약이 뒤집혔다**(정당 파손 · 민구 확정 2026-08-31).
+ *
+ *  종전 제목은 *"음성으로 도움말·입력 조절·인식률·안내속도 버튼을 동일 동작시킨다"* 였고
+ *  그게 v0.38.0 #4-③ 이래의 계약이었다. 민구 원문: ***"조절판은 손으로만."***
+ *  근거(조사 §⑪): ㉠ 이 명령이 필요한 순간은 「인식이 안 되는 순간」인데 명령 자체가 신뢰도
+ *  0.7을 넘어야 한다(**순환**) ㉡ 6~7음절 최장이라 그 문턱이 가장 높다 ㉢ 결과(%)는 조절판을
+ *  봐야 알고, 조절판이 닫혀 있으면 바뀐 줄도 모른다.
+ *
+ *  🔑 **계약을 「완화」한 게 아니라 반대 방향으로 다시 단언한다** — 그냥 음성 단언만 지우면
+ *  누가 명령을 되살려도 green이라 회귀를 못 잡는다(`safe-area` P7이 같은 판단을 한 선례).
+ *  ① 조절판 음성 경로는 **아무 일도 하지 않는다** ② **손 경로는 그대로 산다**
+ *  ③ 남은 UI 음성 명령(도움말)은 종전대로 동작한다. */
+test('T6 — 조절판은 손으로만 동작하고(음성 무동작) 도움말 음성은 그대로 산다', async ({ page }) => {
   await setupAndStart(page, 0.6);
 
+  const toggle = page.locator('[data-testid="input-control-toggle"]');
+  const tolStepper = page.locator('[data-testid="stepper-tolerance"]');
+
+  // ① 🔴 음성은 무동작이다 — 접힌 채로 남는다.
   await fireSttConf(page, '입력 조절', 0.95);
-  await expect(page.locator('[data-testid="input-control-toggle"]')).toHaveAttribute('aria-expanded', 'true');
+  await expect(toggle, '음성 「입력 조절」이 아직 조절판을 연다 — 「손으로만」 계약 위반')
+    .toHaveAttribute('aria-expanded', 'false');
+  await expect(tolStepper, '조절판 내용이 렌더됐다 — 음성 경로가 살아 있다').toHaveCount(0);
 
-  await fireSttConf(page, '인식률 낮추기', 0.95);
-  await expect(page.locator('[data-testid="stepper-tolerance"]')).toContainText('55%');
+  // ② 🟢 손 경로는 산다 — 여기가 red면 「경로 제거」가 아니라 「기능 삭제」가 된 것이다.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(tolStepper).toBeVisible();
+  await expect(tolStepper).toContainText('60%');
 
-  await fireSttConf(page, '안내속도 빠르게', 0.95, 800);
-  await expect(page.locator('[data-testid="stepper-tts-rate"]')).toContainText('1.10x');
+  // ③ 🔴 스텝퍼 자체도 그대로 — 값이 손으로 움직인다(음성으로 하던 -0.05와 같은 한 단계).
+  await page.locator('[data-testid="stepper-tolerance-minus"]').click();
+  await expect(tolStepper, '스텝퍼가 값을 못 내린다 — 조절 기능 자체가 죽었다').toContainText('55%');
 
+  // ④ 남은 UI 음성 명령은 종전대로 동작한다(제거가 UI 명령 전체로 번지지 않았다는 대조군).
   await fireSttConf(page, '도움말', 0.95);
   await expect(page.locator('[data-testid="command-help-popup"]')).toBeVisible();
 });

@@ -5,7 +5,6 @@ import type { GlowTone } from './EdgeGlow';
 import { ActiveControlSteppers } from './ActiveControlSteppers';
 import { StateIndicator } from './StateIndicator';
 import type { DotGlyph } from './StateDots';
-import type { VoiceUiCommandSignal } from '../../lib/voiceCommands';
 import { CONTROL_ROW_FRACTION, VOICE_TYPE } from './heroLayout';
 
 /** ui-standard §2·§3 — **하단 30%**(v0.43.0 UI-b에서 25→30).
@@ -28,7 +27,7 @@ export type EdgeMode = 'nav' | 'anomaly' | 'paused' | 'exit';
 
 export function ActiveControlBar({
   tone, mode, glyph, indicatorInteractive, indicatorExit, waveActive,
-  getAudioLevel, getTimeDomainData, uiCommand,
+  getAudioLevel, getTimeDomainData,
   onPrevRow, onNextRow, onTogglePause, onExit, onExitCancel, onExitConfirm,
   onAnomalyConfirm, onAnomalyModify,
 }: {
@@ -44,7 +43,9 @@ export function ActiveControlBar({
   waveActive: boolean;
   getAudioLevel: () => number;
   getTimeDomainData: (out: Uint8Array) => boolean;
-  uiCommand: VoiceUiCommandSignal | null;
+  // 🔴 v0.51 — `uiCommand` prop이 사라졌다. 이 컴포넌트는 그 신호를 **통과만** 시켰고
+  //   (`ActiveControlSteppers`가 유일한 소비자였다), 조절판 음성 명령 5종이 제거되면서
+  //   소비자가 없어졌다. 신호 자체는 살아 있다 — 「도움말」이 `ActiveState`에서 직접 받는다.
   onPrevRow: () => void;
   onNextRow: () => void;
   onTogglePause: () => void;
@@ -216,8 +217,11 @@ export function ActiveControlBar({
           2026-07-27 — 겹칠 상자를 없애는 방식 유지). */}
       {/* 🔴 인스턴스는 **하나**다 — 래퍼 스타일만 오버레이↔플로우로 바뀐다. 조건부 분기 두 개로
           그렸더니 음성 명령('입력 조절')이 열리는 순간 재마운트된 새 인스턴스가 같은 uiCommand
-          신호를 한 번 더 처리해 도로 닫혔다(v026 T6 실측). anomaly/paused/exit에서는
-          display:none — 마운트 유지(신호 배선 보존) + hit-test·오탭 없음. */}
+          신호를 한 번 더 처리해 도로 닫혔다(v026 T6 실측).
+          ⚠️ v0.51에서 그 음성 명령이 제거돼 **이 재현 경로는 더 이상 존재하지 않는다.**
+          그래도 단일 인스턴스는 유지한다 — 재마운트는 패널 내부 상태(스텝퍼 포커스·디바운스
+          타이머)도 함께 날리므로, 이유가 하나 사라졌을 뿐 근거가 없어진 것이 아니다.
+          anomaly/paused/exit에서는 display:none — 마운트 유지 + hit-test·오탭 없음. */}
       <div
         style={
           panelOpen
@@ -247,7 +251,6 @@ export function ActiveControlBar({
         }
       >
         <ActiveControlSteppers
-          uiCommand={uiCommand}
           open={panelOpen}
           canExpand={controlsExpandable}
           onOpenChange={setControlsOpen}
