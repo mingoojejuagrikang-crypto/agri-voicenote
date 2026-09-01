@@ -140,3 +140,24 @@ export const CLIP_FAIL_ALERT_TTS = '음성 클립이 저장되지 않고 있습�
 export function clipFailSummaryScreen(failed: number, total: number): string {
   return `이번 세션의 음성 클립 ${total}건 중 ${failed}건이 저장되지 않았습니다. 값은 정상 기록됐지만 음성 확인은 할 수 없습니다.`;
 }
+
+/** 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **저장은 됐는데 믿을 수 없는** 클립의 종료 화면 문구.
+ *
+ *  위 `clipFailSummaryScreen`(아예 저장 안 됨)과 **다른 사실이라 문장을 나눈다.** 사용자에게는
+ *  「없다」와 「있는데 무음일 수 있다」가 전혀 다른 행동을 부른다 — 후자는 **들어보면 알 수 있다.**
+ *  그래서 문구가 「재생해 확인해 보라」로 끝난다(파일은 실제로 남아 있다 — 민구 확정 ②A).
+ *
+ *  ⚠️ TTS 짝을 두지 않는다(§2 「의미 동등 + 구조적 분리」). 이 통지는 세션이 **끝난 뒤** 화면에
+ *  남는 것이고, 같은 사실의 청각 통지는 인터럽트가 **풀린 직후** 이미 나갔다
+ *  (`MIC_INTERRUPT_RECOVERED_TTS`) — 종료 시점에 또 말하면 같은 사실을 두 번 말하는 것이다. */
+export function clipUnreliableSummaryScreen(unreliable: number, total: number): string {
+  return `이번 세션의 음성 클립 ${total}건 중 ${unreliable}건은 마이크가 멈춘 동안 녹음돼 소리가 없을 수 있습니다. 값은 정상 기록됐습니다 — 해당 클립은 재생해 확인해 주세요.`;
+}
+
+/** 🔴 v0.51 [CLIP-MUTED-SPAN-1] — 인터럽트가 **풀린 직후** 한 번 말하는 사후 고지.
+ *
+ *  🔑 **muted 도중에는 말하지 않는다.** 그 순간 오디오 출력도 함께 죽어 있다 —
+ *  2026-09-01 실측이 `beep_play:kind=commit,result=suspended,ctx=interrupted`다(확인음이
+ *  **안 울렸다**). 그때 큐에 넣으면 들리지도 않고, 한참 뒤 엉뚱한 자리에서 터진다.
+ *  👉 **소리는 회복된 뒤에만 쓴다.** 인터럽트 도중의 통지는 화면이 진다(절전 화면 문구 전환). */
+export const MIC_INTERRUPT_RECOVERED_TTS = '마이크가 잠시 멈춰 있었습니다. 그동안의 음성 기록은 확인이 필요합니다.';

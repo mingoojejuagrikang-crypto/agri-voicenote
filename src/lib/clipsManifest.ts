@@ -37,6 +37,8 @@ export interface ManifestSourceEvent {
   confidence?: unknown;
   /** v0.49 r2 A3 — 합성 `stt` 라인 판별용(아래 findLastCellEvent). */
   extra?: unknown;
+  /** v0.51 [CLIP-MUTED-SPAN-1] — `clip_unreliable:muted`가 **어느 클립**의 것인지 잇는 키. */
+  clipKey?: unknown;
 }
 
 interface ClipManifestEntry {
@@ -54,6 +56,16 @@ interface ClipManifestEntry {
   sttText: string | null;
   /** 위 이벤트의 confidence. 이벤트가 없거나 confidence 미탑재(iOS 등) 시 null. */
   confidence: number | null;
+  /** 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **이 클립이 트랙 `muted` 구간에 걸쳐 녹음됐는가.**
+   *
+   *  `true`면 **파일은 있는데 소리가 없을 수 있다** — 마이크를 OS가 가져간 동안(통화/Siri
+   *  인터럽션·라우트 변경) 녹음된 것이다. 감사가 이 클립을 「무음이니 앱이 클립을 잃었다」로
+   *  읽으면 틀린 결론에 간다. 반대로 이 표시가 **없으면** 무음은 진짜 조사 대상이다.
+   *
+   *  🔑 **화면에만 띄우면 부족하다**(민구 지시 2026-09-01): 감사는 zip만 열고 도는데, 그때
+   *  「이 무음은 설명된 것인가」를 가릴 근거가 manifest 밖에 없으면 판독이 매번 events.json을
+   *  손으로 뒤져야 한다. */
+  mutedSpan: boolean;
 }
 
 export interface ClipsManifest {
@@ -149,6 +161,19 @@ function findLastCellEvent(
   return sttFallback ?? { sttText: null, confidence: null };
 }
 
+/** 🔴 v0.51 [CLIP-MUTED-SPAN-1] — 이 클립 키에 `clip_unreliable:muted`가 붙었는가.
+ *
+ *  **셀 좌표가 아니라 `clipKey` 정확 매칭이다.** 같은 셀이라도 재시도(`:a<N>`)·명령(`:cmd<N>`)
+ *  클립은 **다른 시각의 다른 녹음**이라 muted 구간에 걸쳤는지가 서로 다르다 — 좌표로 매칭하면
+ *  멀쩡한 클립까지 「무음일 수 있음」으로 물들어 표시가 신호를 잃는다.
+ *  ⚠️ `:raw`(트림 전 원본)만 예외다 — **같은 녹음의 다른 표현**이므로 base 키로 되돌려 본다. */
+function findMutedSpan(events: ManifestSourceEvent[], key: string): boolean {
+  const base = key.endsWith(':raw') ? key.slice(0, -':raw'.length) : key;
+  return events.some(
+    (e) => e && e.type === 'clip' && e.extra === 'clip_unreliable:muted' && e.clipKey === base,
+  );
+}
+
 /** zip 내 clips/ 항목 목록에서 manifest를 만든다. 입력이 뭐가 빠져 있든 throw하지 않고
  *  해당 필드를 null로 채우는 것이 계약(호출부 try/catch는 최후 방어선일 뿐). */
 export function buildClipsManifest(
@@ -171,6 +196,10 @@ export function buildClipsManifest(
       committedValue: findCommittedValue(safeSessions, sessionId, row, colId),
       sttText,
       confidence,
+      // v0.51 — 🔑 `schema`는 **올리지 않는다.** 필드 추가는 additive이고(헤더 §설계 원칙),
+      //   소비자(`vault-scripts/agy-clip-audit.sh` 등)는 jq로 필드를 읽지 schema를 단언하지
+      //   않는다(2026-09-01 전수 확인). 올리면 얻는 것 없이 기존 판독만 흔든다.
+      mutedSpan: findMutedSpan(safeEvents, key),
     };
   });
   return {

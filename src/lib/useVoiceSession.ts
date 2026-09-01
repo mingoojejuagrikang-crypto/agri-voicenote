@@ -45,10 +45,11 @@ import { refreshBeforeSessionStart } from './googleAuthRefresh'; // v0.51 [rauth
 import { ensureUniqueSessionLabel } from './sessionLabel';
 // [ENV-12] Stage 3 — 클립 캡처·보존 장부는 useClipCapture가 소유한다(이 파일은 호출만).
 import { useClipCapture, type PendingCommandClip } from './useClipCapture';
-import { createClipHealth, clipSummaryExtra, type ClipHealth } from './clipHealth';
+import { createClipHealth, clipSummaryExtra, clipUnreliableSummaryExtra, type ClipHealth } from './clipHealth';
+import { getMutedSpanCount, resetMicInterruptionSpans } from './micInterruption';
 import { getAudioSessionEventCount } from './audioInterruption';
 import { useClipFailureAlert } from './useClipFailureAlert';
-import { clipFailSummaryScreen } from './voicePrompts';
+import { clipFailSummaryScreen, clipUnreliableSummaryScreen } from './voicePrompts';
 // [ENV-12] Stage 3 — 세션 영속화(persistSession)는 usePersistSession이 소유한다(이 파일은 호출만).
 import { usePersistSession } from './usePersistSession';
 // [ENV-12] Stage 3 — 행 이동 계열 내비게이션은 useRowNav가, 항목 한 칸 이동(F-1)은 useFieldNav가
@@ -2571,6 +2572,10 @@ export function useVoiceSession() {
     // v0.50 [CLIP-SILENT-1] — 클립 결산·연속 실패 카운터도 세션 경계에서 비운다(이전 세션의
     // 실패가 새 세션의 첫 클립을 임계로 밀어 올리면 안 된다).
     clipHealthRef.current.reset();
+    // v0.51 [CLIP-MUTED-SPAN-1] — muted **구간 수**도 세션 경계에서 비운다(결산이 이전 세션의
+    //   구간까지 세면 안 된다). 🔴 현재 muted 여부는 비우지 않는다 — 그건 물리적 사실이고
+    //   세션 경계와 무관하다(`micInterruption.resetMicInterruptionSpans` 주석이 SSOT).
+    resetMicInterruptionSpans();
     // 🔴 [CF-2] 고지 재무장은 **세션 경계에서만**이다. 이 한 줄을 빠뜨리면 다음 세션에서 상태가
     //   true로 남아 상승 에지가 없어 **고지가 아예 안 나간다**(반대 방향 결함).
     setClipFailAlert(false);
@@ -2777,11 +2782,24 @@ export function useVoiceSession() {
     // 종료 화면에 남긴다 — 로그만 남기면 2026-08-19가 그대로 반복된다(값은 멀쩡해 아무도 모른다).
     const clipSummary = clipHealthRef.current.summary();
     logCell({ type: 'session', extra: clipSummaryExtra(clipSummary, getAudioSessionEventCount()) });
-    useSessionStore.getState().setClipWarning(
-      clipSummary.failed > 0
-        ? clipFailSummaryScreen(clipSummary.failed, clipSummary.saved + clipSummary.failed)
-        : null,
-    );
+    // 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **신규 이벤트**(기존 `clip_summary`는 바이트 불변 —
+    //   PRINCIPLES §4, 민구 확정 ③A). `unreliable > 0`인 세션에만 나가므로 링버퍼 잠식이 없다.
+    if (clipSummary.unreliable > 0) {
+      logCell({
+        type: 'session',
+        extra: clipUnreliableSummaryExtra(clipSummary.unreliable, getMutedSpanCount()),
+      });
+    }
+    // 분모는 「값 커밋 시 클립을 정지 대기까지 보낸 횟수」다 — v0.51부터 `unreliable`이 그 합에
+    // 들어간다(종전엔 그 클립들이 `saved`에 섞여 있었다. 합계 자체는 달라지지 않는다).
+    const clipTotal = clipSummary.saved + clipSummary.failed + clipSummary.unreliable;
+    // 🔑 **두 사실을 한 문장으로 뭉치지 않는다.** 「아예 저장 안 됨」과 「저장됐는데 무음일 수
+    //   있음」은 사용자가 할 행동이 다르다(후자는 들어보면 안다). 둘 다면 둘 다 보여준다.
+    const clipWarnings = [
+      clipSummary.failed > 0 ? clipFailSummaryScreen(clipSummary.failed, clipTotal) : null,
+      clipSummary.unreliable > 0 ? clipUnreliableSummaryScreen(clipSummary.unreliable, clipTotal) : null,
+    ].filter((x): x is string => x !== null);
+    useSessionStore.getState().setClipWarning(clipWarnings.length > 0 ? clipWarnings.join(' ') : null);
     recorderRef.current?.dispose();
     recorderRef.current = null;
     // v0.10: await로 변경 — audioClips 키가 IDB session에 확실히 저장된 후 종료

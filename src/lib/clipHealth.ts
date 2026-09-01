@@ -44,6 +44,18 @@ export const CLIP_FAIL_LATCH_THRESHOLD = 2;
 export interface ClipHealthSummary {
   saved: number;
   failed: number;
+  /** 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **저장은 됐지만 증거로 쓸 수 없는** 클립 수(트랙 `muted`
+   *  구간에 걸쳤다). `saved`도 `failed`도 아닌 **제3의 칸**이다.
+   *
+   *  ## 왜 칸을 새로 파나 — 둘 중 어디에 넣어도 거짓말이 된다
+   *  · `saved`에 넣으면(= v0.51 이전의 동작) **집계가 무음을 성공이라고 말한다.** muted 구간
+   *    클립이 `EMPTY_CLIP_BYTES(200)`을 넘겨 나오는 순간 실제로 그랬다 — 실측이 5바이트였던 것은
+   *    iOS의 그 구간에서 그랬을 뿐, 크기는 기기·구간 길이에 따라 변한다.
+   *  · `failed`에 넣으면 연속 카운터가 임계에 닿아 `micLost`가 서고 **멀쩡한 마이크에 재연결
+   *    배너가 뜬다** — `getTrackState()` 주석(:354~358)이 「muted는 unmute 대기가 옳다」고
+   *    못박은 바로 그 형상이다.
+   *  👉 정확한 의미는 **판정 보류**다. 실패의 증거로도, 그 반증으로도 쓰지 않는다. */
+  unreliable: number;
 }
 
 export interface ClipHealth {
@@ -59,6 +71,15 @@ export interface ClipHealth {
   alertOnce(): boolean;
   /** 클립 저장 성공 1건 — 연속 카운터를 0으로 되돌린다. */
   recordSaved(): void;
+  /** 🔴 v0.51 [CLIP-MUTED-SPAN-1] — muted 구간에 걸친 클립 1건.
+   *
+   *  🔴 **연속 카운터(`streak`)를 건드리지 않는다 — 증가도 리셋도 하지 않는다.**
+   *   · 증가시키면 → 래치 → `micLost` → 재연결 배너(위 `unreliable` 주석의 금지 형상).
+   *   · 리셋하면 → 이 파일 헤더의 **「리셋은 `clip_saved`에서만」** 계약 위반. muted 클립은
+   *     저장 성공이 아니다. 리셋을 허용하면 진짜 사망 구간에 muted가 하나 끼는 것만으로
+   *     래치가 영영 안 걸린다.
+   *  👉 판정 보류는 **아무 쪽으로도 세지 않는 것**으로만 성립한다. */
+  recordUnreliable(): void;
   /** 세션 결산(누적). */
   summary(): ClipHealthSummary;
   /** 세션 경계 초기화 — 연속 카운터·누적 결산·고지 1회 플래그를 모두 비운다. */
@@ -69,6 +90,7 @@ export function createClipHealth(threshold: number = CLIP_FAIL_LATCH_THRESHOLD):
   let streak = 0;
   let saved = 0;
   let failed = 0;
+  let unreliable = 0;
   let alerted = false;
   return {
     recordFailure() {
@@ -85,13 +107,18 @@ export function createClipHealth(threshold: number = CLIP_FAIL_LATCH_THRESHOLD):
       streak = 0;
       saved += 1;
     },
+    recordUnreliable() {
+      // 🔴 `streak`는 의도적으로 손대지 않는다(인터페이스 주석이 근거의 SSOT).
+      unreliable += 1;
+    },
     summary() {
-      return { saved, failed };
+      return { saved, failed, unreliable };
     },
     reset() {
       streak = 0;
       saved = 0;
       failed = 0;
+      unreliable = 0;
       alerted = false;
     },
   };
@@ -101,8 +128,25 @@ export function createClipHealth(threshold: number = CLIP_FAIL_LATCH_THRESHOLD):
  *  `saved=0`이고 `failed>0`이면 그 세션은 **음성 증빙이 통째로 없다** — 종료 화면이 그 사실을
  *  사용자에게 남긴다(로그만 남기면 2026-08-19가 그대로 반복된다). */
 export function clipSummaryExtra(s: ClipHealthSummary, audioSessionEvts?: number): string {
+  // 🔴 v0.51 — `unreliable`은 **여기 붙이지 않는다.** PRINCIPLES §4: 승인 목록에 없는 이벤트는
+  //   바이트 불변이고, 확장이 필요하면 **새 이벤트 이름**을 쓴다(→ `clipUnreliableSummaryExtra`).
+  //   민구 확정 2026-09-01(③A).
+
   const base = `clip_summary:saved=${s.saved},failed=${s.failed}`;
   // v0.50 r2 [갈래 B] — 세션 총계. **신규 이벤트의 꼬리**라 계약 문제가 없고, 클립이 하나도
   // 안 남은 세션(이원창형)에서도 「그 세션에 오디오 세션 전이가 몇 번 있었나」가 남는다.
   return audioSessionEvts === undefined ? base : `${base},asEvt=${audioSessionEvts}`;
+}
+
+/** 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **신규 이벤트**(기존 `clip_summary`는 바이트 불변).
+ *
+ *  `unreliable > 0`인 세션에서만 1건 방출한다 — 정상 세션에는 나가지 않으므로 2000개 링버퍼를
+ *  잠식하지 않는다(계측 추가 시 항상 묻는 질문: PRINCIPLES §4 · 계측 F 초안이 걸린 그 게이트).
+ *
+ *  @param unreliable 저장은 됐지만 muted 구간에 걸쳐 증거로 쓸 수 없는 클립 수
+ *  @param spans 그 세션에서 관측된 muted **구간** 수(클립 수와 다르다 — 한 구간이 여러 클립을
+ *               덮을 수도, 한 클립도 안 덮을 수도 있다. 둘을 같이 실어야 판독이 「구간이 길었나
+ *               잦았나」를 가른다) */
+export function clipUnreliableSummaryExtra(unreliable: number, spans: number): string {
+  return `clip_unreliable_summary:muted=${unreliable},spans=${spans}`;
 }

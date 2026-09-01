@@ -23,6 +23,7 @@ import { processClip, type PrerollPcm } from './audioTrim';
 import { MicPrerollTap, PREROLL_MS, clipWindowPeak, type ClipWindow } from './micPrerollTap';
 import { classifyInputDevice, classifyAudioInputClass } from './inputDevice';
 import { getAudioSessionEventCount } from './audioInterruption';
+import { publishMicMuted } from './micInterruption';
 
 interface ClipSlot {
   recorder: MediaRecorder;
@@ -660,11 +661,17 @@ export class AudioRecorder {
           //   `this.*`를 읽는 것**(stale 콜백이 새 슬롯을 오염시킨다)이고, 이건 인스턴스 메서드가
           //   **자기 시점의 활성 슬롯에 쓰는** 것이다. 이미 닫힌 슬롯은 건드리지 않는다.
           if (e?.type === 'mute' && this.active && !this.active.finalized) this.active.sawMuted = true;
+          // v0.51 [CLIP-MUTED-SPAN-1] — 앱 나머지(절전 화면 문구·고지)가 실상태를 따르게 한다.
+          //   🔴 **관측을 흘릴 뿐 복구는 하지 않는다** — 재획득은 사용자 제스처 전용([IOS-5]).
+          if (e?.type === 'mute' || e?.type === 'unmute') publishMicMuted(e.type === 'mute', 'evt');
           this.handleDeviceChange();
         };
         track.addEventListener('ended', this.trackChangeHandler);
         track.addEventListener('mute', this.trackChangeHandler);
         track.addEventListener('unmute', this.trackChangeHandler); // BT 재연결 등 회복도 반영
+        // v0.51 [CLIP-MUTED-SPAN-1] — **부착 순간 한 번 동기화한다.** 이미 muted인 트랙을 잡았으면
+        //   'mute' 이벤트는 영영 오지 않는다(이미 지난 전이다) — 그러면 화면이 계속 「계속됩니다」다.
+        publishMicMuted(trackStateOf(this.stream) === 'muted', 'attach');
       }
     } catch { /* best-effort */ }
   }
@@ -687,6 +694,9 @@ export class AudioRecorder {
     }
     this.listenedTrack = null;
     this.trackChangeHandler = null;
+    // v0.51 [CLIP-MUTED-SPAN-1] — 관측 대상이 사라졌다. muted로 굳은 채 남으면 레코더가 없는
+    //   동안 화면이 영구 경고를 띄운다(그건 사실이 아니다 — 뺏긴 마이크 자체가 없다).
+    publishMicMuted(false, 'detach');
   }
 
   /** getUserMedia 제약 — echoCancellation은 항상 ON(이어피스 기본; TTS 에코 되먹임 억제).

@@ -273,7 +273,7 @@ export function useValueCommit(deps: ValueCommitDeps) {
     const savePromise = (async () => {
       try {
         logCell({ type: 'clip', extra: 'clip_stop_await', row: clipAwaitingRow, colId: clipAwaitingColId });
-        const { blob: clipBlob, raw: rawBlob, trimFailed, trimFailReason } = await clipStopPromise;
+        const { blob: clipBlob, raw: rawBlob, trimFailed, trimFailReason, mutedSpan } = await clipStopPromise;
         logCell({ type: 'clip', extra: `clip_stop_resolved:${clipBlob ? clipBlob.size : 'null'}`, row: clipAwaitingRow, colId: clipAwaitingColId });
         // v0.20.0 BL-2 — 트림이 예외(decodeAudioData 등)로 생략됐으면(저장본=미트림 원본 webm) 가시화한다.
         // 이전엔 무이벤트 침묵 폴백이라 "음성클립 편집 실패"(이원창 c7 3·4·5 = 비고 3행)가 로그에 안 보였다.
@@ -300,6 +300,12 @@ export function useValueCommit(deps: ValueCommitDeps) {
           // micLost로 표시(once 가드) → 사용자 제스처(reconnectMic)로만 복구. 스트림이 멀쩡하면
           // no-op(다음 클립이 자가 치유). 자동 recoverStream은 더 이상 부르지 않는다(수칙 3).
           // v0.50 [CLIP-SILENT-1] — 연속 실패가 임계에 닿으면 스트림이 `live`여도 소실로 래치한다.
+          // 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **사유를 붙인다.** 「비었다」와 「마이크를 OS가 가져간
+          //   동안이라 비었다」는 판독에 전혀 다른 사실이다(전자는 앱 결함 후보, 후자는 외부 사건).
+          //   기존 `clip_empty` 바이트는 건드리지 않고 **옆에 한 줄** 남긴다(PRINCIPLES §4).
+          //   ⚠️ 여기서 `recordUnreliable()`은 부르지 않는다 — 이미 `recordFailure()`로 셌다.
+          //   같은 클립을 두 칸에 세면 결산의 합이 커밋 수를 넘는다.
+          if (mutedSpan) logCell({ type: 'clip', extra: 'clip_muted_fail:empty', row: clipAwaitingRow, colId: clipAwaitingColId });
           maybeAutoRecoverOrLatch('clip_empty', { force: clipHealth.recordFailure() });
           await resolveFailedCapture(savePromiseSelf);
           return;
@@ -308,6 +314,9 @@ export function useValueCommit(deps: ValueCommitDeps) {
           logCell({ type: 'error', extra: `clip_too_small:${clipBlob.size}`, row: clipAwaitingRow, colId: clipAwaitingColId });
           // v0.50 [CLIP-SILENT-1] — 위 clip_empty와 **같은 카운터**를 쓴다(사유가 섞여 나오므로 —
           // 2026-08-19 양혁진 실측: 5B 6건 + chunk-0 3건이 한 구간에서 뒤섞였다).
+          // v0.51 [CLIP-MUTED-SPAN-1] — 같은 이유로 사유만 부착(위 clip_empty 주석이 SSOT).
+          //   2026-09-01 폐기 세션의 실측 형상이 정확히 이것이다(mute → 21초 뒤 clip_too_small:5).
+          if (mutedSpan) logCell({ type: 'clip', extra: 'clip_muted_fail:too_small', row: clipAwaitingRow, colId: clipAwaitingColId });
           maybeAutoRecoverOrLatch('clip_too_small', { force: clipHealth.recordFailure() });
           await resolveFailedCapture(savePromiseSelf);
           return;
@@ -325,9 +334,25 @@ export function useValueCommit(deps: ValueCommitDeps) {
         // may persist again (a previous failed attempt on the same cell reuses the same key).
         brokenClipKeysRef.current.delete(clipKey);
         logCell({ type: 'clip', extra: `clip_saved:${clipBlob.size}`, row: clipAwaitingRow, colId: clipAwaitingColId });
-        // v0.50 [CLIP-SILENT-1] — **여기가 유일한 리셋 지점이다.** `clip_started`로 리셋하면
-        // 재질문이 잦은 세션에서 래치가 영영 안 걸린다(clipHealth.ts 헤더 🔴).
-        clipHealth.recordSaved();
+        // 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **바이트가 멀쩡해도 muted 구간에 걸쳤으면 증거가 아니다.**
+        //   여기가 2026-09-01 B축의 실제 구멍이다: 종전에는 이 클립이 `clip_saved`로 세어지고
+        //   `recordSaved()`가 **연속 실패 카운터까지 리셋**했다 — 저장된 것은 무음인데 집계는
+        //   성공이라고 말한다. 실측이 5바이트였던 것은 iOS의 그 구간에서 그랬을 뿐,
+        //   크기는 기기·구간 길이에 따라 변한다.
+        //   🔑 **파일은 그대로 저장한다**(민구 확정 ②A — 보존 우선). muted가 구간의 일부만
+        //   덮었으면 부분 발화는 살아 있고, 그건 사람이 들어 판단할 몫이다. 바꾸는 것은
+        //   **저장 여부가 아니라 회계**다: `saved`가 아니라 `unreliable`로 센다.
+        if (mutedSpan) {
+          logCell({
+            type: 'clip', extra: 'clip_unreliable:muted',
+            row: clipAwaitingRow, colId: clipAwaitingColId, clipKey,
+          });
+          clipHealth.recordUnreliable();
+        } else {
+          // v0.50 [CLIP-SILENT-1] — **여기가 유일한 리셋 지점이다.** `clip_started`로 리셋하면
+          // 재질문이 잦은 세션에서 래치가 영영 안 걸린다(clipHealth.ts 헤더 🔴).
+          clipHealth.recordSaved();
+        }
         // v0.5.0 W6 원본 보존(민구 결정): 트림 전 전체본(프리롤 포함)을 `…:raw`로 함께 보관.
         // pendingClips에는 등록하지 않으므로 데이터탭 재생 UI에는 노출되지 않고, 로그 zip의
         // clips/(prefix 매칭)과 deleteSession cascade에만 따라간다. 분석 전용.

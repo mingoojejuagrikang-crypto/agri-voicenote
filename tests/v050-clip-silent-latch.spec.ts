@@ -120,7 +120,11 @@ test('[node] ⓪ clipHealth 계약 — 연속만 세고, 성공에서만 리셋�
   expect(h2.recordFailure()).toBe(true);
 
   // 결산은 누적이다(연속과 별개) — 종료 화면 문구의 분모가 여기서 나온다.
-  expect(h2.summary()).toEqual({ saved: 1, failed: 3 });
+  // 🔴 v0.51 [CLIP-MUTED-SPAN-1] — `unreliable`이 **제3의 칸**으로 늘었다(muted 구간에 걸쳐
+  //    저장은 됐지만 증거로 못 쓰는 클립). 여기서는 0이어야 한다 — 이 경로엔 muted가 없다.
+  expect(h2.summary()).toEqual({ saved: 1, failed: 3, unreliable: 0 });
+  // 🔴 `clip_summary` **문자열은 바이트 불변이다**(PRINCIPLES §4 · 민구 확정 2026-09-01 ③A).
+  //    `unreliable`은 여기 붙지 않고 신규 이벤트 `clip_unreliable_summary`가 나른다.
   expect(clipSummaryExtra(h2.summary())).toBe('clip_summary:saved=1,failed=3');
 
   // 🔴 [CF-2] 고지 1회성의 소유자는 이 장부다 — 세션 안에서는 몇 번을 물어도 한 번만 true다.
