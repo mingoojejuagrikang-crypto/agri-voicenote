@@ -2589,3 +2589,65 @@ TTS 구간(`:2522-2523`)에 오버레이가 열리면 **모달 뒤에서 STT 인
 - **출처:** `plans/2026-08-27-agri-voicenote-login-sliding-window.md` §2-4 ·
   리뷰 합집합 `deliverables/2026-08-27-login-sliding-window-review-union.md`(teamops)
 - **현재 상태:** ✅수정됨 (v0.51 로그인 슬라이딩 회차)
+
+---
+
+## 2026-09-01 v0.50.0 정식 실기기 회차 — A축 (회차 정본: `workspace_teamops/deliverables/2026-09-01-device-round-synthesis.md` · 설계·구현 SSOT: `…/2026-09-01-axis-a-design.md`)
+
+### [CLIP-MUTED-SPAN-1] 마이크를 OS가 가져간 동안에도 녹음을 계속하고, 그 결과를 정상 커밋으로 처리한다
+- **증상(폐기 세션 `sess_1788216390429` 실측 · 07:46:30~07:49:47):**
+  ```
+  07:46:34  clip  mic_track_evt:mute                                    ← 마이크 전달 정지
+  07:46:35  stt   lifecycle:error:audio-capture
+  07:46:35  app   bg_enter_snapshot:rec=recording,track=muted            ← 앱은 「녹음 중」
+  07:46:54  app   beep_play:kind=commit,result=suspended,ctx=interrupted ← 확인음이 안 울렸다
+  07:46:55  error clip_too_small:5                                       ← 5바이트
+  07:47:05  error clip_too_small:5
+  07:49:11  error clip_empty
+  ```
+  🔴 **사용자가 받은 신호 셋이 전부 거짓이었다** — 👁 절전 화면은 「음성 입력은 계속됩니다」,
+  👂 확인음은 `suspended`(안 울림), 📊 결산은 실패를 세지 않았다. 값(STT)은 별도 오디오 경로라
+  **시트까지 정상 도달**했고, 그래서 화면·시트 어디에도 이상이 없었다.
+- **방아쇠는 백그라운드가 아니라 오디오 인터럽트다**(회차 종합 §1-4, 5세션 실측):
+  `vis=hidden` 3회에도 `track=muted` 0인 세션은 클립 사망 0. **`track=muted`가 동반될 때만 죽는다.**
+- **근인 2가지 — 둘 다 「없는 코드」였다:**
+  ① `mic_track_evt:mute`는 v0.50부터 로그에 남고 있었으나 **아무도 소비하지 않았다.** 트랙이
+     muted여도 `startClip()`은 그냥 시작하고, 그 클립은 정상 커밋 경로를 그대로 탄다.
+  ② `clip_duration`의 `trackState`는 **종료 시점 스냅샷**이라 `mute→(클립 전체)→unmute`가 클립
+     안에서 끝나면 `live`로 찍힌다 — **무음 클립인데 로그는 「정상 트랙」이라고 말한다.**
+- 🔴 **고치면 안 되는 것 2개**(둘 다 의도된 방어 설계 — 초판 처방이 여기서 틀렸다):
+  · `isStreamLost()`가 muted를 「살아 있음」으로 보는 것 → 래치하면 **멀쩡한 마이크에 재연결
+    배너**가 뜬다(`getTrackState()` 주석 :354~358이 SSOT).
+  · 자동 재연결 스킵(`mic_auto_reconnect:skipped=stream_live` · v0.50 r2 [CF-1]) →
+    `recoverStream`은 destructive-first라 제스처 밖 `getUserMedia` 거부 시 **멀쩡한 스트림까지
+    잃는다**(v0.22.0 P0가 롤백한 사고 · [IOS-5]).
+  👉 이 두 자리는 **새 개념을 옆에 두는 방식**으로 우회했다(아래).
+- **함께 닫은 것(B축 — 회차 종합 §2-보정):** muted 구간 클립이 `EMPTY_CLIP_BYTES(200)`을
+  **넘겨** 나오면 종전 코드는 `clip_saved`로 세고 `recordSaved()`가 **연속 실패 카운터까지
+  리셋**했다. 실측이 5바이트였던 것은 iOS의 그 구간에서 그랬을 뿐, **크기는 기기·구간 길이에
+  따라 변한다.** (초판이 B축 실증으로 든 양훈성 `saved=66,failed=0`은 `track=muted` 0이라
+  **거짓말이 아니었다** — 대조군으로 유지한다.)
+- **해결(v0.51 · 민구 확정 2026-09-01 ①A②A③A):**
+  · **감지** — `ClipSlot.sawMuted` 단방향 래치 3경로(시작 시점 판정 · 트랙 `mute` 이벤트 ·
+    닫을 때 보강) → `ClipResult.mutedSpan` → `clip_duration`에 muted일 때만 필드 동봉.
+  · **회계** — `clipHealth.unreliable` **제3의 칸**. 🔴 `recordUnreliable()`은 `streak`를
+    증가도 리셋도 하지 않는다(증가 → 재연결 배너 / 리셋 → 「리셋은 clip_saved에서만」 위반).
+    **파일은 그대로 저장한다** — 바꾸는 것은 저장 여부가 아니라 회계다(보존 우선).
+  · **고지** — `micInterruption.ts`(pub/sub) + `useMicInterruptionNotice.ts`(단일 배선):
+    절전 화면·홀드 문구가 실상태를 말하고, 3초(`MIC_INTERRUPT_BLACKOUT_RELEASE_MS`) 넘으면
+    절전을 **구간당 1회** 자동 해제하며, **회복 직후에만** 한 문장 말한다(muted 중에는 오디오
+    출력도 죽어 있어 발화가 들리지 않는다).
+  · **집계·감사** — 신규 `clip_unreliable_summary:muted=<n>,spans=<m>`(`clip_summary`는 바이트
+    불변) · 종료 화면 경고 문구 분리 · `clips-manifest.json`에 `mutedSpan`(clipKey 정확 매칭).
+- **회귀:** `tests/v051-mic-muted-span.spec.ts` 7건. **반증 6종 실측 red 확인**(시작 판정 제거 →
+  2건이 1건 · 이벤트 래치 제거 → 0건 · 종전 회계 복원 → 종료 화면 침묵 · muted를 failed로 계수 →
+  `mic_lost:clip_muted` 관측 = 금지사항 위반이 즉시 드러남 · 문구 분기 제거 · 자동 해제 제거).
+  ⚠️ **종료 시점 보강만은 고립 반증 케이스가 없다** — 이중 방어라 단독으로 red를 못 만든다.
+- **⚠️ e2e가 재는 것과 못 재는 것:** `window.__setFakeTrackMuted()`는 **표면**(readyState는 live,
+  muted만 true)을 만들 뿐 **iOS가 언제 그것을 만드는지는 재현할 수 없다**
+  (`v050-clip-silent-latch` 헤더의 같은 한계).
+- **현재 상태:** 🟡 **MONITORING** — 데스크톱 회귀·반증 완료. **실기기 판정 대기**:
+  세션 중 전화/Siri로 인터럽트를 만들어 ⓐ `clip_unreliable:muted`가 남는가
+  ⓑ 절전 화면 문구가 실제로 바뀌는가 ⓒ 3초 뒤 화면이 열리는가 ⓓ 회복 후 고지가 들리는가.
+  🔴 임계 3000ms는 **실측 1건(41초 인터럽트)에서 고른 값**이다 —
+  `mic_interrupt:off:*:ms=<N>` 분포가 쌓이면 다음 회차가 조정한다.

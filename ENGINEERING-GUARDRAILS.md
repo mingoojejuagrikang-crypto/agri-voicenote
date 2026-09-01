@@ -386,3 +386,24 @@
 - 지금 열려 있는 문제: [KNOWN-ISSUES.md](./KNOWN-ISSUES.md)
 - 종결된 사건 기록(역사): [KNOWN-ISSUES-ARCHIVE.md](./KNOWN-ISSUES-ARCHIVE.md)
 - 개발·테스트·릴리스 절차: [CONTRIBUTING.md](./CONTRIBUTING.md)
+
+### [CLIP-MUTED-SPAN-1] 🔴 `muted`는 **실패가 아니라 판정 보류**다 — 어느 쪽으로 세도 결함이 된다
+
+- **계약(세 줄):**
+  ① `isStreamLost()`의 판정을 바꾸지 마라 — `ended`만 사망이다. `muted`를 사망으로 승격시키면
+     **멀쩡한 마이크에 재연결 배너**가 뜬다(통화·Siri는 unmute 대기가 옳다).
+  ② muted 구간 클립을 `clipHealth.recordFailure()`로 세지 마라 — 연속 카운터가 임계에 닿아
+     `micLost`가 서고, 그 래치가 자동 재연결 effect를 깨워 **destructive-first `recoverStream`**을
+     제스처 밖에서 부른다(v0.22.0 P0 재개방 · [IOS-5]).
+  ③ `recordSaved()`로도 세지 마라 — **집계가 무음을 성공이라고 말하고**, 연속 카운터까지
+     리셋해 진짜 사망 구간의 래치를 늦춘다. 그게 2026-09-01 B축의 기전이다.
+- **그래서 칸이 셋이다:** `saved` / `failed` / **`unreliable`**. 셋째 칸은 `streak`를 증가도
+  리셋도 하지 않는다 — **아무 쪽으로도 세지 않는 것**이 「판정 보류」의 구현이다.
+- **왜 반복해서 틀리나:** 이 자리는 *"muted면 마이크가 죽은 거 아닌가"* 라는 직관과 정면으로
+  어긋난다. 2026-09-01 회차 종합 초판도 *"`isStreamLost()`가 muted를 반영하게"* 라고 적었다가
+  철회했다. 🔑 **두 판정은 축이 다르다** — 「스트림이 죽었나」(복구가 필요한가)와
+  「이 클립을 증거로 쓸 수 있나」(신뢰도). 소비자도 다르다(재연결 배너 vs 저장·집계).
+- **종료 시점 스냅샷으로 구간을 판정하지 마라.** `clip_duration`의 `trackState`는 `onstop`
+  순간의 값이라 `mute→(클립 전체)→unmute`를 `live`로 기록한다. 구간은 **래치**로만 잡힌다.
+- **오라클:** `tests/v051-mic-muted-span.spec.ts` — 모든 muted 케이스가 `expectNoRecoveryPath()`로
+  ①②를 동봉 단언한다. muted를 failed로 세는 순간 `mic_lost:clip_muted`가 관측돼 red다(실측).
