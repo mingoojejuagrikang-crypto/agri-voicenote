@@ -25,6 +25,8 @@
  *  ① muted 전이를 스토어에 반영 → 절전 화면·홀드 문구가 **실상태를 말한다**(문구 SSOT는 각 컴포넌트).
  *  ② muted가 `MIC_INTERRUPT_BLACKOUT_RELEASE_MS` 넘게 이어지면 **절전 화면을 자동 해제**한다.
  *  ③ 회복(unmute) 직후, **그 구간에 실제로 증거를 잃었을 때만** 한 문장 말한다.
+ *     🔴 「잃었다」는 `unreliable`(파일은 남았는데 못 믿는다) **+ `mutedFailed`**(파일조차
+ *     안 남았다) 둘 다다 — 실측 사고는 **후자뿐**이었고, 그래서 v0.51 초판은 침묵했다.
  */
 import { useEffect, useRef } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
@@ -66,8 +68,21 @@ export function useMicInterruptionNotice({ clipHealth, say, logCell }: MicInterr
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
-    /** 이 muted **구간** 시작 시점의 unreliable 누적. 회복 시 증가분이 곧 「이 구간에 잃은 증거」다. */
+    /** 이 muted **구간** 시작 시점의 누적치. 회복 시 증가분이 곧 「이 구간에 잃은 증거」다.
+     *
+     *  🔴 v0.51 r2 [P1-2] — **두 칸을 다 본다.** 종전에는 `unreliable`만 봤는데, 2026-09-01
+     *  실측 사고(`sess_1788216390429`)에서 죽은 클립 3건은 **전부 `failed` 경로**였다
+     *  (`clip_too_small:5`×2 + `clip_empty`×1). 그래서 `unreliable=0` → `lost=0` →
+     *  **가장 크게 잃은 형상에서 정확히 아무 말도 안 했다**(2026-09-02 콜드 리뷰 [P1-2] 실측).
+     *
+     *  🔑 「증거를 잃었다」는 **두 가지 모습**으로 온다:
+     *   · `unreliable` — 파일은 남았는데 muted 구간에 걸쳐 **믿을 수 없다**
+     *   · `mutedFailed` — muted 구간에 걸쳤고 **파일조차 안 남았다**(`failed`의 부분집합)
+     *  사용자에게는 둘 다 「그동안의 음성 기록은 확인이 필요하다」로 같다. 회계에서 칸을 나눈
+     *  이유(`recordUnreliable` 주석)와 **고지에서 합치는 이유는 다른 축**이다 —
+     *  전자는 「복구가 필요한가」, 후자는 「사용자에게 말할 것이 있는가」다. */
     let unreliableAtEnter = 0;
+    let mutedFailedAtEnter = 0;
 
     const clearTimer = () => {
       if (timer !== null) { clearTimeout(timer); timer = null; }
@@ -78,7 +93,9 @@ export function useMicInterruptionNotice({ clipHealth, say, logCell }: MicInterr
       useSessionStore.getState().setMicInterrupted(muted);
 
       if (muted) {
-        unreliableAtEnter = health.summary().unreliable;
+        const enter = health.summary();
+        unreliableAtEnter = enter.unreliable;
+        mutedFailedAtEnter = enter.mutedFailed;
         clearTimer();
         // 🔴 **구간당 정확히 한 번만 발화한다.** 타이머를 재무장하지 않으므로, 사용자가 화면을
         //   다시 끄고 같은 인터럽트가 계속돼도 **다시 켜지 않는다.** 켜고/꺼지고를 반복하는 것이
@@ -108,12 +125,19 @@ export function useMicInterruptionNotice({ clipHealth, say, logCell }: MicInterr
 
       // ── 회복(unmute) ──
       clearTimer();
-      const lost = health.summary().unreliable - unreliableAtEnter;
+      const exit = health.summary();
+      const unrel = exit.unreliable - unreliableAtEnter;
+      const fail = exit.mutedFailed - mutedFailedAtEnter;
+      const lost = unrel + fail;
       unreliableAtEnter = 0;
+      mutedFailedAtEnter = 0;
       // 🔴 **증거를 잃었을 때만 말한다.** 아무 클립도 안 걸친 인터럽트(대기 중 전화)는 사용자가
       //   알 필요가 없다 — 현장에서 무의미한 발화는 그 자체가 방해다(고지 피로).
       if (lost <= 0) return;
-      log({ type: 'clip', extra: `mic_interrupt_notice:lost=${lost}` });
+      // 🔑 **내역을 함께 남긴다**(v0.51 r2 [P1-2]): 실기기 판정에서 민구가 고지를 들었을 때,
+      //   다음 회차가 「실패 경로로 잡혔나 unreliable로 잡혔나」를 이 한 줄로 갈라야 한다.
+      //   `lost=` 접두는 그대로라 기존 판독이 안 깨진다.
+      log({ type: 'clip', extra: `mic_interrupt_notice:lost=${lost},unrel=${unrel},fail=${fail}` });
       // interrupt:false — 진행 중 echo(방금 커밋한 값의 되읽기)를 끊지 않는다.
       //   `useClipFailureAlert`와 같은 판단이고, 같은 이유다.
       void speak(MIC_INTERRUPT_RECOVERED_TTS, false);

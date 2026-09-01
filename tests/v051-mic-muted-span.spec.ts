@@ -33,6 +33,9 @@
  *  · `recordUnreliable()` → `recordFailure()` → 🔴 **ⓒ red**(금지사항 위반이 즉시 드러난다)
  *  · 문구 상태 분기 제거                    → ⓓ red
  *  · 자동 해제 타이머 제거                  → ⓔ red
+ *  · 🔴 r2 [P1-2] 고지 판정을 `unreliable`만으로 되돌리면 → **ⓗ red**(실측 사고 형상에서 침묵)
+ *  · 🔴 r2 [P1-2] `recordFailure(mutedSpan)`의 사유 인자를 빼면 → **ⓗ red**(같은 자리, 다른 층)
+ *  · 🔴 r2 [P1-1] 게이트 목록에서 스펙 이름을 지우면 → **⓪-게이트 red**
  *
  * ## 🔴 안 재는 것 — 정직하게 적는다
  * **iOS가 언제 트랙을 muted로 만드는지는 Playwright로 만들 수 없다**(OS 레벨 사건 —
@@ -154,7 +157,8 @@ test('[node] ⓪ clipHealth 계약 — unreliable은 saved도 failed도 아니�
   //    saved로 세면 집계가 무음을 성공이라 하고, failed로 세면 재연결 배너가 뜬다.
   h.recordUnreliable();
   h.recordUnreliable();
-  expect(h.summary(), 'unreliable이 제3의 칸으로 서지 않았다').toEqual({ saved: 0, failed: 0, unreliable: 2 });
+  expect(h.summary(), 'unreliable이 제3의 칸으로 서지 않았다')
+    .toEqual({ saved: 0, failed: 0, unreliable: 2, mutedFailed: 0 });
 
   // 🔴 **streak 불변** — unreliable을 아무리 쌓아도 래치 임계에 닿지 않는다.
   //    (닿으면 micLost → 재연결 배너 = 금지사항 ② 위반. ⓒ가 e2e에서 같은 것을 잰다.)
@@ -168,13 +172,32 @@ test('[node] ⓪ clipHealth 계약 — unreliable은 saved도 failed도 아니�
   h2.recordUnreliable();
   expect(h2.recordFailure(), 'unreliable이 연속을 끊었다 — 사망 구간에 muted가 끼면 래치 불발이다').toBe(true);
 
-  // 결산 문자열: 🔴 `clip_summary`는 **바이트 불변**, unreliable은 신규 이벤트가 나른다.
-  expect(clipSummaryExtra({ saved: 1, failed: 2, unreliable: 3 })).toBe('clip_summary:saved=1,failed=2');
-  expect(clipUnreliableSummaryExtra(3, 2)).toBe('clip_unreliable_summary:muted=3,spans=2');
+  // ── 🔴 v0.51 r2 [P1-2] — 넷째 칸 `mutedFailed`: **고지용이고 회계는 불변**이다 ──
+  //    실측 사고에서 죽은 클립 3건이 전부 `failed` 경로였고, 그래서 고지가 침묵했다.
+  //    그 사실을 잡으려면 `failed`에 사유 표지가 붙어야 하는데 — **이중 계수는 금지**다.
+  const h3 = createClipHealth();
+  expect(h3.recordFailure(true), '첫 실패는 래치가 아니다(임계 2)').toBe(false);
+  expect(h3.summary(), 'muted 실패를 두 칸에 셌다 — 결산의 합이 커밋 수를 넘는다')
+    .toEqual({ saved: 0, failed: 1, unreliable: 0, mutedFailed: 1 });
+  // 🔴 **streak를 대체하지도 끊지도 않는다** — muted 실패 뒤 평범한 실패 하나면 임계에 닿아야 한다.
+  //    (여기 오는 클립은 muted와 무관하게 **이미 실패했다**. 가드레일 ②가 금지한 것은
+  //     「저장에 **성공한** muted 클립을 failed로 세는 것」이고, 이 경로는 그게 아니다.)
+  expect(h3.recordFailure(), 'muted 표지가 연속 카운터를 갉아먹었다 — 진짜 사망 구간에서 래치가 늦어진다')
+    .toBe(true);
+  expect(h3.summary().mutedFailed, 'muted가 아닌 실패까지 muted로 셌다 — 고지가 위양성으로 나간다').toBe(1);
+  // 인자 없는 호출은 **종전과 완전히 같다**(기존 콜사이트 회귀 방지).
+  const h4 = createClipHealth();
+  h4.recordFailure();
+  expect(h4.summary(), '기본값이 muted 쪽으로 샜다').toEqual({ saved: 0, failed: 1, unreliable: 0, mutedFailed: 0 });
 
-  // 세션 경계는 셋 다 비운다.
+  // 결산 문자열: 🔴 `clip_summary`는 **바이트 불변**, unreliable은 신규 이벤트가 나른다.
+  expect(clipSummaryExtra({ saved: 1, failed: 2, unreliable: 3, mutedFailed: 1 })).toBe('clip_summary:saved=1,failed=2');
+  // 신규 이벤트의 꼬리 `mutedFail=` — 접두(`muted=`·`spans=`)는 그대로라 기존 판독이 안 깨진다.
+  expect(clipUnreliableSummaryExtra(3, 2, 1)).toBe('clip_unreliable_summary:muted=3,spans=2,mutedFail=1');
+
+  // 세션 경계는 넷 다 비운다.
   h.reset();
-  expect(h.summary()).toEqual({ saved: 0, failed: 0, unreliable: 0 });
+  expect(h.summary()).toEqual({ saved: 0, failed: 0, unreliable: 0, mutedFailed: 0 });
 });
 
 test('ⓐ muted 상태로 **시작된** 클립 → 저장은 되지만 「신뢰불가」로 센다 + ⓒ 불가침 + 결산', async ({ page }) => {
@@ -227,6 +250,9 @@ test('ⓐ muted 상태로 **시작된** 클립 → 저장은 되지만 「신뢰
   const unrelSummary = after.filter((e) => e.startsWith('clip_unreliable_summary:'));
   expect(unrelSummary, '신규 결산 이벤트가 없다 — 판독이 clip_summary만 보고 「실패 0」으로 읽는다').toHaveLength(1);
   expect(unrelSummary[0], '구간 수가 안 실렸다 — 「길었나 잦았나」를 못 가른다').toContain('spans=1');
+  // 🔴 v0.51 r2 [P1-2] — ⓐ에는 **실패한** muted 클립이 없다. 여기서 mutedFail이 0이 아니면
+  //    「저장은 된 클립」을 실패 쪽으로도 세고 있다는 뜻이다(이중 계수).
+  expect(unrelSummary[0], 'muted 실패가 없는데 실패로 셌다 — 저장된 클립을 두 번 세고 있다').toContain('mutedFail=0');
   // 🔴 기존 결산은 **바이트 불변**이다(PRINCIPLES §4).
   const summary = after.filter((e) => e.startsWith('clip_summary:'));
   expect(summary, '기존 결산이 사라지거나 늘었다').toHaveLength(1);
@@ -338,6 +364,85 @@ test('ⓕ 회복 직후 한 번 말한다 — muted 도중에는 말하지 않�
     .toBe(1);
 
   expectNoRecoveryPath(await logExtras(page), 'ⓕ');
+});
+
+/** 🔴 v0.51 r2 [P1-2] — **2026-09-01 실측 사고의 형상 그 자체.**
+ *
+ *  ⓕ와 무엇이 다른가: ⓕ의 muted 클립은 **저장에 성공**해서 `unreliable`로 섰다. 그런데
+ *  실측 사고(`sess_1788216390429`)에서 죽은 클립 3건은 **하나도 저장되지 않았다** —
+ *  `clip_too_small:5`×2 + `clip_empty`×1, 전부 `failed` 경로다. 그래서 종전 고지 판정
+ *  (`unreliable` 증가분만 본다)은 **가장 크게 잃은 형상에서 정확히 아무 말도 안 했다.**
+ *
+ *  🔴 이 스펙이 없으면 `KNOWN-ISSUES [CLIP-MUTED-SPAN-1]`의 실기기 판정 조건 ⓓ
+ *  「회복 후 고지가 들리는가」가 **구조적으로 「안 들린다」**로 나오고, 다음 회차가 그걸
+ *  「고지 배선이 안 됐다」로 오독해 엉뚱한 자리를 판다(2026-09-02 콜드 리뷰 [P1-2]).
+ *
+ *  ## 🔑 왜 커밋을 **한 번만** 하나 — ⓒ와 양립시키는 유일한 구성
+ *  실패 2회면 임계(`CLIP_FAIL_LATCH_THRESHOLD=2`)에 닿아 `mic_lost`가 서고, 그건 [CF-1]이
+ *  **정당하게** 내는 것이라 `expectNoRecoveryPath()`가 red가 된다(리뷰 관찰 ㉠ — 신규 결함이
+ *  아니라 오라클 주석의 범위 문제다). 실패 1회는 임계 아래라 두 계약이 동시에 성립한다.
+ *  🔑 그리고 **1건이야말로 최악의 형상**이다 — 기존 `useClipFailureAlert`는 임계 2에서만
+ *  발화하므로, muted 구간 실패가 1건이면 이 고지가 **유일한 청각 통로**다.
+ */
+test('ⓗ 실측 사고 형상 — muted 구간의 클립이 **저장조차 안 돼도** 회복 후 고지가 나간다', async ({ page }) => {
+  // 🔴 `addInitScript`로 goto보다 먼저 심는다 — 세션 시작이 이미 클립을 만들기 시작하므로
+  //    `evaluate`로 나중에 켜면 첫 조각(30,000B)을 놓쳐 클립이 정상 크기가 된다(v050 헤더).
+  await page.addInitScript(() => {
+    (window as unknown as { __clipSilentMode: string }).__clipSilentMode = 'tiny';
+  });
+  await bootMini(page);
+  await waitForTtsIdle(page);
+
+  expect(await setMuted(page, true), '전제: mute 진입 — 이 커밋은 인터럽트 구간 안에서 일어난다').toBe(true);
+
+  // 커밋 1회 = 실패 1회. 임계(2) 아래라 래치가 서지 않는다(위 헤더 🔑).
+  await fireStt(page, '11.1', 1500);
+  await waitForTtsIdle(page);
+
+  const during = await logExtras(page);
+  expect(during.some((e) => e.startsWith('clip_too_small:')),
+    '전제: 실측 사고 형상(5바이트)이 재현돼야 한다 — 아니면 이 스펙은 다른 것을 재고 있다').toBe(true);
+  expect(during.filter((e) => e === 'clip_muted_fail:too_small').length,
+    '전제: 인과(muted 구간에서 죽었다)가 로그에 남아야 한다').toBe(1);
+  // 🔴 **이중 계수 금지** — 이 클립은 `failed` 한 칸에만 선다. `unreliable`로도 세면
+  //    결산의 합(saved+failed+unreliable)이 커밋 수를 넘는다.
+  expect(during.filter((e) => e === 'clip_unreliable:muted'),
+    '저장 실패한 클립을 unreliable로도 셌다 — 같은 클립이 두 칸에 섰다').toHaveLength(0);
+  // 🔴 muted 도중에는 말하지 않는다(ⓕ와 같은 계약 — 그 순간 오디오 출력이 죽어 있다).
+  expect((await ttsLog(page)).filter((t) => t.includes('마이크가 잠시 멈춰')),
+    'muted 도중에 고지를 발화했다 — 들리지 않고 큐에 남아 나중에 터진다').toHaveLength(0);
+
+  expect(await setMuted(page, false), '전제: unmute 회복').toBe(true);
+  await waitForTtsIdle(page);
+
+  await expect
+    .poll(async () => (await ttsLog(page)).filter((t) => t.includes('마이크가 잠시 멈춰')).length,
+      { timeout: 8000, message: '🔴 클립이 죽었는데 회복 후에도 조용하다 — 실측 사고에서 앱이 정확히 이랬다' })
+    .toBe(1);
+
+  const evs = await logExtras(page);
+  // 🔑 내역까지 잠근다: 실기기 로그만 보고 「실패 경로로 잡혔나 unreliable로 잡혔나」를 갈라야 한다.
+  expect(evs.filter((e) => e.startsWith('mic_interrupt_notice:')),
+    '고지 계측의 내역이 다르다 — 다음 회차가 무엇이 고지를 냈는지 못 읽는다')
+    .toEqual(['mic_interrupt_notice:lost=1,unrel=0,fail=1']);
+  expectNoRecoveryPath(evs, 'ⓗ');
+
+  // ── 세션 종료 결산 — 고지와 결산이 **같은 장부**를 봐야 한다 ──
+  await page.locator('button[title="입력 종료"]').click();
+  await page.locator('button[title="종료 확인"]').click();
+  await expect(page.locator('[data-testid="clip-warning"]'),
+    '클립이 죽었는데 종료 화면이 조용하다').toBeVisible({ timeout: 15_000 });
+
+  const after = await logExtras(page);
+  const summary = after.filter((e) => e.startsWith('clip_summary:'));
+  // 🔴 **`failed=1` 정확히.** 2면 미커밋 클립이 회계에 섰다는 뜻이고, 그러면 임계에 닿아
+  //    래치가 서서 위 ⓒ가 우연히 깨진다 — 이 단언이 「커밋 1회만」 전제를 지킨다.
+  expect(summary[0], '회계가 종전과 달라졌다(mutedFailed를 failed에 더했거나, 미커밋 클립이 섰다)')
+    .toMatch(/^clip_summary:saved=0,failed=1,asEvt=\d+$/);
+  expect(after.filter((e) => e.startsWith('clip_unreliable_summary:')),
+    '🔴 muted 구간 클립이 전부 실패면 신규 결산이 아예 안 나갔다 — 판독이 사유를 못 읽는다')
+    .toEqual(['clip_unreliable_summary:muted=0,spans=1,mutedFail=1']);
+  expectNoRecoveryPath(after, 'ⓗ-종료후');
 });
 
 test('ⓖ 정상 세션 회귀 — muted가 없으면 종전 그대로다(위양성 차단)', async ({ page }) => {

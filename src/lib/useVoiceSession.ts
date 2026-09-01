@@ -2788,15 +2788,20 @@ export function useVoiceSession() {
     const clipSummary = clipHealthRef.current.summary();
     logCell({ type: 'session', extra: clipSummaryExtra(clipSummary, getAudioSessionEventCount()) });
     // 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **신규 이벤트**(기존 `clip_summary`는 바이트 불변 —
-    //   PRINCIPLES §4, 민구 확정 ③A). `unreliable > 0`인 세션에만 나가므로 링버퍼 잠식이 없다.
-    if (clipSummary.unreliable > 0) {
+    //   PRINCIPLES §4, 민구 확정 ③A). muted가 없는 세션에는 안 나가므로 링버퍼 잠식이 없다.
+    //   🔴 v0.51 r2 [P1-2] — 게이트가 `unreliable > 0`**만**이면 실측 사고 형상(muted 구간 클립이
+    //   전부 `failed`)에서 이 이벤트가 **아예 안 나간다.** 그러면 판독은 `clip_summary:failed=3`만
+    //   보고 **사유(마이크 인터럽트)를 못 읽는다** — 고지는 나갔는데 결산엔 없는 상태다.
+    if (clipSummary.unreliable > 0 || clipSummary.mutedFailed > 0) {
       logCell({
         type: 'session',
-        extra: clipUnreliableSummaryExtra(clipSummary.unreliable, getMutedSpanCount()),
+        extra: clipUnreliableSummaryExtra(clipSummary.unreliable, getMutedSpanCount(), clipSummary.mutedFailed),
       });
     }
     // 분모는 「값 커밋 시 클립을 정지 대기까지 보낸 횟수」다 — v0.51부터 `unreliable`이 그 합에
     // 들어간다(종전엔 그 클립들이 `saved`에 섞여 있었다. 합계 자체는 달라지지 않는다).
+    // 🔴 `mutedFailed`는 **여기 더하지 마라** — `failed`의 부분집합이라 더하면 분모가 커밋 수를
+    //   넘는다(`clipHealth.ts`의 `mutedFailed` 주석이 SSOT).
     const clipTotal = clipSummary.saved + clipSummary.failed + clipSummary.unreliable;
     // 🔑 **두 사실을 한 문장으로 뭉치지 않는다.** 「아예 저장 안 됨」과 「저장됐는데 무음일 수
     //   있음」은 사용자가 할 행동이 다르다(후자는 들어보면 안다). 둘 다면 둘 다 보여준다.

@@ -122,7 +122,9 @@ test('[node] ⓪ clipHealth 계약 — 연속만 세고, 성공에서만 리셋�
   // 결산은 누적이다(연속과 별개) — 종료 화면 문구의 분모가 여기서 나온다.
   // 🔴 v0.51 [CLIP-MUTED-SPAN-1] — `unreliable`이 **제3의 칸**으로 늘었다(muted 구간에 걸쳐
   //    저장은 됐지만 증거로 못 쓰는 클립). 여기서는 0이어야 한다 — 이 경로엔 muted가 없다.
-  expect(h2.summary()).toEqual({ saved: 1, failed: 3, unreliable: 0 });
+  //    🔴 v0.51 r2 [P1-2] — `mutedFailed`(`failed`의 부분집합 · **고지용**)도 0이다. muted 없이
+  //    실패한 클립을 muted 실패로 세면 회복 고지가 위양성으로 나간다.
+  expect(h2.summary()).toEqual({ saved: 1, failed: 3, unreliable: 0, mutedFailed: 0 });
   // 🔴 `clip_summary` **문자열은 바이트 불변이다**(PRINCIPLES §4 · 민구 확정 2026-09-01 ③A).
   //    `unreliable`은 여기 붙지 않고 신규 이벤트 `clip_unreliable_summary`가 나른다.
   expect(clipSummaryExtra(h2.summary())).toBe('clip_summary:saved=1,failed=3');
@@ -137,8 +139,8 @@ test('[node] ⓪ clipHealth 계약 — 연속만 세고, 성공에서만 리셋�
 
   // 세션 경계 리셋은 연속·누적을 **둘 다** 비운다(이전 세션이 새 세션을 임계로 밀면 안 된다).
   h2.reset();
-  // v0.51 — 세션 경계는 **세 칸 모두** 비운다(unreliable 포함).
-  expect(h2.summary()).toEqual({ saved: 0, failed: 0, unreliable: 0 });
+  // v0.51 — 세션 경계는 **네 칸 모두** 비운다(unreliable·mutedFailed 포함).
+  expect(h2.summary()).toEqual({ saved: 0, failed: 0, unreliable: 0, mutedFailed: 0 });
   expect(h2.recordFailure(), '리셋 후 첫 실패가 곧바로 래치면 카운터가 안 비워진 것이다').toBe(false);
 });
 
@@ -158,8 +160,13 @@ test('ⓑ 빈 클립 연속 2회 → 트랙이 live여도 래치하고, 그 자�
   // 실측 형상(5바이트 = `clip_too_small`)으로 두 번 연속 실패시킨다.
   // ⚠️ **사유 혼합(5B + chunk-0)은 여기서 재지 않는다.** 다음 클립은 값 커밋 **직후** 시작되므로
   //    모드를 갈아끼울 창이 커밋과 겹쳐 첫 조각을 놓친다(08-19 실측). 혼합이 같은 카운터를
-  //    쓴다는 계약은 ⓪(`recordFailure`가 **사유를 인자로 받지 않는다**)와 `useValueCommit`의
-  //    두 호출부가 같은 `clipHealth`를 쓰는 구조가 보장한다.
+  //    쓴다는 계약은 `useValueCommit`의 두 호출부가 **같은 `clipHealth`의 같은 메서드**를
+  //    쓰는 구조가 보장한다.
+  //    🔴 v0.51 r2 [P1-2] 정정: `recordFailure`는 이제 인자를 하나 받는다(`mutedSpan`). 종전
+  //    주석은 *"사유를 인자로 받지 않는다"*고 적었는데 더는 사실이 아니다. 다만 **그 인자는
+  //    세는 칸을 바꾸지 않는다** — `failed`·`streak`는 비트 단위로 종전과 같고, 고지용
+  //    `mutedFailed`만 함께 오른다(`clipHealth.ts`의 `recordFailure` 주석이 SSOT).
+  //    즉 「사유가 섞여도 같은 카운터」라는 이 스펙의 계약은 그대로다.
   await bootMini(page, 'tiny');
   // 🔴 [CF-2] **3회** 실패시킨다. 2회면 「1회 고지」가 커밋 수 때문에 우연히 성립해 공허해진다
   //    (리뷰 실측: 종전 코드로 3회를 돌리면 `clip_fail_alert`가 2건이었다).

@@ -56,11 +56,41 @@ export interface ClipHealthSummary {
    *    못박은 바로 그 형상이다.
    *  👉 정확한 의미는 **판정 보류**다. 실패의 증거로도, 그 반증으로도 쓰지 않는다. */
   unreliable: number;
+  /** 🔴 v0.51 r2 [P1-2] — **`failed`의 부분집합**: 그 실패가 muted 구간에 걸쳐 일어났는가.
+   *
+   *  ## 왜 넷째 칸인가 — 이건 회계가 아니라 **고지용**이다
+   *  2026-09-01 실측 사고(`sess_1788216390429`)에서 죽은 클립 3건은 **전부 `failed` 경로**였다
+   *  (`clip_too_small:5`×2 + `clip_empty`×1). 그래서 `unreliable`은 **0**이었고,
+   *  「구간에 증거를 잃었나」를 `unreliable` 증가분으로만 물은 고지는 **가장 크게 잃은 형상에서
+   *  정확히 아무 말도 하지 않았다**(2026-09-02 콜드 리뷰 [P1-2] 실측).
+   *
+   *  ## 🔴 회계 3칸(`saved`/`failed`/`unreliable`)은 **한 글자도 안 바뀐다**
+   *  이 값은 이미 `failed`로 센 것을 **다시 세지 않는다** — 같은 클립을 두 칸에 세면 결산의 합이
+   *  커밋 수를 넘는다(`useValueCommit` 주석이 못박은 그 계약). `streak`도 안 건드린다.
+   *  👉 **`saved + failed + unreliable`이 분모다. 여기에 `mutedFailed`를 더하지 마라.** */
+  mutedFailed: number;
 }
 
 export interface ClipHealth {
-  /** 빈/극소 클립 1건 기록. **연속 실패가 임계 이상이면 true**(= 마이크 소실로 봐도 된다). */
-  recordFailure(): boolean;
+  /** 빈/극소 클립 1건 기록. **연속 실패가 임계 이상이면 true**(= 마이크 소실로 봐도 된다).
+   *
+   *  🔴 v0.51 r2 [P1-2] — `mutedSpan`은 **사유 표지일 뿐 회계를 바꾸지 않는다.** 이 클립은
+   *  종전 그대로 `failed` 한 칸에만 서고 `streak`도 종전 그대로 오른다. 바뀌는 것은
+   *  `summary().mutedFailed`가 함께 오른다는 것뿐이고, 그 값의 유일한 소비자는
+   *  **회복 고지**(`useMicInterruptionNotice`)다.
+   *
+   *  ⚠️ 이 인자를 **가드레일 `[CLIP-MUTED-SPAN-1]` ②의 위반으로 읽지 마라.** ②가 금지하는 것은
+   *  「**저장에 성공한** muted 클립을 `recordFailure()`로 세는 것」이다(→ `recordUnreliable()`).
+   *  여기 오는 클립은 muted와 무관하게 **이미 실패했다**(5바이트·chunk 0). 세는 칸이 바뀌지
+   *  않으므로 래치 시점도 종전과 **비트 단위로 같다**.
+   *
+   *  🔑 왜 별도 메서드(`recordMutedFailure()`)가 아닌가: 실패 경로가 둘(`clip_empty`·
+   *  `clip_too_small`)이고 앞으로 셋이 될 수 있는데, 장부 호출이 **한 클립에 두 줄**이면
+   *  한쪽만 빠뜨리는 드리프트가 생기고 그 누락은 정상 세션에서 아무 증상이 없다. 한 호출로
+   *  묶으면 **이중 계수도 누락도 구조적으로 불가능**하다.
+   *
+   *  @param mutedSpan 이 클립이 트랙 `muted` 구간에 걸쳤는가(`ClipResult.mutedSpan`) */
+  recordFailure(mutedSpan?: boolean): boolean;
   /** 🔴 v0.50 r2 [CF-2] — **이 세션에서 아직 고지하지 않았으면 true**(그리고 이후 false).
    *
    *  종전 구현은 고지의 1회성을 `micLost` 상승 에지에 맡겼는데, 자동 재연결이 성공하면
@@ -91,11 +121,14 @@ export function createClipHealth(threshold: number = CLIP_FAIL_LATCH_THRESHOLD):
   let saved = 0;
   let failed = 0;
   let unreliable = 0;
+  let mutedFailed = 0;
   let alerted = false;
   return {
-    recordFailure() {
+    recordFailure(mutedSpan = false) {
       streak += 1;
       failed += 1;
+      // 🔴 회계 3칸은 위 두 줄이 전부다 — 아래는 **고지용 표지**이지 넷째 회계 칸이 아니다.
+      if (mutedSpan) mutedFailed += 1;
       return streak >= threshold;
     },
     alertOnce() {
@@ -112,13 +145,14 @@ export function createClipHealth(threshold: number = CLIP_FAIL_LATCH_THRESHOLD):
       unreliable += 1;
     },
     summary() {
-      return { saved, failed, unreliable };
+      return { saved, failed, unreliable, mutedFailed };
     },
     reset() {
       streak = 0;
       saved = 0;
       failed = 0;
       unreliable = 0;
+      mutedFailed = 0;
       alerted = false;
     },
   };
@@ -140,13 +174,22 @@ export function clipSummaryExtra(s: ClipHealthSummary, audioSessionEvts?: number
 
 /** 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **신규 이벤트**(기존 `clip_summary`는 바이트 불변).
  *
- *  `unreliable > 0`인 세션에서만 1건 방출한다 — 정상 세션에는 나가지 않으므로 2000개 링버퍼를
- *  잠식하지 않는다(계측 추가 시 항상 묻는 질문: PRINCIPLES §4 · 계측 F 초안이 걸린 그 게이트).
+ *  `unreliable > 0` **또는 `mutedFailed > 0`** 인 세션에서만 1건 방출한다 — 정상 세션에는 나가지
+ *  않으므로 2000개 링버퍼를 잠식하지 않는다(계측 추가 시 항상 묻는 질문: PRINCIPLES §4 ·
+ *  계측 F 초안이 걸린 그 게이트).
+ *
+ *  🔴 v0.51 r2 [P1-2] — `mutedFail=` **꼬리를 붙인다.** 종전에는 `unreliable > 0`이 게이트라
+ *  실측 사고 형상(muted 구간 클립이 전부 `failed`)에서 **이 이벤트가 아예 안 나갔다.** 즉
+ *  판독이 `clip_summary:failed=3`만 보고 **사유(마이크 인터럽트)를 못 읽었다.**
+ *  🔑 `muted=`·`spans=`는 **접두 그대로**라 기존 판독기가 안 깨진다(꼬리 추가는 v0.50 r2
+ *  `asEvt=`와 같은 형태).
  *
  *  @param unreliable 저장은 됐지만 muted 구간에 걸쳐 증거로 쓸 수 없는 클립 수
  *  @param spans 그 세션에서 관측된 muted **구간** 수(클립 수와 다르다 — 한 구간이 여러 클립을
  *               덮을 수도, 한 클립도 안 덮을 수도 있다. 둘을 같이 실어야 판독이 「구간이 길었나
- *               잦았나」를 가른다) */
-export function clipUnreliableSummaryExtra(unreliable: number, spans: number): string {
-  return `clip_unreliable_summary:muted=${unreliable},spans=${spans}`;
+ *               잦았나」를 가른다)
+ *  @param mutedFailed 그 구간에서 **저장조차 못 한** 클립 수(`failed`의 부분집합 — 합에 더하지
+ *               마라). 고지가 「무엇을 근거로 말했나」의 감사 흔적이다 */
+export function clipUnreliableSummaryExtra(unreliable: number, spans: number, mutedFailed: number): string {
+  return `clip_unreliable_summary:muted=${unreliable},spans=${spans},mutedFail=${mutedFailed}`;
 }

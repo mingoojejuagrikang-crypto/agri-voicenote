@@ -305,8 +305,12 @@ export function useValueCommit(deps: ValueCommitDeps) {
           //   기존 `clip_empty` 바이트는 건드리지 않고 **옆에 한 줄** 남긴다(PRINCIPLES §4).
           //   ⚠️ 여기서 `recordUnreliable()`은 부르지 않는다 — 이미 `recordFailure()`로 셌다.
           //   같은 클립을 두 칸에 세면 결산의 합이 커밋 수를 넘는다.
+          //   🔴 v0.51 r2 [P1-2] — 대신 **같은 호출에 사유를 실어 보낸다**(`recordFailure(mutedSpan)`).
+          //   회계(`failed`·`streak`)는 비트 단위로 종전과 같고, `summary().mutedFailed`만 함께 오른다.
+          //   그 값이 없으면 회복 고지가 **실측 사고 형상에서 침묵한다** — 죽은 클립이 전부 이 경로라
+          //   `unreliable`이 0이기 때문이다(2026-09-02 콜드 리뷰 [P1-2]).
           if (mutedSpan) logCell({ type: 'clip', extra: 'clip_muted_fail:empty', row: clipAwaitingRow, colId: clipAwaitingColId });
-          maybeAutoRecoverOrLatch('clip_empty', { force: clipHealth.recordFailure() });
+          maybeAutoRecoverOrLatch('clip_empty', { force: clipHealth.recordFailure(mutedSpan) });
           await resolveFailedCapture(savePromiseSelf);
           return;
         }
@@ -317,7 +321,8 @@ export function useValueCommit(deps: ValueCommitDeps) {
           // v0.51 [CLIP-MUTED-SPAN-1] — 같은 이유로 사유만 부착(위 clip_empty 주석이 SSOT).
           //   2026-09-01 폐기 세션의 실측 형상이 정확히 이것이다(mute → 21초 뒤 clip_too_small:5).
           if (mutedSpan) logCell({ type: 'clip', extra: 'clip_muted_fail:too_small', row: clipAwaitingRow, colId: clipAwaitingColId });
-          maybeAutoRecoverOrLatch('clip_too_small', { force: clipHealth.recordFailure() });
+          // 🔴 v0.51 r2 [P1-2] — 사유 인자는 위 `clip_empty` 주석이 SSOT(고지용 표지 · 회계 불변).
+          maybeAutoRecoverOrLatch('clip_too_small', { force: clipHealth.recordFailure(mutedSpan) });
           await resolveFailedCapture(savePromiseSelf);
           return;
         }
