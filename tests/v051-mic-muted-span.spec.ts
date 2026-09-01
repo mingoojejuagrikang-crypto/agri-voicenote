@@ -44,6 +44,8 @@ import { test, expect, type Page } from '@playwright/test';
 import { boot, PHONE_402, PREV_ROUND, SETTINGS as AZ_SETTINGS } from './fixtures/activeZones';
 import { fireStt, waitForTtsIdle, ttsLog } from './fixtures/stt';
 import { createClipHealth, clipSummaryExtra, clipUnreliableSummaryExtra } from '../src/lib/clipHealth';
+import fs from 'node:fs';
+import path from 'node:path';
 
 test.setTimeout(120_000);
 
@@ -107,6 +109,43 @@ function expectNoRecoveryPath(evs: string[], where: string): void {
   expect(evs.filter((e) => e.startsWith('mic_auto_reconnect')),
     `${where}: 자동 재연결 effect가 깨어났다 — muted를 failed로 세면 이렇게 된다`).toHaveLength(0);
 }
+
+/** 🔴 이 스펙 자신이 **릴리스 게이트 목록에 있는가**를 잰다 — 스펙 파일명이 SSOT다.
+ *
+ *  ## 왜 오라클이 스스로를 재는가
+ *  `test:e2e:gate`는 **명시 파일 목록**이라 새 스펙은 여기 넣지 않으면 **아예 돌지 않는다.**
+ *  이 레포는 그 함정에 이미 세 번 걸렸다:
+ *   · v0.46.0 — `v043-typo-contract`가 목록 밖이라 red가 **하루 종일** 살아 있었다.
+ *   · v0.50   — 원 커밋(`b9c5476`)이 빠뜨려 r2(`f98fd39`)에서 별도 커밋으로 닫았다.
+ *   · v0.51   — 직전 커밋(`7b746f8`)이 *"게이트는 명시 파일 목록이라 새 스펙은 여기 넣지 않으면
+ *               아예 돌지 않는다"* 를 커밋 메시지에 명문화했는데, **바로 다음 커밋이 또 걸렸다**
+ *               (2026-09-02 콜드 리뷰 [P1-1] 실측: 목록 104건에 이 스펙이 없었다).
+ *  🔴 **CI가 없다**(`.github/` 자체가 없다) — 로컬 `predeploy`가 유일한 게이트다. 등재를 빠뜨리면
+ *  「muted를 `recordFailure()`로 바꿔도 predeploy는 green」이 된다(리뷰 원문).
+ *
+ *  👉 사람의 기억·문서·커밋 메시지는 **세 번 다 실패했다.** 그래서 계약으로 잠근다.
+ *     이 단언은 `test:e2e:full`에서 돌므로, 누가 목록에서 이름을 지우면 그 순간 red다.
+ *     (게이트 목록 자체에서 빠지면 게이트에서는 안 돌지만, 병합 전 전량 게이트가 잡는다.)
+ */
+test('[node] ⓪-게이트 이 오라클이 릴리스 게이트 목록에 등재돼 있다', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf-8')) as {
+    scripts: Record<string, string>;
+  };
+  const gate = pkg.scripts['test:e2e:gate'] ?? '';
+  expect(gate, '전제: test:e2e:gate 스크립트가 있어야 한다').not.toBe('');
+  const listed = gate.split(/\s+/).filter((x) => x.startsWith('tests/'));
+  expect(listed, 'v0.51 A축 오라클이 릴리스 게이트 목록에 없다 — predeploy에서 한 번도 돌지 않는다')
+    .toContain('tests/v051-mic-muted-span.spec.ts');
+  // 🔴 함께 등재돼야 하는 TTS 축(`feat/tts-strip-parens`) 오라클 2건. **이 브랜치에는 파일이
+  //    아직 없다** — Playwright의 파일 인자는 경로가 아니라 **필터**라, 없는 이름은 조용히
+  //    무시되고 게이트는 green이다(실측 확인: 없는 이름을 섞어 `--list` → exit 0).
+  //    👉 그래서 병합 전에 미리 넣어 둔다. 병합 순서에 따라 잠깐 「목록에 있지만 파일은 없는」
+  //    창이 생기는데, 그 창에서 게이트가 깨지지는 않는다.
+  expect(listed, 'TTS 축약 오라클(단위)이 게이트 밖이다 — 괄호가 다시 귀로 나가도 predeploy는 green이다')
+    .toContain('tests/tts-column-name.spec.ts');
+  expect(listed, 'TTS 콜사이트 배선 오라클(e2e)이 게이트 밖이다 — 콜사이트 하나를 되돌려도 아무도 모른다')
+    .toContain('tests/tts-column-name-e2e.spec.ts');
+});
 
 test('[node] ⓪ clipHealth 계약 — unreliable은 saved도 failed도 아니고, streak를 건드리지 않는다', () => {
   const h = createClipHealth();
