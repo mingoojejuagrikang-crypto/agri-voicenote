@@ -11,6 +11,7 @@
  */
 import { expect, type Page } from '@playwright/test';
 import { MEDIA_RECORDER_STUB_SCRIPT } from './mediaRecorder';
+import { FAKE_TRACK_SCRIPT } from './fakeTrack';
 import { fireStt, installVoiceMocks } from './stt';
 import { BASE } from '../baseUrl';
 
@@ -96,20 +97,16 @@ export const SHEET_ROWS = [
 ];
 
 /** headless는 getUserMedia가 거부돼 micLost가 래치되면 톤이 red로 고정된다 → fake 'live' 트랙 제공. */
-export const MOCK_INIT_SCRIPT = MEDIA_RECORDER_STUB_SCRIPT + `
+export const MOCK_INIT_SCRIPT = MEDIA_RECORDER_STUB_SCRIPT + FAKE_TRACK_SCRIPT + `
 (function() {
   window.__micSettleSkipForTest = true; // F18 픽스처 우회 — 시작 시 1초 마이크 정착 생략(우회 심 오라클: v0440-c8-flow.spec.ts)
+  // 🔴 v0.51 [CLIP-MUTED-SPAN-1] — 트랙 생성이 **사본이 아니게 됐다.** 종전 주석이 경고하던
+  //   *"gum.ts의 사본이다 — 한쪽만 고치면 갈린다"* 를 muted 토글 추가 시점에 해소했다:
+  //   생성은 \`fixtures/fakeTrack.ts\`(\`window.__makeFakeTrack\`)가 SSOT이고, 여기 남는 것은
+  //   이 픽스처 고유 관심사(\`__micSettleSkipForTest\`·\`__gumDeny\`)뿐이다.
+  //   \`window.__lastFakeTrack.readyState='ended'\`(v0.49 r3 #11) 경로는 그대로 산다.
   function nextStream() {
-    var fakeTrack = {
-      kind: 'audio', label: 'Fake Mic', readyState: 'live', muted: false,
-      getSettings: function(){ return { deviceId: 'fake-mic' }; },
-      addEventListener: function(){}, removeEventListener: function(){}, stop: function(){},
-    };
-    // 🔴 v0.49 r3 #11 — 마지막 fake 트랙을 노출한다(fixtures/gum.ts의 GUM_GRANT_SCRIPT와 같은
-    //   한 줄). 세션 **중** 스트림 사망(블루투스 낙하)을 e2e로 재현하려면 밖에서 readyState를
-    //   'ended'로 뒤집을 수 있어야 하고, 제품 판정(isStreamLost)이 정확히 그 필드를 본다.
-    //   ⚠️ 이 스크립트는 gum.ts의 **사본**이다(원본 주석의 계보 참조) — 한쪽만 고치면 갈린다.
-    window.__lastFakeTrack = fakeTrack;
+    var fakeTrack = window.__makeFakeTrack();
     return { getAudioTracks: function(){ return [fakeTrack]; }, getTracks: function(){ return [fakeTrack]; } };
   }
   if (navigator.mediaDevices) {

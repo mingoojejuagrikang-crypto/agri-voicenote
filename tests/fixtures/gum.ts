@@ -19,8 +19,9 @@
  */
 
 import { MEDIA_RECORDER_STUB_SCRIPT } from './mediaRecorder';
+import { FAKE_TRACK_SCRIPT } from './fakeTrack';
 
-export const GUM_GRANT_SCRIPT = MEDIA_RECORDER_STUB_SCRIPT + `
+export const GUM_GRANT_SCRIPT = MEDIA_RECORDER_STUB_SCRIPT + FAKE_TRACK_SCRIPT + `
 (function() {
   window.__gumCalls = [];
   // 🔴 v0.49 r3 #11 — 마지막으로 만든 fake 트랙을 **노출한다**(\`window.__lastFakeTrack\`).
@@ -29,13 +30,10 @@ export const GUM_GRANT_SCRIPT = MEDIA_RECORDER_STUB_SCRIPT + `
   //   본다(audioRecorder :290). 종전 스텁은 트랙을 클로저에 가둬 그 경로가 e2e로 도달 불가였고,
   //   B3가 deny 스텁으로 옮겨 가면서 「세션 중 소실 → 재연결」 커버리지가 통째로 비었다.
   //   ⚠️ 노출만 한다 — grant 스텁의 기본 동작(항상 live 스트림)은 종전과 완전히 같다.
+  // 🔴 v0.51 [CLIP-MUTED-SPAN-1] — 트랙 **생성은 \`fixtures/fakeTrack.ts\`가 SSOT다**(사본 통합).
+  //   \`window.__setFakeTrackMuted()\`로 오디오 인터럽트 구간을 만들 수 있다.
   function nextStream() {
-    var fakeTrack = {
-      kind: 'audio', label: 'Fake Mic', readyState: 'live', muted: false,
-      getSettings: function(){ return { deviceId: 'fake-mic' }; },
-      addEventListener: function(){}, removeEventListener: function(){}, stop: function(){},
-    };
-    window.__lastFakeTrack = fakeTrack;
+    var fakeTrack = window.__makeFakeTrack();
     return { getAudioTracks: function(){ return [fakeTrack]; }, getTracks: function(){ return [fakeTrack]; } };
   }
   if (!navigator.mediaDevices) { try { navigator.mediaDevices = {}; } catch(e){} }
