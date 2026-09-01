@@ -42,6 +42,11 @@
  * `v050-clip-silent-latch`·`v0460-audio-interruption-probe` 헤더의 같은 한계).
  * 여기서 재는 것은 **「muted 표면이 오면 우리가 그것을 구간으로 잡아, 세지 않고, 말하는가」**다.
  * 실기기 판정 전까지 `[CLIP-MUTED-SPAN-1]`의 상태는 `MONITORING`이다(AGENTS.md 계약 ④).
+ *
+ * ## 릴리스 게이트
+ * 이 스펙은 `package.json`의 `test:e2e:gate`에 등재돼 있고, `[node] ⓪-게이트`가 **그 등재
+ * 자체를 계약으로 잠근다**(초판에서 빠져 있었다 — 2026-09-02 콜드 리뷰 [P1-1]).
+ * 비용: 9건 `--workers=1` **39.7초**.
  */
 import { test, expect, type Page } from '@playwright/test';
 import { boot, PHONE_402, PREV_ROUND, SETTINGS as AZ_SETTINGS } from './fixtures/activeZones';

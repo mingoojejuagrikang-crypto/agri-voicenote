@@ -2651,7 +2651,7 @@ TTS 구간(`:2522-2523`)에 오버레이가 열리면 **모달 뒤에서 STT 인
 - **계약(재발 방지):** [ENGINEERING-GUARDRAILS.md](./ENGINEERING-GUARDRAILS.md)의
   `[CLIP-MUTED-VERDICT-1]`. 🔴 **ID가 다르다** — 이 항목은 **사건**이고 저쪽은 **계약**이다
   (초판이 같은 ID를 써서 `check-docs.mjs` 중복 검사가 red였다 · r2에서 분리).
-- **회귀:** `tests/v051-mic-muted-span.spec.ts` **10건**(r2에서 ⓗ + `[node] ⓪-게이트` 추가).
+- **회귀:** `tests/v051-mic-muted-span.spec.ts` **9건**(r2에서 ⓗ + `[node] ⓪-게이트` 추가 · `--workers=1` 39.7s).
   **반증 9종 실측 red 확인** — 초판 6종(시작 판정 제거 → 2건이 1건 · 이벤트 래치 제거 → 0건 ·
   종전 회계 복원 → 종료 화면 침묵 · muted를 failed로 계수 → `mic_lost:clip_muted` 관측 =
   금지사항 위반이 즉시 드러남 · 문구 분기 제거 · 자동 해제 제거) + r2 3종(고지 판정을
