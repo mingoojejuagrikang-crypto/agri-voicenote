@@ -28,6 +28,7 @@ import { clipArmBlocked } from './logEvents';
 import type { logger } from './logger';
 import { useModifyPhase } from './modifyPhase';
 import { formatForTts } from './speech';
+import { formatNameForTts } from './voicePrompts';
 import type { Column } from '../types';
 import type { AwaitingField, ResumeCell } from './useVoiceSession';
 
@@ -70,7 +71,7 @@ export function useAnnouncements(deps: AnnouncementsDeps) {
         const tv = toAuto[c.id] ?? '';
         const fv = fromAuto?.[c.id] ?? '';
         if (!tv) continue;
-        if (fromAuto === null || fv !== tv) parts.push(`${c.name} ${tv}`);
+        if (fromAuto === null || fv !== tv) parts.push(`${formatNameForTts(c.name)} ${tv}`);
       }
       if (parts.length) await say(parts.join(', ') + '.', false);
     },
@@ -90,7 +91,7 @@ export function useAnnouncements(deps: AnnouncementsDeps) {
         const cv = curAuto[c.id] ?? '';
         if (!cv) continue;
         if (prevAuto === null || (prevAuto[c.id] ?? '') !== cv) {
-          parts.push(`${c.name} ${cv}`);
+          parts.push(`${formatNameForTts(c.name)} ${cv}`);
         }
       }
       if (parts.length) await say(parts.join(', ') + ' 완료.', false);
@@ -130,9 +131,9 @@ export function useAnnouncements(deps: AnnouncementsDeps) {
       if (cur && c.id === cur.id) break; // 현재 항목부터는 꼬리("다음, …")가 담당
       if (!c.ttsAnnounce) continue;
       const v = c.input === 'auto' ? auto[c.id] ?? '' : values[c.id] ?? '';
-      if (v !== '') parts.push(`${c.name} ${c.input === 'auto' ? v : formatForTts(v)}`);
+      if (v !== '') parts.push(`${formatNameForTts(c.name)} ${c.input === 'auto' ? v : formatForTts(v)}`);
     }
-    const tail = includeNextName ? (cur ? `다음, ${cur.name}.` : null) : '다음.';
+    const tail = includeNextName ? (cur ? `다음, ${formatNameForTts(cur.name)}.` : null) : '다음.';
     if (parts.length === 0) return includeNextName ? tail : null;
     return tail ? `${parts.join(', ')}. ${tail}` : `${parts.join(', ')}.`;
   }, []);
@@ -319,11 +320,18 @@ export function useAnnouncements(deps: AnnouncementsDeps) {
       // redo 명령 제거로 사라짐.) 클립 앞에 새는 announce TTS는 mic AEC가 억제하고, 앞 무음은
       // audioTrim이 정리한다.
       armClipForCell(row, col.id);
+      // 🔴 항목명 TTS는 괄호와 그 안의 내용을 읽지 않는다(민구 2026-09-01 — `formatNameForTts` 헤더).
+      //   `hint`(=`lastTts`)도 같은 축약본을 쓴다: `lastTts`는 **귀로 나간 안내의 상태 미러**이지
+      //   화면 표면이 아니다(렌더하는 컴포넌트가 없다 — 전 소비자 grep 확인). 여기만 원문을 쓰면
+      //   같은 문장이 두 표기로 갈리고, 형제 착지(`useRowLanding`)는 발화문과 `lastTts`가 **같은
+      //   지역 변수**라 갈라놓으려면 리터럴을 복제해야 한다([PAST-2] 사본 금지).
+      //   ⚠️ 화면에 항목명을 그리는 표면(수정 표식 `modifyIndicator`·칩·표)은 **원문 그대로**다.
+      const spokenName = formatNameForTts(col.name);
       const hint = opts?.isModify
-        ? `수정. ${col.name} 다시 말씀해 주세요.`
-        : `${col.name} 말씀해 주세요.`;
+        ? `수정. ${spokenName} 다시 말씀해 주세요.`
+        : `${spokenName} 말씀해 주세요.`;
       useSessionStore.getState().setLastTts(hint);
-      await say(opts?.isModify ? `수정. ${col.name}.` : `${col.name}.`, false);
+      await say(opts?.isModify ? `수정. ${spokenName}.` : `${spokenName}.`, false);
     },
     // 동일-훅 상호 참조(armLanding·armClipForCell)는 `[]`-고정 const의 클로저 캡처라 identity가
     // 불변이다 — deps 배열에 넣지 않아도 낡은 참조가 생기지 않는다(useTrendGate와 같은 판단).

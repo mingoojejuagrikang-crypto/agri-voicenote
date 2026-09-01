@@ -24,7 +24,7 @@ import type { logger } from './logger';
 import { formatForTts } from './speech';
 import type { Column } from '../types';
 import type { AwaitingField } from './useVoiceSession';
-import { endReachedTts } from './voicePrompts';
+import { endReachedTts, formatNameForTts } from './voicePrompts';
 
 type LogCell = (entry: Omit<Parameters<typeof logger.log>[0], 'sessionId'>) => void;
 
@@ -156,7 +156,7 @@ export function useRowLanding(deps: RowLandingDeps) {
     const values = sess.getRowValues(row);
     const parts = vc
       .filter((c) => (values[c.id] ?? '') !== '')
-      .map((c) => `${c.name} ${formatForTts(values[c.id])}`);
+      .map((c) => `${formatNameForTts(c.name)} ${formatForTts(values[c.id])}`);
     const firstCol = vc[0] ?? null;
     sess.setActiveCol(0);
     sess.setRecognized('');
@@ -215,7 +215,7 @@ export function useRowLanding(deps: RowLandingDeps) {
     });
     // "횡경 기록값 35.1." — 「기록값」이 이 상태의 판별어다(안내 프롬프트 "횡경."과 구분되고,
     //   행 검토의 "N행 완료됨"과도 겹치지 않는다). 흡수 안내가 정정 진입로를 가르친다.
-    const msg = `${col.name} 기록값 ${formatForTts(value)}.`;
+    const msg = `${formatNameForTts(col.name)} 기록값 ${formatForTts(value)}.`;
     sess.setLastTts(msg);
     await say(msg);
   }, []);

@@ -20,6 +20,47 @@
  * 이름 규칙: `*_TTS` = 귀로 나가는 축약본 · `*_SCREEN` = 눈으로 보는 상세본.
  * ───────────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * 🔴 항목명 TTS 표면 — **괄호와 그 안의 내용은 읽지 않는다**(민구 확정 2026-09-01).
+ *
+ * 민구 원문: *"음성입력중에 항목을 TTS 해주는데 다음 항목처럼 괄호 안의 내용은 TTS 하지 않아야해.
+ * "종경(mm)" 위 상황에서 tts 되어야 하는 부분은 "종경" 만이야."*
+ *
+ * 실제 프로덕션 시트의 컬럼명은 `종경(mm)`·`횡경(mm)`처럼 **단위를 괄호로 단다**. 단위는 모든 칸에서
+ * 같아 정보가 없는데 안내는 칸마다 반복된다 — 그만큼이 그대로 대기 시간이고, [TTS-WATCHDOG-1]에서
+ * 긴 발화일수록 절단률이 단조 증가한다.
+ *
+ * 🔴 **화면은 바뀌지 않는다.** 이 함수는 `say()`/`speak()`로 나가는 문자열에만 쓴다. 컬럼명 원본
+ * (`Column.name`)과 그것을 그리는 표면(칩·표·수정 표식)·로그 `colName`은 그대로다 — 시트 헤더와의
+ * 대조가 거기서 끊기면 매핑을 사람이 못 쫓는다.
+ * 🔴 **STT 매칭에는 쓰지 마라.** `extractModifyColumn`(useFinalCommands)·컬럼명 완전일치 거부
+ * (useFinalValueGate)는 원문 이름 위에 서 있다. 여기를 끌어다 쓰면 인식 계약이 조용히 바뀐다.
+ *
+ * 규칙:
+ *  - 여는 괄호부터 짝이 맞는 닫는 괄호까지 통째로 뺀다. **중첩**은 깊이로 센다(`가(나(다))` → `가`).
+ *  - **미닫힘**(`종경(mm`)은 여는 괄호 이후를 전부 뺀다 — 반쪽 단위를 읽어봐야 잡음이다.
+ *  - **고아 닫는 괄호**(`종경)`)는 그 글자만 뺀다.
+ *  - 반각 `()`와 전각 `（）`를 **한 종류로** 취급한다(IME가 섞어 넣는다 — `종경(mm）` 방어).
+ *    대괄호 `[]`는 대상이 아니다(민구 지정이 `(`·`)`이고 실 시트 표본에도 없다). 늘릴 일이 생기면
+ *    아래 두 문자 비교에만 추가하면 된다.
+ *  - 남은 공백은 하나로 접고 앞뒤를 턴다(`종경 (mm)` → `종경`).
+ *  - 🔴 **전부 지워지면 원문으로 되돌린다**(`(mm)` → `(mm)`). 화면을 못 보는 사용자에게 무음 안내는
+ *    「어느 칸인지 알 수 없음」이다 — 이상하게 읽히는 것보다 나쁘다(PRINCIPLES §2).
+ *
+ * 오라클: tests/tts-column-name.spec.ts
+ */
+export function formatNameForTts(name: string): string {
+  let depth = 0;
+  let out = '';
+  for (const ch of name) {
+    if (ch === '(' || ch === '（') { depth += 1; continue; }
+    if (ch === ')' || ch === '）') { if (depth > 0) depth -= 1; continue; }
+    if (depth === 0) out += ch;
+  }
+  const spoken = out.replace(/\s+/g, ' ').trim();
+  return spoken || name.trim();
+}
+
 /** 소수부 타깃 재질문 — **TTS·화면 공용**(이 문구는 개정 대상이 아니다, 확정표 #3 「현행 유지」).
  *  분리하지 않은 이유: 축약할 여지가 없고, 정수부 문맥을 양쪽이 똑같이 말해야 한다. */
 export function decimalReaskPrompt(whole: string | number): string {
@@ -62,7 +103,7 @@ export const REASK_TTS: Record<'low_confidence' | 'parse_failed', string> = {
  * 활성 칩이 이미 「이 칸을 다시 받는 중」을 그린다 — 같은 말을 문장으로 또 쓰지 않는다.
  */
 export function relistenPrompt(name: string): string {
-  return `${name} 다시 말씀해 주세요.`;
+  return `${formatNameForTts(name)} 다시 말씀해 주세요.`;
 }
 
 /** 완료 행 검토 대기(reviewWait)에서 bare 값을 흡수했을 때의 안내 — **TTS본**(확정표 #4).
@@ -96,7 +137,7 @@ export const REVIEW_WAIT_COMMANDS_TTS = '수정 또는 다음행.';
  *  이 파일(문구 SSOT)로 올린다 — 위 `REVIEW_WAIT_COMMANDS_TTS` 헤더가 이미 이 함수를 「같은
  *  상태에 두 이름을 주지 않는다」 계약의 전례로 인용하고 있었다. **바이트는 그대로 옮겼다.** */
 export function cellWaitPrompt(name: string): string {
-  return `${name} 기록값입니다. 수정이라고 말하세요.`;
+  return `${formatNameForTts(name)} 기록값입니다. 수정이라고 말하세요.`;
 }
 
 export function reviewWaitAbsorbTts(row: number): string {
