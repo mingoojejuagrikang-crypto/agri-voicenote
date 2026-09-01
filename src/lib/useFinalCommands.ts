@@ -39,7 +39,7 @@ import { extractModifyValue } from './koreanNum';
 import { cancelTts } from './speech';
 import { extractModifyColumn, isVoiceUiCommand, type VoiceUiCommandSignal } from './voiceCommands';
 import { resolveFinal } from './voiceFinalResolver';
-import { cellWaitPrompt, relistenPrompt, REVIEW_WAIT_COMMANDS_TTS } from './voicePrompts';
+import { cellWaitPrompt, formatNameForTts, relistenPrompt, REVIEW_WAIT_COMMANDS_TTS } from './voicePrompts';
 import type { Column } from '../types';
 import type { logger } from './logger';
 import type { PendingCommandClip } from './useClipCapture';
@@ -166,7 +166,7 @@ export function useFinalCommands(deps: FinalCommandsDeps) {
         type: 'command', parsed: 'keep', extra: 'keep_no_value',
         row: a.row, colId: a.colId,
       });
-      const msg = `유지할 값이 없습니다. ${a.name} 말씀해 주세요.`;
+      const msg = `유지할 값이 없습니다. ${formatNameForTts(a.name)} 말씀해 주세요.`;
       useSessionStore.getState().setLastTts(msg);
       await say(msg);
     }
@@ -197,7 +197,7 @@ export function useFinalCommands(deps: FinalCommandsDeps) {
           ? REVIEW_WAIT_COMMANDS_TTS
           : a.kind === 'atEnd'
             ? undefined
-            : `${a.name} 말씀해 주세요.`;
+            : `${formatNameForTts(a.name)} 말씀해 주세요.`;
       const msg = tail ? `${head} ${tail}` : head;
       useSessionStore.getState().setLastTts(msg);
       await say(msg);

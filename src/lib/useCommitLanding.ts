@@ -46,6 +46,7 @@ import { buildAnomalyAlert } from './anomalyAlert';
 import { playBeep } from './beep';
 import { useModifyPhase } from './modifyPhase';
 import { formatForTts, speak } from './speech';
+import { formatNameForTts } from './voicePrompts';
 import type { Column } from '../types';
 import type { logger } from './logger';
 import type { TrendViolation } from './trendCheck';
@@ -270,7 +271,7 @@ export function useCommitLanding(deps: CommitLandingDeps) {
     if (!beeped) playBeep('commit');
 
     const echoText = isModifyLike(awaiting)
-      ? `수정 ${awaiting.name} ${formatForTts(parsed)}`
+      ? `수정 ${formatNameForTts(awaiting.name)} ${formatForTts(parsed)}`
       : formatForTts(parsed);
     const echoEnqueuedAt = Date.now();
     await speak(echoText, {

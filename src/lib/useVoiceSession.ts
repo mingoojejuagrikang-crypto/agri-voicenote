@@ -8,7 +8,7 @@ import { parseKoreanNumber, detectCommand } from './koreanNum';
 // [ENV-12] v0.43.0 #3 — 값 파싱 시도는 순수 모듈이 소유한다(부수효과 없음). 이 파일은 호출만.
 import { parseValueForCol } from './valueParseAttempt';
 import { VOICE_COMMANDS, type VoiceCommand, type VoiceUiCommandSignal } from './voiceCommands';
-import { decimalReaskPrompt, REASK_TTS } from './voicePrompts';
+import { decimalReaskPrompt, formatNameForTts, REASK_TTS } from './voicePrompts';
 import { SpeechController, speak, cancelTts, isSpeechSupported, formatForTts, warmupTts, setActiveController, setPreferredVoiceName, setBargeInEnabled, refreshVoices, resumeTtsEngine } from './speech';
 import { computeTotalRows, buildCyclingValues, nestedAutoValue, isUserInputColumn } from './autoValue';
 import type { Column, Session, SessionRow, SessionTarget } from '../types';
@@ -1483,7 +1483,7 @@ export function useVoiceSession() {
         //   종전엔 이 경로만 무음이었다(재청취 경로의 성공음과 비대칭 — 값이 저장되는 모든
         //   커밋에 확인음이 난다는 WP-E 원칙에 합류).
         playBeep('commit');
-        await say(`수정 ${target.name} ${formatForTts(parsed)}`);
+        await say(`수정 ${formatNameForTts(target.name)} ${formatForTts(parsed)}`);
         // v0.33.0 — 검토 대기 출신 직접 수정: 값 수신 재안내 대신 검토 대기로 복귀
         // (수정 반영값 재낭독 + 대기 — bare 값 덮어쓰기 금지 계약 유지).
         // 🔴 v0.49 fix49 — 셀 검토 대기 출신은 **셀 단위**로 복귀한다. 아래 일반 복귀
