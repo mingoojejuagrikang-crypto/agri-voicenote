@@ -79,7 +79,7 @@ export interface ClipHealth {
    *  `summary().mutedFailed`가 함께 오른다는 것뿐이고, 그 값의 유일한 소비자는
    *  **회복 고지**(`useMicInterruptionNotice`)다.
    *
-   *  ⚠️ 이 인자를 **가드레일 `[CLIP-MUTED-SPAN-1]` ②의 위반으로 읽지 마라.** ②가 금지하는 것은
+   *  ⚠️ 이 인자를 **가드레일 `[CLIP-MUTED-VERDICT-1]` ②의 위반으로 읽지 마라.** ②가 금지하는 것은
    *  「**저장에 성공한** muted 클립을 `recordFailure()`로 세는 것」이다(→ `recordUnreliable()`).
    *  여기 오는 클립은 muted와 무관하게 **이미 실패했다**(5바이트·chunk 0). 세는 칸이 바뀌지
    *  않으므로 래치 시점도 종전과 **비트 단위로 같다**.

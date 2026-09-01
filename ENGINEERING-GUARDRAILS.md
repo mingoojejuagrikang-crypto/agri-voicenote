@@ -387,7 +387,13 @@
 - 종결된 사건 기록(역사): [KNOWN-ISSUES-ARCHIVE.md](./KNOWN-ISSUES-ARCHIVE.md)
 - 개발·테스트·릴리스 절차: [CONTRIBUTING.md](./CONTRIBUTING.md)
 
-### [CLIP-MUTED-SPAN-1] 🔴 `muted`는 **실패가 아니라 판정 보류**다 — 어느 쪽으로 세도 결함이 된다
+### [CLIP-MUTED-VERDICT-1] 🔴 `muted`는 **실패가 아니라 판정 보류**다 — 어느 쪽으로 세도 결함이 된다
+
+> 🔴 **ID 주의**: 이 계약의 ID는 `CLIP-MUTED-VERDICT-1`이다. **사건 기록**(증상·실측 로그·
+> 실기기 판정 조건)은 `KNOWN-ISSUES.md`의 [CLIP-MUTED-SPAN-1]이고 **다른 항목**이다.
+> 초판(2026-09-01)이 두 문서에 **같은 ID**를 써서 `check-docs.mjs`가 중복으로 잡았고,
+> 그 결과 `check:release`가 red → **`predeploy`가 e2e 게이트에 도달조차 못 했다**
+> (2026-09-02 r2에서 발견·분리). 사건과 계약은 수명이 다르다 — 사건은 닫히고 계약은 남는다.
 
 - **계약(세 줄):**
   ① `isStreamLost()`의 판정을 바꾸지 마라 — `ended`만 사망이다. `muted`를 사망으로 승격시키면
@@ -399,11 +405,27 @@
      리셋해 진짜 사망 구간의 래치를 늦춘다. 그게 2026-09-01 B축의 기전이다.
 - **그래서 칸이 셋이다:** `saved` / `failed` / **`unreliable`**. 셋째 칸은 `streak`를 증가도
   리셋도 하지 않는다 — **아무 쪽으로도 세지 않는 것**이 「판정 보류」의 구현이다.
+- 🔴 **넷째 칸 `mutedFailed`는 회계가 아니라 고지용이다**(v0.51 r2 [P1-2]). 「muted 구간에
+  걸쳤고 **저장조차 안 된**」 클립 수이고 **`failed`의 부분집합**이다.
+  · `saved + failed + unreliable`이 분모다 — **여기에 더하지 마라**(더하면 합이 커밋 수를 넘는다).
+  · `recordFailure(mutedSpan)`의 인자를 ②의 위반으로 읽지 마라. ②가 금지하는 것은
+    「**저장에 성공한** muted 클립을 `failed`로 세는 것」이다. 이 인자는 세는 칸도 `streak`도
+    바꾸지 않는다 — 래치 시점이 종전과 비트 단위로 같다.
+  · **왜 필요했나:** 실측 사고의 죽은 클립 3건이 전부 `failed` 경로라 `unreliable`이 0이었고,
+    회복 고지가 **가장 크게 잃은 형상에서 침묵했다.** 회계에서 칸을 나눈 축(「복구가 필요한가」)과
+    고지에서 합치는 축(「사용자에게 말할 것이 있는가」)은 **다르다.**
 - **왜 반복해서 틀리나:** 이 자리는 *"muted면 마이크가 죽은 거 아닌가"* 라는 직관과 정면으로
   어긋난다. 2026-09-01 회차 종합 초판도 *"`isStreamLost()`가 muted를 반영하게"* 라고 적었다가
   철회했다. 🔑 **두 판정은 축이 다르다** — 「스트림이 죽었나」(복구가 필요한가)와
   「이 클립을 증거로 쓸 수 있나」(신뢰도). 소비자도 다르다(재연결 배너 vs 저장·집계).
 - **종료 시점 스냅샷으로 구간을 판정하지 마라.** `clip_duration`의 `trackState`는 `onstop`
   순간의 값이라 `mute→(클립 전체)→unmute`를 `live`로 기록한다. 구간은 **래치**로만 잡힌다.
-- **오라클:** `tests/v051-mic-muted-span.spec.ts` — 모든 muted 케이스가 `expectNoRecoveryPath()`로
-  ①②를 동봉 단언한다. muted를 failed로 세는 순간 `mic_lost:clip_muted`가 관측돼 red다(실측).
+- **오라클:** `tests/v051-mic-muted-span.spec.ts`(릴리스 게이트 등재 · `[node] ⓪-게이트`가 그
+  등재를 잠근다) — 모든 muted 케이스가 `expectNoRecoveryPath()`로 ①②를 동봉 단언한다.
+  🔴 **정확히 말하면**: muted를 failed로 세는 오구현은 **ⓐ의 결산 단언 또는 ⓒ가** red가 된다.
+  `recordUnreliable()`을 `maybeAutoRecoverOrLatch(…, {force: recordFailure()})`로 바꾸면 ⓒ가
+  즉시 red지만(실측), 반환값을 안 쓰고 `recordFailure()`로 **바꾸기만** 하면 래치를 안 불러
+  ⓒ는 green이고 대신 ⓐ의 `clip_unreliable_summary`·종료 화면 단언이 red다(콜드 리뷰 관찰).
+  ⚠️ ⓒ의 *"`mic_auto_reconnect:*` 0건"* 은 **클립이 `unreliable` 갈래로 갈 때만** 성립한다 —
+  실패 갈래(5바이트)를 2회 재현하면 기존 [CF-1]이 `skipped=stream_live`를 **정당하게** 낸다.
+  그래서 ⓗ는 커밋을 **1회만** 한다(임계 2 아래). **ⓒ red = 회귀로 오독하지 마라.**

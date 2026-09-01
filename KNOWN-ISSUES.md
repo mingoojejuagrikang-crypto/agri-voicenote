@@ -2637,17 +2637,40 @@ TTS 구간(`:2522-2523`)에 오버레이가 열리면 **모달 뒤에서 STT 인
     절전 화면·홀드 문구가 실상태를 말하고, 3초(`MIC_INTERRUPT_BLACKOUT_RELEASE_MS`) 넘으면
     절전을 **구간당 1회** 자동 해제하며, **회복 직후에만** 한 문장 말한다(muted 중에는 오디오
     출력도 죽어 있어 발화가 들리지 않는다).
-  · **집계·감사** — 신규 `clip_unreliable_summary:muted=<n>,spans=<m>`(`clip_summary`는 바이트
-    불변) · 종료 화면 경고 문구 분리 · `clips-manifest.json`에 `mutedSpan`(clipKey 정확 매칭).
-- **회귀:** `tests/v051-mic-muted-span.spec.ts` 7건. **반증 6종 실측 red 확인**(시작 판정 제거 →
-  2건이 1건 · 이벤트 래치 제거 → 0건 · 종전 회계 복원 → 종료 화면 침묵 · muted를 failed로 계수 →
-  `mic_lost:clip_muted` 관측 = 금지사항 위반이 즉시 드러남 · 문구 분기 제거 · 자동 해제 제거).
+    🔴 **r2 [P1-2] 정정 — 초판은 실측 사고 형상에서 발화하지 않았다.** 「증거를 잃었나」를
+    `unreliable` 증가분으로만 물었는데 실측 사고의 죽은 클립 3건은 **전부 `failed` 경로**라
+    `lost=0`으로 조용히 끝났다. 지금은 `Δunreliable + ΔmutedFailed`를 본다 —
+    `mutedFailed`는 `clipHealth`의 **넷째 칸**이고 `failed`의 **부분집합**이다(회계 3칸과
+    `streak`는 불변 → 가드레일 ①② 무침범).
+  · **집계·감사** — 신규 `clip_unreliable_summary:muted=<n>,spans=<m>,mutedFail=<k>`
+    (`clip_summary`는 바이트 불변) · 종료 화면 경고 문구 분리 ·
+    `clips-manifest.json`에 `mutedSpan`(clipKey 정확 매칭).
+    🔴 **r2 [P1-2]**: 방출 게이트가 `unreliable > 0` **또는** `mutedFailed > 0`이다. 종전엔
+    실측 형상에서 이 이벤트가 아예 안 나가 판독이 `failed=3`만 보고 사유를 못 읽었다.
+    고지 계측도 `mic_interrupt_notice:lost=<n>,unrel=<a>,fail=<b>`로 내역을 싣는다.
+- **계약(재발 방지):** [ENGINEERING-GUARDRAILS.md](./ENGINEERING-GUARDRAILS.md)의
+  `[CLIP-MUTED-VERDICT-1]`. 🔴 **ID가 다르다** — 이 항목은 **사건**이고 저쪽은 **계약**이다
+  (초판이 같은 ID를 써서 `check-docs.mjs` 중복 검사가 red였다 · r2에서 분리).
+- **회귀:** `tests/v051-mic-muted-span.spec.ts` **10건**(r2에서 ⓗ + `[node] ⓪-게이트` 추가).
+  **반증 9종 실측 red 확인** — 초판 6종(시작 판정 제거 → 2건이 1건 · 이벤트 래치 제거 → 0건 ·
+  종전 회계 복원 → 종료 화면 침묵 · muted를 failed로 계수 → `mic_lost:clip_muted` 관측 =
+  금지사항 위반이 즉시 드러남 · 문구 분기 제거 · 자동 해제 제거) + r2 3종(고지 판정을
+  `unreliable`만으로 되돌림 → ⓗ red · `recordFailure(mutedSpan)`의 사유 인자 제거 → ⓗ red ·
+  결산 게이트를 `unreliable > 0`만으로 되돌림 → ⓗ 결산 단언 red).
   ⚠️ **종료 시점 보강만은 고립 반증 케이스가 없다** — 이중 방어라 단독으로 red를 못 만든다.
+  🔴 **r2 [P1-1]**: 이 스펙은 `predeploy`의 `test:e2e:gate` 목록에 **등재됐다**(초판에서 빠져
+  있었다 — 리뷰 실측). `[node] ⓪-게이트`가 그 등재 자체를 계약으로 잠근다.
 - **⚠️ e2e가 재는 것과 못 재는 것:** `window.__setFakeTrackMuted()`는 **표면**(readyState는 live,
   muted만 true)을 만들 뿐 **iOS가 언제 그것을 만드는지는 재현할 수 없다**
   (`v050-clip-silent-latch` 헤더의 같은 한계).
 - **현재 상태:** 🟡 **MONITORING** — 데스크톱 회귀·반증 완료. **실기기 판정 대기**:
   세션 중 전화/Siri로 인터럽트를 만들어 ⓐ `clip_unreliable:muted`가 남는가
-  ⓑ 절전 화면 문구가 실제로 바뀌는가 ⓒ 3초 뒤 화면이 열리는가 ⓓ 회복 후 고지가 들리는가.
+  ⓑ 절전 화면 문구가 실제로 바뀌는가 ⓒ 3초 뒤 화면이 열리는가
+  ⓓ **회복 후 고지가 들리는가 — 특히 클립이 `clip_too_small`/`clip_empty`로만 죽은
+  형상에서도** 들리는가. 🔴 초판 코드에서는 이 조건이 **구조적으로 「안 들린다」**로만 나왔다
+  (실측 사고가 정확히 그 형상이다). r2 [P1-2]로 그 경로를 열었으니, 이제 ⓓ가 「안 들린다」로
+  나오면 그건 **배선이 아니라 실기기 고유의 문제**다 — 로그의
+  `mic_interrupt_notice:lost=…,unrel=…,fail=…`이 어느 층에서 끊겼는지 가른다
+  (그 줄 자체가 없으면 판정이 `lost<=0`에서 끝난 것이고, 있는데 안 들렸으면 발화 경로다).
   🔴 임계 3000ms는 **실측 1건(41초 인터럽트)에서 고른 값**이다 —
   `mic_interrupt:off:*:ms=<N>` 분포가 쌓이면 다음 회차가 조정한다.
