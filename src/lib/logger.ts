@@ -77,6 +77,12 @@ export interface LogEntry {
    *  🔑 **클립과 클립 사이**에 일어난 오디오 세션 전이도 다음 클립에서 드러나게 한다 —
    *  「녹음 중일 때만」으로 좁히면 정작 그 전이(재생이 끝나는 순간)를 놓친다는 리서치 판단. */
   audioSessionEvts?: number;
+  /** v0.51 [CLIP-MUTED-SPAN-1]: 이 클립이 **트랙 `muted` 구간에 걸쳤는가**(걸쳤을 때만 `true`,
+   *  아니면 **미동봉**). 위 `trackState`와 축이 다르다 — 그쪽은 **종료 시점 스냅샷**이라
+   *  `mute → (클립 전체) → unmute`가 클립 안에서 끝나면 `live`로 찍힌다(= 무음 클립인데 로그는
+   *  「정상 트랙」이라고 말한다). 이 필드는 **구간 래치**라 그 사각을 덮는다.
+   *  🔴 정상 세션에는 실리지 않는다 — 기존 클립 로그의 형상은 바이트·필드 모두 불변이다. */
+  mutedSpan?: true;
 }
 
 /** Snapshot of session-level context, emitted on the `session` start/stop events. */

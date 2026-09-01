@@ -50,6 +50,21 @@ interface ClipSlot {
   stream: MediaStream | null;
   /** v0.50 [CLIP-SILENT-1] — 이 클립 구간의 입력 레벨 관측 창(`MicPrerollTap.beginClipWindow`). */
   prerollWindow: ClipWindow | null;
+  /** 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **이 클립이 트랙 `muted` 구간에 걸쳤는가.**
+   *
+   *  ## 왜 종료 시점 스냅샷(`trackState`)으로는 안 되나
+   *  `clipObservation()`은 `onstop` **그 순간**의 트랙 상태를 읽는다. 그래서
+   *  `mute → (클립 전체) → unmute`가 클립 안에서 끝나면 `trackState=live`로 기록된다 —
+   *  **무음 클립인데 로그는 「정상 트랙」이라고 말한다.** 2026-09-01 판독이 그 사각에 걸렸다.
+   *  👉 필요한 것은 스냅샷이 아니라 **구간 래치**다.
+   *
+   *  🔑 **단방향이다(true로만 간다).** `unmute`로 되돌리지 않는다 — 구간에 **걸쳤다는 사실**은
+   *  트랙이 회복해도 사라지지 않는다. 그 클립의 그 구간은 이미 전달되지 않았다.
+   *
+   *  ⚠️ 앱이 끄는 캡처(`setCaptureEnabled(false)` = `track.enabled`)와는 **다른 축**이다 —
+   *  그쪽은 `muted`를 건드리지 않는다(그 메서드 주석이 SSOT). 여기 서는 것은 **UA가 미디어
+   *  전달을 멈춘 사실**(통화/Siri 인터럽션·라우트 변경)뿐이다. */
+  sawMuted: boolean;
 }
 
 /** stopClip()이 호출자에게 돌려주는 결과 — 트림본 + 트림 전 원본(다르면) + 프리롤 길이. */
@@ -65,6 +80,13 @@ export interface ClipResult {
   trimFailed?: boolean;
   /** v0.20.0 BL-2 — 트림 실패 사유. trimFailed가 true일 때만. */
   trimFailReason?: string;
+  /** 🔴 v0.51 [CLIP-MUTED-SPAN-1] — 이 클립이 트랙 `muted` 구간에 걸쳤으면 `true`, 아니면 **미동봉**.
+   *
+   *  호출자(`useValueCommit`)는 이걸로 **「저장했지만 증거로 쓸 수 없다」**를 가른다.
+   *  🔴 **「스트림이 죽었나」와는 다른 판정이다.** `isStreamLost()`(복구가 필요한가)는 종전 그대로
+   *  `ended`만 사망으로 보고, 이 필드는 **이 클립을 증거로 쓸 수 있는가**만 말한다. 소비자도
+   *  다르다 — 전자는 재연결 배너, 후자는 저장·집계. 섞으면 멀쩡한 마이크에 배너가 뜬다. */
+  mutedSpan?: true;
 }
 
 /** onstop이 끝내 발화하지 않는 환경(iOS Safari 마이크 점유 등)에서 hang을 막는 안전장치.
@@ -106,6 +128,21 @@ function trackStateOf(stream: MediaStream | null): AudioTrackState {
   if (track.readyState === 'ended') return 'ended';
   if (track.muted) return 'muted';
   return 'live';
+}
+
+/** 🔴 v0.51 [CLIP-MUTED-SPAN-1] — 클립을 닫는 순간 `sawMuted`를 **마지막으로 한 번 더** 세운다.
+ *
+ *  **왜 이중 방어인가:** 래치의 주 경로는 트랙 `mute` 이벤트(`attachDeviceListeners`)와 시작 시점
+ *  판정(`startClip`) 둘이다. 그런데 그 사이에 구멍이 둘 있다 —
+ *   ① 리스너가 붙기 **전에**(init 직후 첫 클립) 시작된 클립,
+ *   ② UA가 `muted` 상태로만 바꾸고 이벤트를 주지 않는 경우(실기기에서 배제할 수 없다).
+ *  둘 다 「종료 시점에 트랙이 muted」로는 드러나므로, 닫을 때 한 번 더 읽어 덮는다.
+ *  관측 비용은 `getAudioTracks()[0]` 한 번이고, **false로는 절대 되돌리지 않는다.**
+ *
+ *  🔑 슬롯을 인자로 받는다 — 콜백은 `this.*`를 읽지 않는다는 격리 계약을 지키기 위해서다. */
+function latchMutedSpan(slot: ClipSlot): boolean {
+  if (!slot.sawMuted && trackStateOf(slot.stream) === 'muted') slot.sawMuted = true;
+  return slot.sawMuted;
 }
 
 /** 🔴 v0.50 r2 [CF-3] — 이 값 **미만**이면 그 클립을 「관측된 무음」으로 본다.
@@ -616,6 +653,13 @@ export class AudioRecorder {
           // 포그라운드 복귀 훅에서만 찍히는데 그 경로가 안 돌았다). 전이 자체를 여기서 남긴다.
           // 동작은 종전 그대로 — 라벨 갱신만 하고 **재획득은 하지 않는다**([IOS-5]).
           if (e?.type) logger.log({ type: 'clip', extra: `mic_track_evt:${e.type}` });
+          // 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **진행 중인 클립에 muted 구간을 래치한다.**
+          //   종전에는 이 전이를 로그 한 줄로만 남기고 **아무도 소비하지 않았다** — 그래서
+          //   녹음은 계속되고, 그 결과물이 정상 커밋으로 처리됐다(2026-09-01 A축의 본체).
+          //   ⚠️ 슬롯 격리 계약과 방향이 반대라 괜찮다: 계약이 막는 것은 **MediaRecorder 콜백이
+          //   `this.*`를 읽는 것**(stale 콜백이 새 슬롯을 오염시킨다)이고, 이건 인스턴스 메서드가
+          //   **자기 시점의 활성 슬롯에 쓰는** 것이다. 이미 닫힌 슬롯은 건드리지 않는다.
+          if (e?.type === 'mute' && this.active && !this.active.finalized) this.active.sawMuted = true;
           this.handleDeviceChange();
         };
         track.addEventListener('ended', this.trackChangeHandler);
@@ -799,6 +843,8 @@ export class AudioRecorder {
         // Clips never stop-requested (re-ask restarts) keep their pre-B5 behavior: no event.
         if (prev.stopRequestedAt != null) {
           const prevObservation = clipObservation(prev.stream, prev.prerollWindow);
+          // v0.51 [CLIP-MUTED-SPAN-1] — 절단 경로도 대칭이다([CF-7]와 같은 이유).
+          const prevMutedSpan = latchMutedSpan(prev);
           logger.log({
             type: 'clip',
             extra: 'clip_duration',
@@ -807,6 +853,8 @@ export class AudioRecorder {
             postrollMs: Math.max(0, Math.round(performance.now() - prev.stopRequestedAt)),
             // v0.50 [CLIP-SILENT-1] — 이 클립이 무음이었는지·트랙이 어떤 상태였는지.
             ...prevObservation,
+            // v0.51 [CLIP-MUTED-SPAN-1] — muted 구간에 걸쳤을 때만 실린다(정상 로그 형상 불변).
+            ...(prevMutedSpan ? { mutedSpan: true as const } : {}),
           });
           // 🔴 v0.50 r2 [CF-7] — **절단 경로도 대칭이다.** 종전엔 정상 `onstop`에서만 `clip_silent`를
           //   남겨, 같은 사실이 경로에 따라 다르게 기록됐다(다음 클립이 post-roll 안에 시작하면
@@ -845,6 +893,11 @@ export class AudioRecorder {
         // v0.50 [CLIP-SILENT-1] — 종료 계측용 자기 시점 참조 2개(슬롯 격리 계약 유지).
         stream: this.stream,
         prerollWindow: this.prerollTap.beginClipWindow(),
+        // 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **이미 muted인 상태에서 시작된 클립**은 태어날 때부터
+        //   신뢰할 수 없다(2026-09-01 폐기 세션의 07:46:55 클립이 정확히 이 형상 — mute가
+        //   07:46:34에 왔고 그 뒤 시작된 클립이 5바이트로 닫혔다). 시작 시점 판정이 없으면
+        //   그 클립은 `mute` 이벤트를 놓쳐 정상으로 기록된다.
+        sawMuted: trackStateOf(this.stream) === 'muted',
       };
 
       // Callbacks close over `slot` exclusively — no `this.*` access, so a stale recorder
@@ -865,6 +918,8 @@ export class AudioRecorder {
         // B5: postrollMs 동봉 — stop 요청 → 실제 stop까지 실측(≈POSTROLL_MS = 후반 보강 작동,
         // <POSTROLL_MS = 다음 클립 시작으로 절단). stop 요청이 없던 클립엔 미동봉.
         const observation = clipObservation(slot.stream, slot.prerollWindow);
+        // v0.51 [CLIP-MUTED-SPAN-1] — 닫는 순간 마지막 래치(헬퍼 주석의 구멍 ①②를 덮는다).
+        const mutedSpan = latchMutedSpan(slot);
         logger.log({
           type: 'clip',
           extra: 'clip_duration',
@@ -875,6 +930,8 @@ export class AudioRecorder {
             : {}),
           // v0.50 [CLIP-SILENT-1] — 이 클립이 무음이었는지·트랙이 어떤 상태였는지.
           ...observation,
+          // v0.51 [CLIP-MUTED-SPAN-1] — muted 구간에 걸쳤을 때만 실린다(정상 로그 형상 불변).
+          ...(mutedSpan ? { mutedSpan: true as const } : {}),
         });
         // v0.50 [CLIP-SILENT-1] — **관측된 무음**만 별도 1건으로 세운다(peak가 미관측이면 안 남긴다).
         // 정상 세션에서는 발생하지 않으므로 링버퍼(2000)를 잠식하지 않는다 — 2026-08-19 사고에서는
@@ -904,7 +961,14 @@ export class AudioRecorder {
     const slot = this.active; // stopClipRaw 진행 중 active가 교체될 수 있어 미리 캡처
     const preroll = slot?.preroll ?? null;
     const rawRecording = await this.stopClipRaw();
-    if (!rawRecording) return { blob: null, raw: null, prerollMs: 0 };
+    // 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **await 뒤에 읽는다.** 정지를 기다리는 동안 도착한 `mute`도
+    //   이 클립에 걸친 것이다(post-roll 0.5s가 그 창을 실제로 벌려 놓는다). 앞에서 읽으면 놓친다.
+    //   `stopClipRaw`가 timeout으로 닫히면 `onstop`의 래치가 아직 없을 수 있어 여기서 한 번 더 센다.
+    const mutedSpan = slot ? latchMutedSpan(slot) : false;
+    const mutedField = mutedSpan ? { mutedSpan: true as const } : {};
+    // 🔑 빈 클립(`clip_empty`) 경로도 사유를 나른다 — 「비었다」와 「muted 구간이라 비었다」는
+    //   호출자에게 다른 사실이고, 실측 형상(5바이트·chunk 0)이 둘 다 이 구간에서 나왔다.
+    if (!rawRecording) return { blob: null, raw: null, prerollMs: 0, ...mutedField };
     const prerollMs = preroll ? Math.round((preroll.pcm.length / preroll.sampleRate) * 1000) : 0;
     const processed = await processClip(rawRecording, preroll);
     if (processed.blob !== rawRecording) {
@@ -914,6 +978,7 @@ export class AudioRecorder {
     return {
       blob: processed.blob, raw: processed.raw, prerollMs,
       ...(processed.trimFailed ? { trimFailed: true, trimFailReason: processed.trimFailReason } : {}),
+      ...mutedField,
     };
   }
 
