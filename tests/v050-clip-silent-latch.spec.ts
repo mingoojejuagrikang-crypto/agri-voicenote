@@ -137,7 +137,8 @@ test('[node] ⓪ clipHealth 계약 — 연속만 세고, 성공에서만 리셋�
 
   // 세션 경계 리셋은 연속·누적을 **둘 다** 비운다(이전 세션이 새 세션을 임계로 밀면 안 된다).
   h2.reset();
-  expect(h2.summary()).toEqual({ saved: 0, failed: 0 });
+  // v0.51 — 세션 경계는 **세 칸 모두** 비운다(unreliable 포함).
+  expect(h2.summary()).toEqual({ saved: 0, failed: 0, unreliable: 0 });
   expect(h2.recordFailure(), '리셋 후 첫 실패가 곧바로 래치면 카운터가 안 비워진 것이다').toBe(false);
 });
 
