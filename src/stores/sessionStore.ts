@@ -126,6 +126,18 @@ interface SessionState {
    *  🔑 `resetAll`에도 넣는다 — 세션이 끝났는데 화면이 검으면 당황한다(uiModalOpen과 다른 판단:
    *  그쪽은 세션 수명과 무관한 전역 모달이고, 이쪽은 세션 중 배터리 절약 수단이다). */
   blackout: boolean;
+  /** 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **지금 마이크를 OS가 가져갔는가**(트랙 `muted`).
+   *
+   *  통화·Siri·라우트 변경 동안 UA가 미디어 전달을 멈춘 상태다. 이 값이 `true`면 **녹음은
+   *  이름뿐이고 소리는 들어오지 않는다** — 그런데 종전 절전 화면은 그 순간에도
+   *  「음성 입력은 계속됩니다」를 띄우고 있었다(2026-09-01 A축: 화면·소리·집계 셋 다 거짓).
+   *
+   *  🔴 **작성자는 `useMicInterruptionNotice` 하나다**(`micInterruption` 구독의 유일한 소비자).
+   *  `resetAll`에서 **건드리지 않는다** — 이건 세션 상태가 아니라 **물리적 사실**이라 세션이
+   *  끝난다고 마이크가 돌아오지 않는다. 실제 해제는 트랙 `unmute` 또는 레코더 `dispose`가
+   *  흘려주고, 그 경로가 곧 유일한 진실이다(두 곳에서 쓰면 화면이 사실과 갈린다).
+   *  🔑 `blackout`과 같이 **메모리 전용**이다 — 영속되면 재시작 후에도 유령 경고가 남는다. */
+  micInterrupted: boolean;
   /** 🔴 v0.46.1 WP-1c(민구 지시 08-07) — 세션 시작 **준비 진행 상태**. `null`=미표시.
    *
    *  민구 원문(2차, 종전 3→2→1 카운트다운을 대체): *"마이크 입/출력 권한을 허락하고 **3초뒤 화면
@@ -215,6 +227,8 @@ interface SessionState {
   setAnomalyAlert: (a: SessionState['anomalyAlert']) => void;
   setUiModalOpen: (m: SessionState['uiModalOpen']) => void;
   setBlackout: (b: boolean) => void;
+  /** v0.51 [CLIP-MUTED-SPAN-1] — 트랙 muted 구독의 단일 작성자만 호출한다(위 필드 주석). */
+  setMicInterrupted: (v: boolean) => void;
   setStartProgress: (p: { step: number; total: number; label: string; warn?: string } | null) => void;
   /** v0.37.0 리뷰#2 — 열린 오버레이 닫기 요청(탭 전환 직전). nonce를 1 증가시킨다. */
   requestOverlayClose: () => void;
@@ -262,6 +276,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   overlayCloseSeq: 0,
   uiModalOpen: null,
   blackout: false,
+  micInterrupted: false,
   startProgress: null,
   persistError: null,
   clipWarning: null,
@@ -297,6 +312,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set(anomalyAlert ? { anomalyAlert, interimValue: null } : { anomalyAlert }),
   setUiModalOpen: (uiModalOpen) => set({ uiModalOpen }),
   setBlackout: (blackout) => set({ blackout }),
+  setMicInterrupted: (micInterrupted) => set({ micInterrupted }),
   setStartProgress: (startProgress) => set({ startProgress }),
   requestOverlayClose: () => set((s) => ({ overlayCloseSeq: s.overlayCloseSeq + 1 })),
   setPersistError: (persistError) => set({ persistError }),

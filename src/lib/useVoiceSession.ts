@@ -49,6 +49,7 @@ import { createClipHealth, clipSummaryExtra, clipUnreliableSummaryExtra, type Cl
 import { getMutedSpanCount, resetMicInterruptionSpans } from './micInterruption';
 import { getAudioSessionEventCount } from './audioInterruption';
 import { useClipFailureAlert } from './useClipFailureAlert';
+import { useMicInterruptionNotice } from './useMicInterruptionNotice';
 import { clipFailSummaryScreen, clipUnreliableSummaryScreen } from './voicePrompts';
 // [ENV-12] Stage 3 — 세션 영속화(persistSession)는 usePersistSession이 소유한다(이 파일은 호출만).
 import { usePersistSession } from './usePersistSession';
@@ -1700,6 +1701,10 @@ export function useVoiceSession() {
   // v0.50 [CLIP-SILENT-1] — 실패 고지(화면 끄기 자동 해제 + TTS 1문장)의 **유일한 배선 지점**.
   // 복구는 여기서 하지 않는다 — 바로 아래 자동 재연결 effect가 종전대로 소유한다.
   useClipFailureAlert({ alert: clipFailAlert, say, logCell });
+
+  // v0.51 [CLIP-MUTED-SPAN-1] — 마이크 인터럽트 고지(절전 화면 문구·자동 해제·회복 후 1문장)의
+  // **유일한 배선 지점**. 복구는 하지 않는다 — 위 자동 재연결 effect의 소유권을 건드리지 않는다.
+  useMicInterruptionNotice({ clipHealth: clipHealthRef.current, say, logCell });
 
   // v0.38.0 #5 — micLost 한 번의 연속 구간마다 자동 복구는 정확히 1회뿐이다. 실패 상태가 계속
   // 유지돼도 attempted ref가 effect 재실행을 차단하며, 성공/세션 리셋으로 micLost가 false가 된 뒤에만

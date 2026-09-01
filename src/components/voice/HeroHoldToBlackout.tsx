@@ -76,8 +76,17 @@ export { HOLD_TO_BLACKOUT_MS };
  *  화면은 두 줄로, TTS는 공백으로 이어 한 문장으로 읽는다 — **글자는 완전히 같다.**
  *  ⚠️ 문구를 고칠 때 한쪽만 고치지 못하게 하려고 배열 하나로 묶었다(V-FIX2가 고친 것이
  *  정확히 «두 상수가 따로 놀아 시각·청각이 갈렸다»는 결함이다). */
-const HOLD_LINES = ['계속 누르면 화면을 끕니다.', '음성 입력은 계속됩니다.'] as const;
-const HOLD_TTS = HOLD_LINES.join(' ');
+const HOLD_LINE_ACTION = '계속 누르면 화면을 끕니다.';
+const HOLD_LINES_OK = [HOLD_LINE_ACTION, '음성 입력은 계속됩니다.'] as const;
+/** 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **끄려는 그 순간 마이크가 멈춰 있으면 그 약속은 거짓이다.**
+ *  화면을 끄는 것은 「소리는 계속 담긴다」는 믿음 위에서 하는 행동인데, 트랙이 `muted`면
+ *  담기는 것이 없다(2026-09-01: 그 구간 클립이 5바이트였다). 여기서 사실을 말해야
+ *  사용자가 **끌지 말지를 스스로 고른다** — 화면을 끈 뒤에 알려주는 것보다 낫다. */
+const HOLD_LINES_MIC_OFF = [HOLD_LINE_ACTION, '⚠ 마이크가 멈춰 지금은 녹음되지 않습니다.'] as const;
+/** 상태 → 문구. **분기는 여기 하나다**(화면·TTS·aria-label이 각자 고르면 갈린다 — V-FIX2). */
+function holdLines(micInterrupted: boolean): readonly string[] {
+  return micInterrupted ? HOLD_LINES_MIC_OFF : HOLD_LINES_OK;
+}
 
 /** 안내 발화를 미루는 시간(V-FIX1ⓐ). 스침·오터치는 여기 못 미친다 —
  *  **발화가 아예 없는 것**이 가장 확실한 에코 차단이다. */
@@ -89,6 +98,14 @@ const HOLD_TTS_DELAY_MS = 400;
 
 
 export function HeroHoldToBlackout({ children }: { children: ReactNode }) {
+  // v0.51 [CLIP-MUTED-SPAN-1] — 트랙 muted 여부(작성자는 `useMicInterruptionNotice` 하나).
+  const micInterrupted = useSessionStore((st) => st.micInterrupted);
+  const lines = holdLines(micInterrupted);
+  const holdSentence = lines.join(' ');
+  // 🔑 TTS 예약 콜백이 **발화 시점의** 문장을 읽게 한다 — 400ms 지연 동안 상태가 바뀔 수 있고,
+  //    그때 예약 시점의 옛 문장을 말하면 화면과 귀가 갈린다(V-FIX2가 고친 그 결함의 재발).
+  const holdSentenceRef = useRef(holdSentence);
+  holdSentenceRef.current = holdSentence;
   const [progress, setProgress] = useState(0);
   /** 🔴 V-FIX3b(2차 재검증 신규 위험) — **표시 여부는 「눌렸는가」이지 「진행값이 0보다 큰가」가 아니다.**
    *
@@ -336,7 +353,7 @@ export function HeroHoldToBlackout({ children }: { children: ReactNode }) {
         logger.log({ type: 'app', extra: holdTtsSkipped('tts_busy') });
         return;
       }
-      void speak(HOLD_TTS, {
+      void speak(holdSentenceRef.current, {
         interrupt: false, // 위 가드로 «자를 앞 발화»가 없는 상태다 — cancel 왕복을 아낀다
         rate: useSettingsStore.getState().ttsRate || 1.05,
       });
@@ -401,7 +418,7 @@ export function HeroHoldToBlackout({ children }: { children: ReactNode }) {
         <div
           data-testid="hero-hold-cue"
           role="status"
-          aria-label={HOLD_TTS}
+          aria-label={holdSentence}
           style={{
             position: 'absolute', left: 0, right: 0, bottom: 0,
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
@@ -420,7 +437,7 @@ export function HeroHoldToBlackout({ children }: { children: ReactNode }) {
               textAlign: 'center', lineHeight: 1.35,
             }}
           >
-            {HOLD_LINES.map((line) => (
+            {lines.map((line) => (
               <span key={line} style={{ display: 'block' }}>{line}</span>
             ))}
           </span>

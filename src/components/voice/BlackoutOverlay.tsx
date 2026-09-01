@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react';
 import { VOICE_TYPE } from './heroLayout';
 import { logger } from '../../lib/logger';
+import { useSessionStore } from '../../stores/sessionStore';
 import { holdAbort } from '../../lib/logEvents';
 
 /**
@@ -82,9 +83,21 @@ export const RELEASE_STEP_MS = HOLD_TO_WAKE_MS / RELEASE_STEPS;
 
 /** 🔴 안내 문구 SSOT — **화면과 aria-label이 같은 배열에서 나온다**(`HeroHoldToBlackout`의
  *  `HOLD_LINES` 선례 · V-FIX2가 고친 «두 상수가 따로 놀아 시각·청각이 갈렸다»는 결함).
- *  화면은 두 줄로, aria-label은 공백으로 이어 한 문장으로 읽는다 — 글자는 완전히 같다. */
-const WAKE_LINES = ['가운데를 2초 누르면 화면이 켜집니다.', '음성 입력은 계속됩니다.'] as const;
-const WAKE_SENTENCE = WAKE_LINES.join(' ');
+ *  화면은 두 줄로, aria-label은 공백으로 이어 한 문장으로 읽는다 — 글자는 완전히 같다.
+ *
+ *  🔴 **v0.51 [CLIP-MUTED-SPAN-1] — 둘째 줄이 상태를 따른다.**
+ *  2026-09-01 실기기: 마이크를 OS가 가져간(트랙 `muted`) 41초 동안 이 화면은
+ *  **「음성 입력은 계속됩니다」** 를 띄우고 있었고, 그 시간에 나온 것은 5바이트 클립이었다.
+ *  같은 순간 확인음은 `result=suspended`라 **소리로는 알릴 방법이 없었다** — 화면이 유일한
+ *  통로인데 그 화면이 거짓을 말했다. 👉 **정상일 때만** 「계속됩니다」라고 말한다.
+ *  ⚠️ 첫 줄(탈출 방법)은 상태와 무관하게 **항상 같다** — 갇힘 방지 계약은 마이크와 무관하다. */
+const WAKE_LINE_ESCAPE = '가운데를 2초 누르면 화면이 켜집니다.';
+const WAKE_LINES_OK = [WAKE_LINE_ESCAPE, '음성 입력은 계속됩니다.'] as const;
+const WAKE_LINES_MIC_OFF = [WAKE_LINE_ESCAPE, '⚠ 마이크가 멈춰 지금은 녹음되지 않습니다.'] as const;
+/** 상태 → 문구. **분기는 여기 하나다** — 화면·aria-label이 각자 고르면 반드시 갈린다. */
+function wakeLines(micInterrupted: boolean): readonly string[] {
+  return micInterrupted ? WAKE_LINES_MIC_OFF : WAKE_LINES_OK;
+}
 
 /** 고스트 클릭 삼킴 창(ms). **손가락을 뗀 시점부터** 센다(아래 §기준점 참조). */
 const GHOST_SWALLOW_MS = 400;
@@ -163,6 +176,9 @@ function swallowGhostClick(): void {
 }
 
 export function BlackoutOverlay({ onRelease }: { onRelease: () => void }) {
+  // v0.51 [CLIP-MUTED-SPAN-1] — 트랙 muted 여부. 작성자는 `useMicInterruptionNotice` 하나다.
+  const micInterrupted = useSessionStore((st) => st.micInterrupted);
+  const lines = wakeLines(micInterrupted);
   /** V-FIX5 — 해제도 계측한다. 진입(`screen_off` + `src:hold`/`src:voice`)과 **대칭**이어야
    *  «몇 번 껐다 켰나 · 어느 경로로»가 로그에서 짝지어진다. 새 이벤트 타입은 만들지 않는다
    *  (SOP-003 파서 계약 — `command`/`parsed`/`extra:src=` 문법 그대로).
@@ -282,7 +298,9 @@ export function BlackoutOverlay({ onRelease }: { onRelease: () => void }) {
       data-testid="blackout-overlay"
       role="button"
       tabIndex={0}
-      aria-label={`검은 화면 모드입니다. 음성 입력은 계속되고 있습니다. ${WAKE_SENTENCE}`}
+      // v0.51 — 🔴 **같은 배열에서 나온다.** 종전엔 앞 문장("음성 입력은 계속되고 있습니다")이
+      //   여기 인라인으로 한 벌 더 있어, 화면만 고치면 스크린리더는 계속 거짓을 읽었다.
+      aria-label={`검은 화면 모드입니다. ${lines.join(' ')}`}
       // 🔴 v0.46.0 콜드 리뷰 L3-5 — `role="button"` + `tabIndex={0}`을 선언했는데 **키 핸들러가
       //    없었다.** 탈출 경로가 하나뿐인 화면에서 그 약속을 어기면 포인터를 못 쓰는 경로는
       //    **앱에 갇힌다.**
@@ -341,16 +359,21 @@ export function BlackoutOverlay({ onRelease }: { onRelease: () => void }) {
       >
         <div
           data-testid="blackout-hint"
+          data-mic-interrupted={micInterrupted ? '1' : '0'}
           style={{
             fontSize: VOICE_TYPE.caption,
             fontWeight: 700,
-            color: '#3a3a3a',
+            // 🔴 v0.51 — **경고일 때만 밝기를 올린다.** OLED 절전 계약(켜진 화소가 곧 전력)과
+            //   정면으로 부딪히는 자리이고, 그 충돌은 PRINCIPLES §1(「실패를 숨기지 않는다」)이
+            //   이긴다 — 읽히지 않는 경고는 경고가 아니다. 상시가 아니라 **muted 동안만**이라
+            //   정상 세션의 절전은 종전 그대로다.
+            color: micInterrupted ? '#c9a227' : '#3a3a3a',
             textAlign: 'center',
             lineHeight: 1.5,
             padding: '0 24px',
           }}
         >
-          {WAKE_LINES.map((line) => (
+          {lines.map((line) => (
             <span key={line} style={{ display: 'block' }}>{line}</span>
           ))}
         </div>
