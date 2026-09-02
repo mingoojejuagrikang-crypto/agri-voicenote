@@ -22,7 +22,7 @@ export interface ConfusionAnswerGateDeps {
   awaitingFieldRef: { current: AwaitingField | null };
   proceedAfterCommit: (awaiting: AwaitingField | null, opts?: { echoValue?: string }) => Promise<void>;
   relistenInContext: (a: AwaitingField) => Promise<void>;
-  demoteConfusionConfirm: (a: ConfusionAwaiting) => AwaitingField;
+  demoteConfusionConfirm: (a: ConfusionAwaiting) => Extract<AwaitingField, { kind: 'modify' }>;
 }
 
 export async function runConfusionAnswerGate(

@@ -256,7 +256,7 @@ function demoteTrendConfirm(a: AwaitingBase & { kind: 'trendConfirm'; previousVa
 /** v0.51.1 R6 — confusionConfirm → modify 강등(질문 해제, 수정 의미론 유지). `demoteTrendConfirm`과 같은 계약:
  *  previousValue(=들린 값)·fractionWhole·resumeReview·resumeCell을 보존한다. 「아니오/수정」 재청취와 타 명령
  *  소멸이 이 문을 쓴다 — 후보 목록은 버린다(질문은 끝났다). */
-function demoteConfusionConfirm(a: Extract<AwaitingField, { kind: 'confusionConfirm' }>): AwaitingField {
+function demoteConfusionConfirm(a: Extract<AwaitingField, { kind: 'confusionConfirm' }>): Extract<AwaitingField, { kind: 'modify' }> {
   return {
     kind: 'modify', row: a.row, colId: a.colId, name: a.name,
     previousValue: a.previousValue, fractionWhole: a.fractionWhole,

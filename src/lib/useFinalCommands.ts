@@ -86,7 +86,7 @@ export interface FinalCommandsDeps {
   resumeReviewOf: (a: AwaitingField) => number | undefined;
   demoteTrendConfirm: (a: Extract<AwaitingField, { kind: 'trendConfirm' }>) => AwaitingField;
   /** v0.51.1 R6 — 혼동 확인 질문 강등(타 명령으로 질문을 접을 때). */
-  demoteConfusionConfirm: (a: Extract<AwaitingField, { kind: 'confusionConfirm' }>) => AwaitingField;
+  demoteConfusionConfirm: (a: Extract<AwaitingField, { kind: 'confusionConfirm' }>) => Extract<AwaitingField, { kind: 'modify' }>;
   awaitingFieldRef: { current: AwaitingField | null };
   epochRef: { current: number };
   uiCommandSeqRef: { current: number };

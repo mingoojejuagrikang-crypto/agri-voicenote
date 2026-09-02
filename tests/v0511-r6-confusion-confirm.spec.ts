@@ -54,11 +54,23 @@ async function waitForActiveChip(page: Page, colName: string, timeout = 8000) {
   );
 }
 
-async function setupAndStart(page: Page) {
+/** r2 P2-3 오라클용 — 당도 대신 정수(개수) 컬럼 「과수」. */
+const SETTINGS_INT = {
+  ...SETTINGS,
+  state: {
+    ...SETTINGS.state,
+    columns: [
+      SETTINGS.state.columns[0], SETTINGS.state.columns[1],
+      { id: 'c20', name: '과수', type: 'int', input: 'voice', ttsAnnounce: true, auto: { kind: 'fixed', value: '' } },
+    ],
+  },
+};
+
+async function setupAndStart(page: Page, settings: typeof SETTINGS = SETTINGS) {
   await page.addInitScript({ content: GUM_GRANT_SCRIPT });
   await installVoiceMocks(page);
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  await page.evaluate((s) => { localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s)); }, SETTINGS);
+  await page.evaluate((s) => { localStorage.setItem('agri-voicenote-settings-v3', JSON.stringify(s)); }, settings);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(500);
   await page.locator('[data-testid="tab-voice"]').click();
@@ -265,4 +277,43 @@ test('질문 대기 중 「다음」은 거부+안내([PHASE-NAV-1]) · 「확�
   await waitForActiveChip(page, '횡경');
   expect(await cellValue(page, 1, 'c14')).toBe('1.7');
   expect((await eventsWithPrefix(page, 'stt_confusion_hint')).map((h) => h.extra)).toEqual(['stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=1,chosen=heard']);
+});
+
+test('r2 P1-1 — 질문 대기 중 「8 점 의」(소수부 유실) → 질문을 접고 소수부 재질문 → 「일」은 .1 조각 → 8.1 재커밋(리뷰 R-A 반전)', async ({ page }) => {
+  await setupAndStart(page);
+  await fireStt(page, '49.5', 500);
+  await waitForActiveChip(page, '당도');
+  await fireStt(page, '1.7', 600);
+  await waitForTtsIdle(page);
+  expect((await ttsLog(page)).filter((t) => t.startsWith('1.7인가요, 8.7인가요'))).toHaveLength(1);
+  await fireStt(page, '8 점 의', 600);
+  await waitForTtsIdle(page);
+  expect((await ttsLog(page)).some((t) => t.startsWith('8 점, 소수점 아래')), '소수부 타깃 재질문').toBe(true);
+  // 재발화가 시작된 순간 질문은 결산된다(chosen=respoken) — 「일」이 순번으로 읽힐 국면 자체가 없다.
+  expect((await eventsWithPrefix(page, 'stt_confusion_hint')).map((h) => h.extra))
+    .toEqual(['stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=1,chosen=respoken']);
+  await fireStt(page, '일', 800);
+  await waitForTtsIdle(page);
+  await waitForActiveChip(page, '횡경');
+  await page.waitForTimeout(400);
+  expect(await cellValue(page, 1, 'c14')).toBe('8.1');
+  expect((await ttsLog(page)).some((t) => t === '수정 당도 8.1')).toBe(true);
+  // 정정 쌍 2건: 거절된 재발화 「8 점 의」는 reask(from=-) · 원 STT 1.7 → 8.1은 강등 뒤 커밋이라 rerecord(후보 선택이 아니다).
+  expect((await eventsWithPrefix(page, 'stt_correction')).map((c) => c.extra)).toEqual([
+    'stt_correction:from=-,to=8.1,path=reask,text=8 점 의,conf=0.95,alt=-',
+    'stt_correction:from=1.7,to=8.1,path=rerecord,text=1.7,conf=0.95,alt=-',
+  ]);
+});
+
+test('r2 P2-3 — 정수(개수) 컬럼 「1」은 묻지 않고 그대로 진행한다(리뷰 R-B 반전)', async ({ page }) => {
+  await setupAndStart(page, SETTINGS_INT);
+  await fireStt(page, '49.5', 500);
+  await waitForActiveChip(page, '과수');
+  await fireStt(page, '1', 800);
+  await waitForTtsIdle(page);
+  await waitForActiveChip(page, '횡경'); // 2행
+  const log = await ttsLog(page);
+  expect(log.some((t) => t.includes('인가요')), `int 컬럼에 질문이 났다: ${JSON.stringify(log)}`).toBe(false);
+  expect(await cellValue(page, 1, 'c20')).toBe('1');
+  expect(await eventsWithPrefix(page, 'stt_confusion_hint')).toEqual([]);
 });
