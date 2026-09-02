@@ -270,8 +270,9 @@ export function useCommitLanding(deps: CommitLandingDeps) {
     // 여기서 확인음이 난다 — 커밋은 성공했으니 소리가 없는 편이 더 나쁘다.
     if (!beeped) playBeep('commit');
 
+    // v0.51.1 B3(제보③) — 「수정 <열>, <값>」: 이름과 값 사이 쉼표(짧은 휴지). 직접 수정 확인(useVoiceSession)과 같은 꼴.
     const echoText = isModifyLike(awaiting)
-      ? `수정 ${formatNameForTts(awaiting.name)} ${formatForTts(parsed)}`
+      ? `수정 ${formatNameForTts(awaiting.name)}, ${formatForTts(parsed)}`
       : formatForTts(parsed);
     const echoEnqueuedAt = Date.now();
     await speak(echoText, {

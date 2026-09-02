@@ -1487,7 +1487,9 @@ export function useVoiceSession() {
         //   종전엔 이 경로만 무음이었다(재청취 경로의 성공음과 비대칭 — 값이 저장되는 모든
         //   커밋에 확인음이 난다는 WP-E 원칙에 합류).
         playBeep('commit');
-        await say(`수정 ${formatNameForTts(target.name)} ${formatForTts(parsed)}`);
+        // v0.51.1 B3(제보③) — 열 이름과 값 사이 **쉼표(짧은 휴지)**. 이름 꼬리와 값이 붙어 읽히던 것의 두 번째
+        //   방어선(첫째는 `formatNameForTts`의 꼬리 제거). 재청취 에코(useCommitLanding)와 같은 꼴.
+        await say(`수정 ${formatNameForTts(target.name)}, ${formatForTts(parsed)}`);
         // v0.33.0 — 검토 대기 출신 직접 수정: 값 수신 재안내 대신 검토 대기로 복귀
         // (수정 반영값 재낭독 + 대기 — bare 값 덮어쓰기 금지 계약 유지).
         // 🔴 v0.49 fix49 — 셀 검토 대기 출신은 **셀 단위**로 복귀한다. 아래 일반 복귀

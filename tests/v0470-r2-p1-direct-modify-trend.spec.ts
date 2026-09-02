@@ -90,7 +90,7 @@ test('P1ⓐⓑⓒ 🔴 직접 수정이 이상치면 알람이 뜨고, 에코 �
   // ⓑ 위반이면 에코 대신 알람 TTS. 「수정 측정항목01 120.5」가 나갔다면 계약 위반이다.
   const spoken = await ttsLog(page);
   expect(
-    spoken.filter((t) => t.startsWith('수정 측정항목01 120')),
+    spoken.filter((t) => t.startsWith('수정 측정항목01, 120')),
     '위반 커밋은 에코하지 않는다(알람 TTS가 대신 나간다)',
   ).toHaveLength(0);
   expect(

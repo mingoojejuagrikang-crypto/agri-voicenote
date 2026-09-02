@@ -46,6 +46,11 @@
  *  - 남은 공백은 하나로 접고 앞뒤를 턴다(`종경 (mm)` → `종경`).
  *  - 🔴 **전부 지워지면 원문으로 되돌린다**(`(mm)` → `(mm)`). 화면을 못 보는 사용자에게 무음 안내는
  *    「어느 칸인지 알 수 없음」이다 — 이상하게 읽히는 것보다 나쁘다(PRINCIPLES §2).
+ *  - v0.51.1 B3(제보③ 2026-09-02 15:54 · read-fb F2) — **배수 꼬리 `x<숫자>`·`×<숫자>`도 읽지 않는다**
+ *    (`과피두께x4` → `과피두께`). 수정 확인 TTS 「수정 과피두께x4 12.2」에서 `x4`가 값과 붙어 「…엑스사
+ *    십이점이」로 들려 사용자가 42.2로 알아듣고 재수정했다(5세션 노출 14회 · 안내 96회에 0.5초씩).
+ *    꼬리는 **이름 끝에서만**, 앞 글자가 라틴 문자가 아닐 때만 뗀다(`box4` 같은 라틴 이름 보호).
+ *    괄호를 뗀 뒤에 적용하므로 `과피두께x4(mm)`도 `과피두께`다. 화면·STT 매칭은 괄호와 같은 규율로 원문이다.
  *
  * 오라클: tests/tts-column-name.spec.ts
  */
@@ -57,7 +62,8 @@ export function formatNameForTts(name: string): string {
     if (ch === ')' || ch === '）') { if (depth > 0) depth -= 1; continue; }
     if (depth === 0) out += ch;
   }
-  const spoken = out.replace(/\s+/g, ' ').trim();
+  const untailed = out.replace(/(?<![A-Za-z])\s*[x×X]\s*\d+\s*$/, '');
+  const spoken = untailed.replace(/\s+/g, ' ').trim();
   return spoken || name.trim();
 }
 

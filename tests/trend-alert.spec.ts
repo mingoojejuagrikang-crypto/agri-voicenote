@@ -701,7 +701,7 @@ test('이상치 → 새 값 발화 → 재입력+재검증(재알림) → 통과
   await fireStt(page, '80.5', 500);
   await waitForActiveChip(page, '종경');
   const tts = await getTtsLog(page);
-  expect(tts.some((t) => t.includes('수정 횡경 80.5'))).toBe(true);
+  expect(tts.some((t) => t.includes('수정 횡경, 80.5'))).toBe(true);
   // v0.20.0: 알람 문구가 값을 포함하지 않아 누적 TTS 로그론 "이번 80.5 커밋이 알람 없음"을 못 가린다
   // (앞선 120.5/130.5 알람 문자열이 로그에 남아 있음). 대신 알람 팝업이 닫혔고 종경으로 advance됐음
   // (위 waitForActiveChip)으로 "이번 커밋은 알람 없이 통과"를 확인한다.

@@ -79,6 +79,53 @@ test.describe('formatNameForTts — 괄호와 그 안의 내용을 읽지 않는
   });
 });
 
+/**
+ * v0.51.1 B3 (제보③ 2026-09-02 15:54 · read-fb F2) — 배수 꼬리 `x<숫자>`·`×<숫자>`를 읽지 않는다.
+ * 수정 확인 TTS 「수정 과피두께x4 12.2」에서 `x4`가 값과 붙어 「…엑스사 십이점이」로 들려 사용자가 42.2로
+ * 알아듣고 재수정했다(5세션 노출 14회 · 「과피두께x4.」 안내 96회에 0.5초씩). 실 시트 `품질조사`의 컬럼명 원문이다.
+ * 🔴 반증(2026-09-02 실측): `formatNameForTts`의 `untailed` 치환을 빼면 아래 꼬리 케이스가 red — 괄호 18건·
+ *    라틴 보호·화면 불변은 그대로 green(변환과 무관한 불변).
+ */
+test.describe('formatNameForTts — 배수 꼬리 x<숫자>를 읽지 않는다 (v0.51.1 B3)', () => {
+  test('"과피두께x4" → "과피두께" (제보③ 원문)', () => {
+    expect(formatNameForTts('과피두께x4')).toBe('과피두께');
+  });
+  test('전각 ×·대문자 X·띄어쓰기 변형도 같은 꼬리다', () => {
+    expect(formatNameForTts('과피두께×4')).toBe('과피두께');
+    expect(formatNameForTts('과피두께X4')).toBe('과피두께');
+    expect(formatNameForTts('과피두께 x 4')).toBe('과피두께');
+    expect(formatNameForTts('과피두께 x10')).toBe('과피두께');
+  });
+  test('괄호를 뗀 뒤에 꼬리를 본다 — "과피두께x4(mm)" · "과피두께(mm)x4" → "과피두께"', () => {
+    expect(formatNameForTts('과피두께x4(mm)')).toBe('과피두께');
+    expect(formatNameForTts('과피두께(mm)x4')).toBe('과피두께');
+  });
+  test('꼬리는 이름 끝에서만 — 가운데 x<숫자>·숫자 없는 x는 그대로', () => {
+    expect(formatNameForTts('2x4목재')).toBe('2x4목재');
+    expect(formatNameForTts('종경x')).toBe('종경x');
+    expect(formatNameForTts('과피두께x4 두께')).toBe('과피두께x4 두께');
+  });
+  test('라틴 문자 뒤의 x<숫자>는 이름의 일부다 — "box4" · "Index2" 보호', () => {
+    expect(formatNameForTts('box4')).toBe('box4');
+    expect(formatNameForTts('Index2')).toBe('Index2');
+  });
+  test('전부 지워지면 원문으로 되돌린다 — "x4" → "x4"', () => {
+    expect(formatNameForTts('x4')).toBe('x4');
+    expect(formatNameForTts('(mm)x4')).toBe('(mm)x4');
+  });
+  test('회귀 — 괄호 규칙과 숫자 붙은 이름은 종전 그대로', () => {
+    expect(formatNameForTts('과피두께 (mm)')).toBe('과피두께');
+    expect(formatNameForTts('측정항목01')).toBe('측정항목01');
+    expect(formatNameForTts('조사나무')).toBe('조사나무');
+    expect(formatNameForTts('당도')).toBe('당도');
+  });
+  // 🔴 STT 매칭은 원문 위에 그대로다(괄호 변경과 같은 규율) — 「수정 과피두께」로는 지목되지 않는다(종전과 같음).
+  test('STT 매칭 불변 — 원문 지목만 먹힌다', () => {
+    expect(extractModifyColumn('수정 과피두께x4', ['과피두께x4', '당도'])).toBe('과피두께x4');
+    expect(extractModifyColumn('수정 과피두께', ['과피두께x4', '당도'])).toBe(null);
+  });
+});
+
 test.describe('문구 합성 — 프롬프트 SSOT가 축약본을 쓴다', () => {
   test('cellWaitPrompt는 괄호를 읽지 않는다', () => {
     expect(cellWaitPrompt('종경(mm)')).toBe('종경 기록값입니다. 수정이라고 말하세요.');

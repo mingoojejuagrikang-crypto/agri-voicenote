@@ -173,11 +173,11 @@ test('C-FIX1ⓐ — 수정 재청취 중 일시정지→재개: 수정 문맥(am
   await expect(page.locator('[data-testid="modify-indicator"]'), '재개 후 수정 표시 보존').toBeVisible({ timeout: 4000 });
   await expect(page.locator('[data-voice-tone="amber"]'), '재개 후 amber 보존(아직 미성공)').toHaveCount(1);
 
-  // 새 값 발화 → 수정 의미론으로 커밋(에코 '수정 당도 44.4') + green 전환.
+  // 새 값 발화 → 수정 의미론으로 커밋(에코 '수정 당도, 44.4') + green 전환.
   await fireStt(page, '44.4', 700);
   await expect(page.locator('[data-testid="column-chip"][data-col-name="당도"]')).toContainText('44.4');
   const tts = await page.evaluate(() => (window as unknown as { __ttsLog: string[] }).__ttsLog);
-  expect(tts.some((t) => t.startsWith('수정 당도 44.4')), '수정 의미론 에코(문맥 보존 증거)').toBe(true);
+  expect(tts.some((t) => t.startsWith('수정 당도, 44.4')), '수정 의미론 에코(문맥 보존 증거)').toBe(true);
   await expect(page.locator('[data-voice-tone="green"]')).toHaveCount(1);
 });
 
@@ -246,11 +246,11 @@ test('C-FIX1ⓑ — 수정→이상치 알람→정정 확정: 확정 순간부�
   await expect(page.locator('[data-testid="anomaly-alert"]')).toBeVisible({ timeout: 6000 });
   await expect(page.locator('[data-voice-tone="red"]')).toHaveCount(1);
 
-  // 정정값(정상) → 확정. echo('수정 측정항목01 100.0')가 __ttsLog에 등장한 순간 = 커밋 직후 —
+  // 정정값(정상) → 확정. echo('수정 측정항목01, 100.0')가 __ttsLog에 등장한 순간 = 커밋 직후 —
   // 그 시점 톤을 **1회 판독**한다(폴링이면 old code도 착지 후 green이라 검출력 0).
   await fireStt(page, '100.0', 150);
   await page.waitForFunction(
-    () => (window as unknown as { __ttsLog?: string[] }).__ttsLog?.some((t) => t.startsWith('수정 측정항목01 100')),
+    () => (window as unknown as { __ttsLog?: string[] }).__ttsLog?.some((t) => t.startsWith('수정 측정항목01, 100')),
     { timeout: 6000 },
   );
   const toneAtCommit = await page.evaluate(
