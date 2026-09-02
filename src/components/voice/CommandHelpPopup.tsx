@@ -171,6 +171,15 @@ export function CommandHelpPopup({ onClose }: { onClose: () => void }) {
             더 정확하게(무엇이 말로 되고 무엇이 안 되는지) 대신하고, 세로를 한 줄 되찾는다. */}
         <div style={{ fontSize: VOICE_TYPE.caption, color: T.textMute, marginBottom: 10, lineHeight: 1.4 }}>
           <span style={{ color: T.amber, fontWeight: 800 }}>도움말 중 입력 정지</span>
+          {/* v0.51.1 R4(2026-09-02 실기기 · STT 레인 §6 R4) — 발화 안내 **한 줄**. 09-02 첫 자리 치환 15건 중
+              1↔7·1↔8·3↔7이 11건이고, 「일곱 점 하나」·「7. 팔」처럼 고유어로 바꿔 말한 뒤 한 번에 통과한
+              사례가 있다(양승보 r18 · 강남호 r15). 고유어 수사는 파서가 이미 받는다(koreanNumTokens).
+              🔴 TTS 시작 안내에는 넣지 않는다 — [TTS-WATCHDOG-1] 길이 원칙(안내가 길수록 절단률 단조 증가).
+              화면 도움말표가 우선이고, 효과는 다음 회차 치환 쌍 1↔7·1↔8 건수로 잰다. 세로 1줄 비용은
+              위 헤더 주석의 「이미 있던 초과를 깊게 할 뿐」과 같은 계보다(목록 스크롤 · 하단 닫기 고정). */}
+          <span data-testid="cmd-help-tip" style={{ display: 'block', color: T.textDim, fontWeight: 700, wordBreak: 'keep-all' }}>
+            7·8은 일곱·여덟으로 말하면 잘 들립니다
+          </span>
         </div>
         {/* 목록만 스크롤 컨테이너 — 넘치는 기기(가로모드·텍스트 확대)에서도 하단 닫기 버튼은 항상 보인다. */}
         <div
