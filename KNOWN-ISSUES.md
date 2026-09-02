@@ -2674,3 +2674,21 @@ TTS 구간(`:2522-2523`)에 오버레이가 열리면 **모달 뒤에서 STT 인
   (그 줄 자체가 없으면 판정이 `lost<=0`에서 끝난 것이고, 있는데 안 들렸으면 발화 경로다).
   🔴 임계 3000ms는 **실측 1건(41초 인터럽트)에서 고른 값**이다 —
   `mic_interrupt:off:*:ms=<N>` 분포가 쌓이면 다음 회차가 조정한다.
+- 🔎 **실기기 판정 1차 (2026-09-02 · 프리뷰 실사용 `sess_1788316707658` · 품질조사 18행 · iPhone iOS 18.7 · 코드 = v0.51.0):**
+  인터럽트 **2회 실발생**(`mic_interrupt:off:evt:ms=5070` · `ms=9276` — 둘 다 화면 `visible`, 백그라운드 전환 0).
+  · ⓐ **통과** — `clip_unreliable:muted` 2건(row14·15 횡경) · `clip_duration` `mutedSpan:true`(그런데 `trackState:live` —
+    근인② 종료 스냅샷 재현, 그래서 `mutedSpan`이 필요했다는 실증) · manifest `mutedSpan` 4(=2클립×final+raw) ·
+    파일 321KB/105KB **보존** · `clip_unreliable_summary:muted=2,spans=2,mutedFail=0` 방출 · `clip_summary` `saved=132`
+    = `clip_saved` 134 − unreliable 2. 감지 3경로 중 ①시작 시점 판정·②트랙 `mute` 래치가 각 1회 실측.
+  · ⓑ **판정 불가** — 절전 진입 0회 세션. 게다가 `setMicInterrupted` 전이는 **무로그**라 로그로는 영구 판정 불가(계측 공백).
+  · ⓒ **미발동 · 판정 불가** — 타이머는 2회 모두 구간당 1회 발화(+3,001ms · +4,027ms)했으나 `skipped=no_blackout`.
+    해제 동작만 미검증. **임계 3000ms 유지**(표본 n=3 전부 ≥5초 · <3초 표본 0 → 오탐률 측정 불가).
+  · ⓓ 🔴 **실패 — 배선 결함(구조적).** `mic_interrupt_notice` 0건 · 회복 TTS 0건. 원인: `useMicInterruptionNotice.ts`의
+    unmute 핸들러가 **즉시** `health.summary()` 증가분(`Δunreliable+ΔmutedFailed`)을 보는데, 걸친 클립의
+    `recordUnreliable()`은 **클립이 닫힐 때**(`useValueCommit.ts` `clip_unreliable:muted` 직후)에야 불린다. 이번 2건 모두
+    클립이 unmute **+11.3초 · +8.0초 뒤** 닫힘 → 판정 시점 `lost=0` → 침묵.
+    👉 위 「r2 이후 ⓓ가 안 들리면 실기기 고유 문제」 전제는 **틀렸다** — 값 청취 중 인터럽트(이 앱의 기본 형상)에선 항상 이렇게 된다.
+    ⚠️ 단, 두 건 다 값은 멀쩡히 잡혔다(`47.8`·`57` · conf 0.99 · STT 결과가 unmute 뒤 도착). **처방 방향은 민구 결정 대기**
+    — (a) unreliable이면 무조건 고지 / (b) 회복 후 발화가 클립에 담겼으면 침묵 / (c) 절전 중일 때만 고지.
+    설계 수준 후보: 판정을 걸친 클립의 해소 시점으로 **유예**(원샷 플래그를 `recordUnreliable`/`recordFailure(mutedSpan)` 직후 소비).
+  정본(teamops): `deliverables/2026-09-02-device-read/read-fable-xhigh.md` §2(판정표·ⓓ 판별표·ms 분포) · §5(계측 공백 G1~G7) · §7(Q1~Q7).
