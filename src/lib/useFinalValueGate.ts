@@ -36,6 +36,7 @@ import { bargeInTextSource, lowConfidenceParsed, wouldSalvage } from './logEvent
 import { cancelTts } from './speech';
 import { attemptParseValue } from './valueParseAttempt';
 import { cellWaitPrompt, reviewWaitAbsorbTts } from './voicePrompts';
+import { noteSttAttempt } from './sttCorrectionTracker';
 import type { Column } from '../types';
 import type { logger } from './logger';
 import type { AwaitingField, FinalCtx } from './useVoiceSession';
@@ -205,6 +206,10 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
       await say(cellWaitPrompt(awaiting.name));
       return true;
     }
+
+    // v0.51.1 R6 — 흡수 3종을 지난 발화 = 「이 셀의 값이 되려는 시도」. 트래커가 기억해 두었다가 커밋 시
+    //   거절됐던 시도들을 `stt_correction:path=reask` 쌍으로 남긴다(아래 가드 4종·파싱 실패 전부 「거절」이다).
+    noteSttAttempt(awaiting.row, awaiting.colId, text, confidence);
 
     // Item 12: 컬럼명 완전 일치 STT 거부 — 숫자/날짜 컬럼에만 적용 (text/options 컬럼은 컬럼명이 유효한 값일 수 있음)
     const allColumns = getSessionColumns();
@@ -454,6 +459,8 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
     ctx.col = col;
     ctx.parsed = parsed;
     ctx.lowConfParsedExtra = lowConfParsedExtra;
+    // v0.51.1 R6 — alt 폴백 순번(정정 쌍 `alt=`). 파싱 성공 경로에서만 events가 남는다(valueParseAttempt 계약).
+    ctx.altIdx = attempt.events.find((e): e is Extract<typeof e, { kind: 'alt_used' }> => e.kind === 'alt_used')?.altIdx ?? null;
     // 🔴 [ENV-12] E5 정리 — `ctx.fractionWhole`은 여기서 뺐다. E2가 「F~H 소비 0」을 실측하고도
     //   *"E3/E4가 읽게 될 수 있다"*는 근거로 실었는데, 두 회차 다 읽지 않았다(E4는 인자 경로).
     //   소수 문맥은 이 구획 **안에서만** 산다 — 지역 `fractionWhole`과 `awaitingFieldRef`가 소유한다.

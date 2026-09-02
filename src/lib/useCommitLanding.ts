@@ -51,6 +51,7 @@ import type { Column } from '../types';
 import type { logger } from './logger';
 import type { TrendViolation } from './trendCheck';
 import type { AwaitingField, FinalCtx } from './useVoiceSession';
+import { noteSttVoiceCommit } from './sttCorrectionTracker';
 import type { ValueCommitResult } from './useValueCommit';
 
 type LogCell = (entry: Omit<Parameters<typeof logger.log>[0], 'sessionId'>) => void;
@@ -153,6 +154,13 @@ export function useCommitLanding(deps: CommitLandingDeps) {
           ? { previousValue: previousValueOf(awaiting) }
           : {}),
       });
+      // v0.51.1 R6 — 정정 쌍·분모(알람 분기도 커밋이다 — 위 value 이벤트와 같은 이유로 모수에서 빼지 않는다).
+      noteSttVoiceCommit({
+        row: awaiting.row, colId: awaiting.colId, colName: awaiting.name, col,
+        text, conf: confidence, altIdx: ctx.altIdx ?? null, parsed,
+        previousValue: isModifyLike(awaiting) ? previousValueOf(awaiting) ?? null : null,
+        path: isModifyLike(awaiting) ? 'rerecord' : 'value',
+      }, logCell);
       // 응답 대기 상태 무장 — 새 값 발화가 기존 수정(isModify) 의미론으로 재커밋되도록
       // previousValue=방금 커밋된 값과 함께 세팅한다.
       // 🔴 v0.47.0-r3(이중 콜드 리뷰 08-09, codex f2 + claude §1 독립 일치) — **재위반 재무장도
@@ -306,6 +314,14 @@ export function useCommitLanding(deps: CommitLandingDeps) {
         ? { previousValue: previousValueOf(awaiting) }
         : {}),
     });
+    // v0.51.1 R6 — 정정 쌍 명시 이벤트(`stt_correction`) + 화자 프로필 갱신. `value` 이벤트 **뒤**에 남겨
+    //   판독이 「커밋 → 그 커밋이 만든 쌍」 순서로 읽는다. 재녹음(modify/trendConfirm)이면 previousValue와 짝.
+    noteSttVoiceCommit({
+      row: awaiting.row, colId: awaiting.colId, colName: awaiting.name, col,
+      text, conf: confidence, altIdx: ctx.altIdx ?? null, parsed,
+      previousValue: isModifyLike(awaiting) ? previousValueOf(awaiting) ?? null : null,
+      path: isModifyLike(awaiting) ? 'rerecord' : 'value',
+    }, logCell);
 
     // v0.34.0 O1 — 교정 persist 검사는 커밋 경로 종단(echo TTS·value 이벤트 이후)에 스케줄.
     runCorrectedPersistCheck();

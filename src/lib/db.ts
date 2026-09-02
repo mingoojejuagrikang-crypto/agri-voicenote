@@ -346,6 +346,21 @@ export async function deletePastIndexBackup(): Promise<void> {
   await kvDelete(PAST_INDEX_RECORD_KEY);
 }
 
+// ─── 화자 STT 프로필 내구 레코드 (v0.51.1 R6 — 기기 누적 혼동표) ────────────────
+/** v0.51.1 R6 — `(speaker, micClass)`별 혼동표 프로필(`sttProfileCore.ts`)의 IDB write-through.
+ *  기존 'kv' 스토어 재사용(신규 스토어·DB 버전 bump 불요 — 위 헤더의 additive 규약). 세션 경계와
+ *  무관하게 앱 삭제 전까지 남는다. 검증·형상은 sttProfileStore.ts 소유 — 여기서는 JSON-호환
+ *  레코드의 round-trip만(SheetsRecord 패턴). */
+const STT_PROFILES_RECORD_KEY = '__stt_profiles__';
+
+export async function saveSttProfilesRecord(rec: unknown): Promise<void> {
+  await kvPut(STT_PROFILES_RECORD_KEY, rec);
+}
+
+export async function loadSttProfilesRecord(): Promise<unknown | null> {
+  return kvGet(STT_PROFILES_RECORD_KEY);
+}
+
 // ─── 개선요청 큐 (v0.33.0 항목11 — 오프라인/미로그인/부분실패 재전송) ────────────
 /** 큐 항목: 만들어 둔 feedback zip 원본 + 남은 업로드 레그. zip은 ArrayBuffer로 분해 저장
  *  (iOS Safari Blob-in-IDB 규약 — StoredClip과 동일 이유). 두 레그가 모두 끝나야 삭제된다. */

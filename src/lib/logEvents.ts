@@ -79,3 +79,6 @@ export {
   // v0.51 H3 — 홀드 시작·취소 계측(C1″ vs X2 판별 + H2·H7′ 효과 측정).
   holdStart, holdAbort,
 } from './logEventsInstrumentation';
+
+// v0.51.1 R6 — 정정 쌍·혼동 후보 계측(화자별 혼동표) — logEventsStt.ts. 바이트 계약은 PRINCIPLES §4 등재분.
+export { sttCorrection, sttConfusionHint, type SttCorrectionPath } from './logEventsStt';

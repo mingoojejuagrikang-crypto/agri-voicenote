@@ -81,6 +81,10 @@ import {
   type ForegroundReturnState,
 } from './foregroundReturnPolicy';
 import { classifyInputDevice, classifyAudioInputClass } from './inputDevice';
+// v0.51.1 R6 — 화자별 혼동표: 화자 id · 프로필 선택 · 정정 쌍 트래커(직접값·터치 경로).
+import { ensureSpeakerId, getSpeakerId } from './sttSpeaker';
+import { clearCurrentSttProfile, selectSttProfile } from './sttProfileStore';
+import { noteSttNonVoiceCorrection, resetSttCorrectionTracker } from './sttCorrectionTracker';
 
 
 /** 대기 셀 공통 좌표. */
@@ -181,6 +185,9 @@ export interface FinalCtx {
   col?: Column | null;
   parsed?: string | null;
   lowConfParsedExtra?: string | null;
+  /** v0.51.1 R6 — 이 값이 alt 폴백으로 파싱됐으면 그 순번(아니면 null). 독자: 착지의 정정 쌍 트래커
+   *  (`stt_correction` alt= 필드). 값 게이트가 `attempt.events`에서 채운다. */
+  altIdx?: number | null;
 }
 
 /** 수정 의미론 보유 여부 — 종전 `awaiting.isModify`(trendConfirm은 isModify를 겸장했다). */
@@ -1312,6 +1319,11 @@ export function useVoiceSession() {
           extra: 'direct_modify',
           ...(prevDirectValue != null ? { previousValue: prevDirectValue } : {}),
         });
+        // v0.51.1 R6 — 정정 쌍(직접값): 직전 음성 커밋의 STT 원문 ↔ 이 값. 기억이 없는 셀은 침묵(트래커 계약).
+        noteSttNonVoiceCorrection({
+          row: targetRow, colId: target.id, colName: target.name, col: target,
+          from: prevDirectValue, to: parsed, path: 'direct_modify',
+        }, logCell);
         sess.setRecognized(parsed);
         sess.pushValueBurst(target.name, parsed, target.id); // I-3: 중앙 버스트 + 칩 V(UI③)
         useSessionCommitMarks.getState().add(targetRow, target.id); // W4 — 직접 수정도 성공 커밋
@@ -2577,6 +2589,9 @@ export function useVoiceSession() {
     brokenClipKeysRef.current = new Set();
     correctionBackupRef.current = null;
     trendSkipLoggedRef.current = new Set();
+    // v0.51.1 R6 — 세션 경계: 정정 쌍 트래커(셀 좌표가 새 세션에 겹친다) + 프로필 선택 해제(마이크 획득 뒤 재선택).
+    resetSttCorrectionTracker();
+    clearCurrentSttProfile();
     // v0.22.0 P0 — micLost 게이트 리셋: 이전 세션이 마이크 소실로 끝났어도 새 세션은 깨끗한
     // 스트림으로 시작한다(start()가 새 AudioRecorder.init()로 재획득).
     micLostLatchedRef.current = false;
@@ -2608,6 +2623,9 @@ export function useVoiceSession() {
     // v0.34.0 C9(d) — 토큰 조건을 (토큰 || API key)로 완화(readonlySheetsAuth SSOT). 공개 시트면
     // 토큰 만료 세션에서도 신선 인덱스를 당길 수 있다 — [TREND-AUTH-1]의 침묵 창이 좁아진다.
     if (anyAnomalyRule && readonlySheetsAuth()) { resetPastIndexRetries(); prefetchPastIndex(); }
+    // v0.51.1 R6 — 화자 id(sha256 비동기)를 `session start` 메타에 싣기 전에 확정한다. 위 gUM await 뒤라
+    //   phase/warmup 동기 구간과 무관하고, 실측 <1ms.
+    await ensureSpeakerId();
     logger.setSessionId(sessionIdRef.current);
     // #1 reach telemetry: attach session-meta alongside the existing `extra:'start'` tag.
     // `extra` is preserved so any analysis keying on it keeps working; new fields are additive.
@@ -2630,6 +2648,8 @@ export function useVoiceSession() {
         anomalyRuleCount,
         // v0.45.0 WP-1③ — D1 말끊기 스냅샷(축 C 판정 전제). :2512가 이미 읽는 같은 s를 재사용.
         bargeInEnabled: s.bargeInEnabled,
+        // v0.51.1 R6 — 화자 id(additive · `logger.ts` SessionMeta.speaker). 다른 필드와 이름 충돌 없음.
+        speaker: getSpeakerId(),
         // NOTE: session label intentionally NOT logged — buildAutoLabel derives it from the first
         // fixed auto column (농가명 = grower name), a PII vector. Reach is fully computable from
         // sessionId + appVersion + totalRows + completedRows. The label still lives on the Session
@@ -2695,6 +2715,8 @@ export function useVoiceSession() {
         extra: audioInputClass({ cls: classifyAudioInputClass(input.label), src: 'session_start' }),
         text: input.label,
       });
+      // v0.51.1 R6 — 프로필 키 (화자, 마이크 클래스)가 여기서 확정된다 → 이 세션의 정정 쌍이 그 프로필에 쌓인다.
+      void selectSttProfile(getSpeakerId(), classifyAudioInputClass(input.label));
     }).catch(() => {});
 
     await say('음성 입력을 시작합니다.');
@@ -3376,6 +3398,12 @@ export function useVoiceSession() {
    *  v0.33.0 항목6 — 영속 코어는 persistCellValue로 추출(수동 입력 시트와 공유). */
   const commitTouchValue = useCallback(async (row: number, colId: string, value: string) => {
     logCell({ type: 'command', parsed: 'touch_commit', extra: 'touch', text: value, row, colId });
+    // v0.51.1 R6 — 정정 쌍(터치 인라인): 이 셀에 음성 커밋 기억이 있을 때만 쌍이 남는다(터치 전용 컬럼은 침묵).
+    {
+      const prevTouch = useSessionStore.getState().getRowValues(row)[colId];
+      const colTouch = getColById(colId);
+      noteSttNonVoiceCorrection({ row, colId, colName: colTouch?.name ?? colId, col: colTouch, from: prevTouch, to: value, path: 'touch' }, logCell);
+    }
     // C-FIX2 — durable 실패면 영수증(성공 표식)을 만들지 않고 고지한다.
     if (!(await persistCellValue(row, colId, value))) {
       notifyCellPersistFailed(row, colId, value);
@@ -3417,6 +3445,8 @@ export function useVoiceSession() {
       row, colId,
       ...(prevValue ? { previousValue: prevValue } : {}),
     });
+    // v0.51.1 R6 — 정정 쌍(터치): 직전 음성 커밋의 STT 원문 ↔ 손으로 넣은 값.
+    noteSttNonVoiceCorrection({ row, colId, colName: col.name, col, from: prevValue, to: value, path: 'touch' }, logCell);
 
     // ② 기존 클립 보존(archive) 후 포인터 해제 — pending·persisted 양쪽(enterModifyMode direct
     //    경로의 (1)(2)와 같은 구조, 단 재연결할 cmd 클립이 없으므로 순수 해제).
