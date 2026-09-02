@@ -89,14 +89,15 @@ test('③ 전제 — 그 두 국면에서 **값** 발화는 흡수된다(거절 
   await fireStt(page, '삼십오 점 일', 1800);
   await waitForTtsIdle(page);
 
-  // 파싱 불가 발화를 끝 도달에 던진다. 흡수 계약이면 거절 큐가 서지 않고 끝 도달 안내가 재생된다.
+  // 파싱 불가 발화를 끝 도달에 던진다. 흡수 계약이면 끝 도달 안내가 재생된다.
   await fireStt(page, '변경', 1800);
   await waitForTtsIdle(page);
 
-  await expect(
-    cue(page),
-    '끝 도달에서 **값** 거절이 성립했다 — ①②의 근거(「눌린 것은 명령 거절뿐」)가 무너진다',
-  ).toHaveCount(0);
+  // 🔴 v0.51.1 B2(제보② 2026-09-02) — **끝 도달의 흡수는 이제 「못 알아들었다」 큐를 세운다**(atEnd에서 흡수되는
+  //   발화의 실체가 명령 오인식 — 「수정」→'회' — 이었기 때문). 종전 「거절 큐 0」 단언은 atEnd에서만 반전됐고,
+  //   ①②의 근거(「눌린 것은 명령 거절뿐」)는 **행 검토 대기**(⑨)에서 그대로 성립한다. 값 커밋은 여전히 없다.
+  await expect(cue(page), '끝 도달 흡수가 「못 알아들었다」 신호를 내지 않는다(B2)').toBeVisible({ timeout: 4000 });
+  await expect(cue(page)).toHaveAttribute('data-reason', 'low_confidence');
   expect((await ttsLog(page)).at(-1), '흡수 안내가 아니라 다른 것이 나왔다').toContain('마지막행 입력');
 });
 
@@ -178,14 +179,15 @@ test('⑧ 흡수가 거절 큐를 내린다 — 화면이 처리된 사건을 �
   await waitForTtsIdle(page);
   await expect(cue(page), '전제: 명령 거절 큐가 섰다(①)').toBeVisible({ timeout: 4000 });
 
-  // 값 발화 → 이 국면은 흡수한다(③). 흡수는 **사건을 처리한 것**이므로 큐는 내려가야 한다.
+  // 값 발화 → 이 국면은 흡수한다(③).
+  // 🔴 v0.51.1 B2(제보② 2026-09-02) — 끝 도달의 흡수는 큐를 **내리는 게 아니라 다시 세운다**(「못 알아들었다」 신호 —
+  //   `rejectValue` 종단 경유). Y6의 「처리된 사건을 띄우지 않는다」는 **행 검토 대기**(⑨)에 그대로 남고, atEnd에서는
+  //   화면 「소리가 불확실」 + 귀 끝 도달 안내가 **같은 사건**(흡수 = 못 알아들음)을 말한다(§2 표면 모순 아님).
   await fireStt(page, '구십구 점 구', 1800);
   await waitForTtsIdle(page);
   expect((await ttsLog(page)).at(-1), '전제: 흡수 안내가 나왔다').toContain('마지막행 입력');
-  await expect(
-    cue(page),
-    '흡수 뒤에도 거절 큐가 남았다 — 화면은 「소리가 불확실」, 귀는 끝 도달 안내(§2 표면 모순)',
-  ).toHaveCount(0);
+  await expect(cue(page), '끝 도달 흡수 뒤 큐가 사라졌다 — B2 반전이 풀렸다').toBeVisible({ timeout: 4000 });
+  await expect(cue(page)).toHaveAttribute('data-reason', 'low_confidence');
 });
 
 test('⑨ 검토 대기의 흡수도 같은 계약 (Y6)', async ({ page }) => {
