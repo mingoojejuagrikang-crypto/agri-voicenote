@@ -2727,7 +2727,12 @@ TTS 구간(`:2522-2523`)에 오버레이가 열리면 **모달 뒤에서 STT 인
     새 구간 → 1회) · ⓜ(G2 hold=1 · r2: 2초 창 전제 단언) · `[node] ⓪ 장부 신호` · **r2:** ⓙ′(계수 끝난 muted 슬롯 뒤 클립 없는
     인터럽트 → skipped · dropped 없음) · ⓛ′(즉시 판정 뒤 같은 열린 클립의 두 번째 구간 → deferred → 고지 1회 — 슬롯 토큰 비교 금지) ·
     `[node] ⓪ 정산 중 카운터`. **반증 3종 red 실측:** 유예 제거(즉시 판정 복원) → ⓘ·ⓚ·ⓛ red(나머지 12 green) · 장부 신호 제거 →
-    ⓘ·ⓛ + `[node]` red · r2 「열린」 판정을 슬롯 `sawMuted`만으로 되돌림(전달 여부 무시 = r1) → ⓙ′ red.
+    ⓘ·ⓛ + `[node]` red · r2 「열린」 판정을 슬롯 `sawMuted`만으로 되돌림(전달 여부 무시 = r1) → ⓙ′ red · r2 토큰 프록시(즉시 판정
+    순간 열려 있던 슬롯을 「판정된 슬롯」으로 치고 다음 unmute에서 유예 스킵) → **ⓛ′ red**(ⓙ′는 green — 토큰 방식이 ⓙ′만 고치고
+    ⓛ′를 깨뜨린다는 실증).
+    ⚠️ **Y 배선(`useValueCommit`의 `beginMutedClip`/`endMutedClip`)만은 고립 반증 케이스가 없다** — 단독으로 덮는 창이 `stopClip`
+    전달 → `recordUnreliable()` 사이의 IDB 쓰기 폭(수십 ms)이라 e2e로 그 창에 unmute를 꽂을 수 없다. 두 줄을 지워도 18/18 green이다.
+    `[node] ⓪ 정산 중 카운터`는 카운터 계약만 잠그고 배선은 못 잠근다(r1의 「종료 시점 보강」과 같은 형태의 자진 신고).
   · **실기기 2차 판정 조건(다음 프리뷰 · 🔴 절전 켜고):** 값 청취 중 전화·알림 → ⓑ 절전 문구 전환(`mic_interrupt_ui:…,blackout=1`)
     ⓒ 3초 자동 점등(`mic_muted_blackout:released`) ⓓ **클립 닫힌 뒤** `mic_interrupt_notice:lost=…` + 회복 TTS 청취. 판정 전까지
     이 항목은 **MONITORING**이다(AGENTS.md 계약 ④).
