@@ -6,6 +6,8 @@
  * 이 테스트를 고치고 싶어지면, 그것은 외부 파서 계약 위반 신호다(anomalyAlert.spec 패턴).
  */
 import { test, expect } from '@playwright/test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   kv,
   withErr,
@@ -455,4 +457,15 @@ test('orientationChange — 방향 전환과 가드 표시를 함께 남긴다 (
   expect(orientationChange({
     to: 'landscape', guard: 'hidden', w: 1280, h: 720,
   })).toBe('orientation_change:to=landscape,guard=hidden,w=1280,h=720');
+});
+
+/** r2 P2-2 (2026-09-02 콜드 리뷰) — **게이트 자기단언.** 이 파일은 B1·B2·L 새 이벤트 바이트(`session_start_blocked`·`end_absorb`·`sheet_synced`)의 유일한 리터럴 오라클인데 `test:e2e:gate` 밖이라
+ *  `predeploy`가 한 번도 안 돌았다(`v043-typo-contract.spec.ts:180`의 재현 조건). `v051-mic-muted-span.spec` ⓪과 같은 꼴 —
+ *  목록에서 이 이름을 지우면 여기서 red다. */
+test('[node] ⓪-게이트 이 오라클이 릴리스 게이트 목록에 등재돼 있다 (r2 P2-2)', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf-8')) as {
+    scripts: Record<string, string>;
+  };
+  const listed = (pkg.scripts['test:e2e:gate'] ?? '').split(/\s+/).filter((x) => x.startsWith('tests/'));
+  expect(listed, 'tests/logEvents.spec.ts가 릴리스 게이트 목록에 없다 — predeploy에서 한 번도 돌지 않는다').toContain('tests/logEvents.spec.ts');
 });

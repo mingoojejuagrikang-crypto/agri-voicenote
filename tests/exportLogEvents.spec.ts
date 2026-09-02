@@ -9,6 +9,8 @@
  * zip 실물(IDB 경로 + 폴백 경로의 배선)은 `tests/v0511-x1-export-blank-session.spec.ts`(e2e)가 잰다.
  */
 import { test, expect } from '@playwright/test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   APP_SENTINEL, BLANK_SESSION_LEAD_MS, blankSessionWindow, includeEventInSessionExport,
 } from '../src/lib/exportLogEvents';
@@ -49,4 +51,15 @@ test('③ 창 밖의 빈 sessionId 이벤트는 제외 — 기기 수명 내내 
 test('④ 창이 없으면(세션 못 찾음) 빈 sessionId는 전량 — 진단용 fail-open', () => {
   expect(includeEventInSessionExport({ sessionId: '', ts: T0 - 86_400_000 }, FILTER, null)).toBe(true);
   expect(includeEventInSessionExport({ sessionId: 'sess_other', ts: T0 }, FILTER, null)).toBe(false);
+});
+
+/** r2 P2-2 (2026-09-02 콜드 리뷰) — **게이트 자기단언.** 이 파일은 X1 export 선택 술어의 유일한 리터럴 오라클인데 `test:e2e:gate` 밖이라
+ *  `predeploy`가 한 번도 안 돌았다(`v043-typo-contract.spec.ts:180`의 재현 조건). `v051-mic-muted-span.spec` ⓪과 같은 꼴 —
+ *  목록에서 이 이름을 지우면 여기서 red다. */
+test('[node] ⓪-게이트 이 오라클이 릴리스 게이트 목록에 등재돼 있다 (r2 P2-2)', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf-8')) as {
+    scripts: Record<string, string>;
+  };
+  const listed = (pkg.scripts['test:e2e:gate'] ?? '').split(/\s+/).filter((x) => x.startsWith('tests/'));
+  expect(listed, 'tests/exportLogEvents.spec.ts가 릴리스 게이트 목록에 없다 — predeploy에서 한 번도 돌지 않는다').toContain('tests/exportLogEvents.spec.ts');
 });

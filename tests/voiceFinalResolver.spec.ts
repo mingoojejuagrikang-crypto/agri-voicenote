@@ -5,6 +5,8 @@
  * 음성 코어의 명령 우선순위 계약이 바뀐 것이다(중단·보고 신호).
  */
 import { test, expect } from '@playwright/test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { resolveFinal } from '../src/lib/voiceFinalResolver';
 import { detectCommand } from '../src/lib/koreanNum';
 import { VOICE_COMMANDS, VOICE_UI_COMMAND_IDS, isExactCommandUtterance } from '../src/lib/voiceCommands';
@@ -197,4 +199,15 @@ test('v0.38.0 #4-③ — 가시 UI 명령은 매핑되고 숫자·단위 발화�
   expect(detectCommand('다음행')).toBe('nextRow');
   expect(detectCommand('이전')).toBe('prevField');
   expect(detectCommand('다음')).toBe('nextField');
+});
+
+/** r2 P2-2 (2026-09-02 콜드 리뷰) — **게이트 자기단언.** 이 파일은 R5(정확 일치 「수정」 floor 0.40 · 레지스트리 계약)의 유일한 리터럴 오라클인데 `test:e2e:gate` 밖이라
+ *  `predeploy`가 한 번도 안 돌았다(`v043-typo-contract.spec.ts:180`의 재현 조건). `v051-mic-muted-span.spec` ⓪과 같은 꼴 —
+ *  목록에서 이 이름을 지우면 여기서 red다. */
+test('[node] ⓪-게이트 이 오라클이 릴리스 게이트 목록에 등재돼 있다 (r2 P2-2)', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf-8')) as {
+    scripts: Record<string, string>;
+  };
+  const listed = (pkg.scripts['test:e2e:gate'] ?? '').split(/\s+/).filter((x) => x.startsWith('tests/'));
+  expect(listed, 'tests/voiceFinalResolver.spec.ts가 릴리스 게이트 목록에 없다 — predeploy에서 한 번도 돌지 않는다').toContain('tests/voiceFinalResolver.spec.ts');
 });
