@@ -2491,11 +2491,11 @@ export function useVoiceSession() {
     //    이미 여기 있다 — 같은 계약이다.
     // 🔴 **이 두 줄 사이에 `await`를 넣지 마라.** 넣는 순간 원래 버그로 되돌아간다.
     const audioCtxState = unlockAudioPlayback();  // AudioContext 생성 + resume (비프 경로)
-    const ttsWarmup = warmupTts();
+    const ttsWarmup = warmupTts();                 // speechSynthesis 개시 (TTS 경로) — 결과는 아래에서 확인
     // v0.51.1 R6 — 화자 id(이메일 sha256 · 비동기)를 여기서 **기다리지 않고** 띄운다: 부팅(App)이 이미 계산해 둔
     //   캐시를 로그인 변경에 대비해 재확인하는 것뿐이고, 아래 gUM·정착 await(≥1s) 동안 끝난다. `start()`에 await를
     //   하나 더 넣으면 그 창마다 언마운트 재확인(F18 B1)이 필요해지므로 값은 시작 로그에서 `getSpeakerId()`로 읽는다.
-    void ensureSpeakerId();                 // speechSynthesis 개시 (TTS 경로) — 결과는 아래에서 확인
+    void ensureSpeakerId();
     logCell({ type: 'app', extra: `audio_unlock:ctx=${audioCtxState},src=session_start` });
     // 🔴 v0.46.1 WP-1c(민구 지시 08-07) — 준비 **진행 상태**를 화면에 낸다.
     //    *"3초뒤 화면 전환이 아닌, 권한 수락하고 실제 마이크/스피커 입출력이 가능한지 확인하고,
@@ -2719,6 +2719,9 @@ export function useVoiceSession() {
         return;
       }
       const input = recorderRef.current?.getActiveInput();
+      // v0.51.1 R6 r2(리뷰 P3 ③) — 프로필 선택은 장치 열거 실패와 무관하게 한다(마이크 클래스만 `unknown`). 종전엔 아래
+      //   early return 뒤에 있어 열거가 실패한 세션은 프로필 무갱신이었고 로그도 없었다.
+      void selectSttProfile(getSpeakerId(), input ? classifyAudioInputClass(input.label) : 'unknown');
       if (!input) return;
       logCell({
         type: 'session',
@@ -2739,8 +2742,6 @@ export function useVoiceSession() {
         extra: audioInputClass({ cls: classifyAudioInputClass(input.label), src: 'session_start' }),
         text: input.label,
       });
-      // v0.51.1 R6 — 프로필 키 (화자, 마이크 클래스)가 여기서 확정된다 → 이 세션의 정정 쌍이 그 프로필에 쌓인다.
-      void selectSttProfile(getSpeakerId(), classifyAudioInputClass(input.label));
     }).catch(() => {});
 
     await say('음성 입력을 시작합니다.');

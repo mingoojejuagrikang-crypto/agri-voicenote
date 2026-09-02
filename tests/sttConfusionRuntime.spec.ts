@@ -53,7 +53,7 @@ test.describe('evaluate/arm/resolve — 상한·계측 계약', () => {
 
   test('발동당 hint 정확히 1건 — 물었으면 답이 정해진 뒤(chosen), 「첫째」는 부정 사례로 다음 질문을 억제한다', () => {
     const q = evaluateSttConfusion({ row: 1, colId: 'c14', colName: '당도', col: BRIX, heard: '1.7' }, log)!;
-    armSttConfusion(q);
+    armSttConfusion(q, log);
     expect(getPendingSttConfusion()).toBe(q);
     expect(logged).toEqual([]); // 묻는 순간엔 남기지 않는다
     resolveSttConfusion('alt', log);
@@ -65,7 +65,7 @@ test.describe('evaluate/arm/resolve — 상한·계측 계약', () => {
 
   test('셀당 1회 — 같은 셀의 두 번째 후보는 asked=0으로 계측만 남기고 묻지 않는다', () => {
     const q = evaluateSttConfusion({ row: 3, colId: 'c14', colName: '당도', col: BRIX, heard: '1.7' }, log)!;
-    armSttConfusion(q);
+    armSttConfusion(q, log);
     resolveSttConfusion('respoken', log);
     const again = evaluateSttConfusion({ row: 3, colId: 'c14', colName: '당도', col: BRIX, heard: '1.3' }, log);
     expect(again).toBeNull();
@@ -81,7 +81,7 @@ test.describe('evaluate/arm/resolve — 상한·계측 계약', () => {
     for (let r = 1; r <= CONFUSION_SESSION_CAP; r++) {
       const q = evaluateSttConfusion({ row: r, colId: 'c14', colName: '당도', col: BRIX, heard: '1.7' }, log);
       expect(q, `row ${r}`).not.toBeNull();
-      armSttConfusion(q!);
+      armSttConfusion(q!, log);
       resolveSttConfusion('heard', log);
     }
     expect(evaluateSttConfusion({ row: 99, colId: 'c14', colName: '당도', col: BRIX, heard: '1.7' }, log)).toBeNull();
@@ -94,8 +94,18 @@ test.describe('evaluate/arm/resolve — 상한·계측 계약', () => {
     finishSttConfusion(log);
     expect(logged).toEqual([]);
     const q = evaluateSttConfusion({ row: 1, colId: 'c14', colName: '당도', col: BRIX, heard: '1.7' }, log)!;
-    armSttConfusion(q);
+    armSttConfusion(q, log);
     finishSttConfusion(log);
     expect(logged.map((l) => l.extra)).toEqual(['stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=1,chosen=-']);
+  });
+
+  test('r2(P3 ②) — 결산 안 된 질문 위에 새 질문이 서면 이전 질문을 chosen=- 로 먼저 결산한다(발동당 1건 유지)', () => {
+    const a = evaluateSttConfusion({ row: 1, colId: 'c14', colName: '당도', col: BRIX, heard: '1.7' }, log)!;
+    armSttConfusion(a, log);
+    const b = evaluateSttConfusion({ row: 2, colId: 'c14', colName: '당도', col: BRIX, heard: '1.3' }, log)!;
+    armSttConfusion(b, log);
+    expect(logged.map((l) => l.extra)).toEqual(['stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=1,chosen=-']);
+    resolveSttConfusion('alt', log);
+    expect(logged.map((l) => l.extra).at(-1)).toBe('stt_confusion_hint:heard=1.3,cands=8.3,rule=L1P0:1>8,asked=1,chosen=alt');
   });
 });

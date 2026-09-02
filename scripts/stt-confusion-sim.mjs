@@ -4,7 +4,7 @@
  * 「발동 n · 오커밋 중 질문으로 잡히는 수 · clean 셀 위양성」을 센다(브리핑 §4 산출물).
  *
  *   node scripts/stt-confusion-sim.mjs <growth-log 폴더…> [--mode insample|loso|cold] [--cold-groups <dir부분문자열,…>]
- *        [--eval <dir부분문자열,…>] [--params theta=0.15,rho=0.5,kSupport=3,usePrior=0] [--sweep] [--detail]
+ *        [--eval <dir부분문자열,…>] [--params theta=0.15,rho=0.5,kSupport=3,kSeen=3] [--sweep] [--detail]
  *
  *  · insample = 전 세션으로 만든 표를 그 세션들에 적용(상한) · loso = 평가 세션을 뺀 표(leave-one-session-out ·
  *    같은 화자의 새 세션에 가까운 정직한 값) · cold = `--cold-groups`에 걸리는 폴더만으로 표를 만들어

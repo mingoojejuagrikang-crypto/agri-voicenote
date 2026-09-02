@@ -266,7 +266,7 @@ export function useCommitLanding(deps: CommitLandingDeps) {
           previousValue: isModifyLike(awaiting) ? previousValueOf(awaiting) ?? null : null,
           path: correctionPath,
         }, logCell);
-        armSttConfusion(q);
+        armSttConfusion(q, logCell);
         // 응답 대기 상태 무장 — 「둘째」/재발화가 수정 의미론(previousValue=들린 값)으로 재커밋되도록. 착지 예약
         // (resumeReview/resumeCell)은 알람 재무장과 같은 이유로 보존한다.
         awaitingFieldRef.current = {

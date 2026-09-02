@@ -72,8 +72,11 @@ export function evaluateSttConfusion(input: {
   return q;
 }
 
-/** 질문을 실제로 물을 때(TTS 직전) — 상한 카운터에 올리고 대기 상태로 든다. */
-export function armSttConfusion(q: ConfusionQuestion): void {
+/** 질문을 실제로 물을 때(TTS 직전) — 상한 카운터에 올리고 대기 상태로 든다.
+ *  r2(리뷰 P3 ②) — 결산 안 된 이전 질문이 남아 있으면(질문 셀 A 대기 중 다른 셀 B에 손 입력 → B 커밋에 새 질문) 먼저
+ *  chosen=- 로 결산한다 — 「발동당 hint 정확히 1건」이 덮어쓰기로 깨지지 않게. */
+export function armSttConfusion(q: ConfusionQuestion, log: SttLogFn): void {
+  if (pending) hint(pending, true, null, log);
   askedCells.add(cellKey(q.row, q.colId));
   askedCount += 1;
   pending = q;
