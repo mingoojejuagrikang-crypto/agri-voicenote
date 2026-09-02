@@ -7,7 +7,7 @@
 import { test, expect } from '@playwright/test';
 import { resolveFinal } from '../src/lib/voiceFinalResolver';
 import { detectCommand } from '../src/lib/koreanNum';
-import { VOICE_COMMANDS, VOICE_UI_COMMAND_IDS } from '../src/lib/voiceCommands';
+import { VOICE_COMMANDS, VOICE_UI_COMMAND_IDS, isExactCommandUtterance } from '../src/lib/voiceCommands';
 
 const base = { confidence: 0.95, paused: false, awaitingKind: 'value' as const };
 
@@ -38,6 +38,42 @@ test('명령 신뢰도 게이트(T-2) — 명령별 floor, 0은 미보고 센티
   // 값 발화(cmd 없음)는 이 게이트 대상 아님
   expect(resolveFinal({ ...base, cmd: null, confidence: 0.1 }))
     .toEqual({ act: 'value', trendCorrection: false });
+});
+
+/**
+ * v0.51.1 R5 (2026-09-02 실기기 · STT 레인 §6 R5) — **정확 일치 「수정」만** floor 0.55 → 0.40.
+ * 09-02 정식 4세션에서 또렷한 「수정」이 conf 0.443·0.469·0.505로 거절돼 각 4~5초를 잃었다(프리뷰 4 ·
+ * 09-01 1). 오발동 대가는 직전 값 재청취(값 파괴 없음)이고 같은 로그에 conf<0.55 「수정」 오인식은 0건.
+ * 🔴 반증(2026-09-02 실측): `minConfidenceExact: 0.4`를 레지스트리에서 지우면 ①③이 red.
+ */
+test('v0.51.1 R5 — 「수정」 정확 일치만 floor 0.40 · 비정확·타 명령은 종전 floor', () => {
+  // ① 정확 일치 「수정」 conf 0.44 → 접수(09-02 실측 0.443).
+  expect(resolveFinal({ ...base, cmd: 'modify', confidence: 0.44, exact: true }))
+    .toEqual({ act: 'dispatch', cmd: 'modify', trendDemoted: false });
+  // ② 정확 일치라도 0.35는 거절 — floor는 0.40이다(잡음 군집 최대 0.313 위).
+  expect(resolveFinal({ ...base, cmd: 'modify', confidence: 0.35, exact: true }))
+    .toEqual({ act: 'rejectLowConfidence', minConfidence: 0.4 });
+  // ③ 정확 경계 0.40 = 수용(조건은 `< floor`).
+  expect(resolveFinal({ ...base, cmd: 'modify', confidence: 0.4, exact: true }))
+    .toEqual({ act: 'dispatch', cmd: 'modify', trendDemoted: false });
+  // ④ 「종료」는 정확 일치여도 종전 0.7 그대로 — 상태를 파괴하는 명령은 완화하지 않는다.
+  expect(resolveFinal({ ...base, cmd: 'end', confidence: 0.44, exact: true }))
+    .toEqual({ act: 'rejectLowConfidence', minConfidence: 0.7 });
+  // ⑤ 비정확 「수정」(「수정해줘」·「178.1 수정」)은 종전 0.55 — exact=false/생략 모두.
+  expect(resolveFinal({ ...base, cmd: 'modify', confidence: 0.44, exact: false }))
+    .toEqual({ act: 'rejectLowConfidence', minConfidence: 0.55 });
+  expect(resolveFinal({ ...base, cmd: 'modify', confidence: 0.44 }))
+    .toEqual({ act: 'rejectLowConfidence', minConfidence: 0.55 });
+  // ⑥ 정확 일치 판정은 detectCommand와 같은 정규화 — 공백·`.`·`,`만 지운다.
+  expect(isExactCommandUtterance('수정', 'modify')).toBe(true);
+  expect(isExactCommandUtterance('수정.', 'modify')).toBe(true);
+  expect(isExactCommandUtterance(' 수 정 ', 'modify')).toBe(true);
+  expect(isExactCommandUtterance('수정해줘', 'modify')).toBe(false);
+  expect(isExactCommandUtterance('178.1 수정', 'modify')).toBe(false);
+  expect(isExactCommandUtterance('수정', 'end')).toBe(false);
+  expect(isExactCommandUtterance('수정', null)).toBe(false);
+  // ⑦ 레지스트리 계약 — 완화 필드는 '수정'에만 있다(다른 명령에 붙이려면 오발동 대가 실측이 먼저다).
+  expect(VOICE_COMMANDS.filter((c) => c.minConfidenceExact != null).map((c) => c.id)).toEqual(['modify']);
 });
 
 test('trendConfirm 해소(B4) — 확인/유지=확정, 타 명령=강등 디스패치, 값=정정 폴스루', () => {

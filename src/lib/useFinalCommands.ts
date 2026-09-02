@@ -37,7 +37,7 @@ import { useCallback, useRef } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
 import { extractModifyValue } from './koreanNum';
 import { cancelTts } from './speech';
-import { extractModifyColumn, isVoiceUiCommand, type VoiceUiCommandSignal } from './voiceCommands';
+import { extractModifyColumn, isExactCommandUtterance, isVoiceUiCommand, type VoiceUiCommandSignal } from './voiceCommands';
 import { resolveFinal } from './voiceFinalResolver';
 import { cellWaitPrompt, formatNameForTts, relistenPrompt, REVIEW_WAIT_COMMANDS_TTS } from './voicePrompts';
 import type { Column } from '../types';
@@ -285,6 +285,8 @@ export function useFinalCommands(deps: FinalCommandsDeps) {
       cmd, confidence,
       paused: useSessionStore.getState().phase === 'paused',
       awaitingKind: awaiting.kind,
+      // v0.51.1 R5 — 정확 일치 「수정」만 floor 0.40(레지스트리 `minConfidenceExact`). 판정은 여기 한 곳.
+      exact: isExactCommandUtterance(text, cmd),
     });
 
     // While paused, accept only 'resume' and 'end' (v0.15.0 A5); ignore everything else.

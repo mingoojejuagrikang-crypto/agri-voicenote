@@ -110,6 +110,18 @@ export interface CommandSpec {
    */
   minConfidence?: number;
   /**
+   * v0.51.1 R5 (2026-09-02 실기기 · STT 레인 §6 R5) — **발화가 `word`와 정확히 일치할 때만** 쓰는 더 낮은
+   * floor. 정확 일치의 판정은 `isExactCommandUtterance`(detectCommand와 같은 정규화 — 공백·`.`·`,` 제거)다.
+   *
+   * 왜 '수정'만: 09-02 정식 4세션에서 또렷한 「수정」이 conf 0.443·0.469·0.505로 거절돼 각 4~5초를
+   * 잃었다(프리뷰 4 · 09-01 1). 오발동의 대가는 «직전 값 재청취»(값 파괴 없음 · [STT-9])이고, 같은 로그에서
+   * conf<0.55의 「수정」 **오인식** 사례는 0건이다. 다른 명령(종료·이전행…)은 상태를 되감거나 파괴하므로
+   * 종전 floor 그대로다 — 이 필드를 다른 명령에 붙이려면 그 명령의 오발동 대가부터 실측해라.
+   * ⚠️ 이 필드는 **floor 분기**일 뿐 매칭 규칙이 아니다 — 헤더의 «정확 일치로 바꾸지 마라»(startsWith
+   *   매칭 계약)와 충돌하지 않는다. 「수정해줘」·「178.1 수정」은 여전히 modify로 잡히되 floor는 종전값이다.
+   */
+  minConfidenceExact?: number;
+  /**
    * 🔴 v0.49 fix49b(max 리뷰 #15) — **미확인 이상치 알림을 소모하지 않는다.**
    *
    * `voiceFinalResolver`의 trendConfirm 분기는 「나머지」 명령을 `trendDemoted:true`로 넘기고,
@@ -188,8 +200,17 @@ export function preservesAnomalyAlert(cmd: VoiceCommand): boolean {
   return cmd != null && (VOICE_COMMANDS.find((c) => c.id === cmd)?.preservesAlert ?? false);
 }
 
+/** v0.51.1 R5 — 발화가 그 명령의 `word`와 **정확히 일치**하는가(`minConfidenceExact` 분기 판정).
+ *  정규화는 `detectCommand`(koreanNum.ts)와 같다: 공백·`.`·`,`만 지운다 — 「수정.」은 정확 일치,
+ *  「수정해줘」·「178.1 수정」은 modify지만 정확 일치가 아니다(종전 floor). */
+export function isExactCommandUtterance(raw: string, cmd: VoiceCommand): boolean {
+  if (!cmd) return false;
+  const word = VOICE_COMMANDS.find((c) => c.id === cmd)?.word;
+  return word != null && raw.replace(/[\s.,]+/g, '') === word;
+}
+
 export const VOICE_COMMANDS: CommandSpec[] = [
-  { id: 'modify',  word: '수정',     display: '수정',     desc: '직전에 입력한 값을 고칩니다',      primary: true, minConfidence: 0.55 },
+  { id: 'modify',  word: '수정',     display: '수정',     desc: '직전에 입력한 값을 고칩니다',      primary: true, minConfidence: 0.55, minConfidenceExact: 0.4 },
   // 🔴 v0.49 F-1 (민구 결정 2026-08-12) — **어휘 재배정**. 결정 계보를 지우지 말 것:
   //   · v0.33.0 백로그 A(민구 결정 1·3): '이전'=prevRow / '다음'=nextRow, 즉 **둘 다 행 이동**이었다.
   //     ('이전'은 버튼과 동일한 단순 행 이동 — v0.4.5 I3의 재입력 모드는 그때 폐지됐다.)

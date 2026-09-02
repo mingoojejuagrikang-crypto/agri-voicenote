@@ -8,7 +8,8 @@
  *  1. paused면 resume/end만 수용, 나머지 무시(v0.15.0 A5 — resume은 신뢰도 게이트도 안 탄다:
  *     일시정지 탈출의 유일한 경로라 의도적 비게이트).
  *  2. 명령 신뢰도 게이트(T-2): 명령별 floor(레지스트리 SSOT, 기본 0.7) 미달이면 재질문.
- *     confidence 0은 "미보고" 센티널 — 통과.
+ *     confidence 0은 "미보고" 센티널 — 통과. v0.51.1 R5: 발화가 `word`와 **정확히 일치**하면
+ *     (`exact`) 레지스트리의 `minConfidenceExact`가 floor를 대체한다(현재 '수정'만 0.40).
  *  3. trendConfirm 해소(v0.7.0 B4): '확인'/'유지'=확정·진행, 타 명령=알림 해제 후 명령 디스패치
  *     (수정 의미론 'modify'로 강등), 명령 아님=값 경로 폴스루(정정 재커밋).
  *     **단 화면 표시만 바꾸는 UI 명령은 알림을 해제하지 않는다**(v0.38.0 리뷰#1) — 같은 동작의
@@ -39,8 +40,11 @@ export function resolveFinal(input: {
   confidence: number;
   paused: boolean;
   awaitingKind: AwaitingKind;
+  /** v0.51.1 R5 — 발화가 명령 `word`와 정확히 일치하는가(`isExactCommandUtterance`). 생략 = false
+   *  (종전 floor). 정확 일치일 때만 레지스트리의 `minConfidenceExact`가 floor를 대체한다. */
+  exact?: boolean;
 }): FinalAction {
-  const { cmd, confidence, paused, awaitingKind } = input;
+  const { cmd, confidence, paused, awaitingKind, exact = false } = input;
 
   if (paused) {
     if (cmd === 'resume') return { act: 'pausedResume' };
@@ -48,7 +52,8 @@ export function resolveFinal(input: {
     return { act: 'pausedIgnore' };
   }
 
-  const minConfidence = VOICE_COMMANDS.find((c) => c.id === cmd)?.minConfidence ?? 0.7;
+  const spec = VOICE_COMMANDS.find((c) => c.id === cmd);
+  const minConfidence = (exact ? spec?.minConfidenceExact : undefined) ?? spec?.minConfidence ?? 0.7;
   if (cmd && confidence > 0 && confidence < minConfidence) {
     return { act: 'rejectLowConfidence', minConfidence };
   }
