@@ -66,6 +66,12 @@ interface ClipSlot {
    *  그쪽은 `muted`를 건드리지 않는다(그 메서드 주석이 SSOT). 여기 서는 것은 **UA가 미디어
    *  전달을 멈춘 사실**(통화/Siri 인터럽션·라우트 변경)뿐이다. */
   sawMuted: boolean;
+  /** 🔴 v0.51.1 r2 [CLIP-MUTED-SPAN-1] — **이 슬롯의 `stopClip()` 결과가 호출자(커밋 경로)에게 전달됐는가.**
+   *  `stopClip()`의 finally에서 한 번 true가 된다(정상·빈 클립·예외 전부). 회복 고지의 「열린 muted 클립」
+   *  판정(`hasOpenMutedClip`)이 이걸로 「아직 결과가 나가지 않은 클립」과 「이미 나가서 커밋 경로가 처리
+   *  중이거나 끝난 클립」을 가른다 — 후자는 커밋 경로(`clipHealth.hasMutedClipInFlight`)가 안다.
+   *  stop 요청 없이 교체·폐기된 슬롯은 영영 false지만 그때는 `active`가 아니라 판정 대상이 아니다. */
+  resultDelivered: boolean;
 }
 
 /** stopClip()이 호출자에게 돌려주는 결과 — 트림본 + 트림 전 원본(다르면) + 프리롤 길이. */
@@ -403,19 +409,24 @@ export class AudioRecorder {
     return this.active?.recorder.state === 'recording' && !this.active.finalized;
   }
 
-  /** 🔴 v0.51.1 [CLIP-MUTED-SPAN-1] ⓓ — **가장 최근 클립 슬롯이 muted 구간에 걸쳤는가**(관찰 전용).
+  /** 🔴 v0.51.1 [CLIP-MUTED-SPAN-1] ⓓ — **가장 최근 클립 슬롯이 muted 구간에 걸쳤고, 그 결과가 아직
+   *  호출자에게 전달되지 않았는가**(관찰 전용).
    *
    *  회복 고지(`useMicInterruptionNotice`)가 unmute 시점에 「판정을 지금 할지, 걸친 클립이 닫혀
    *  장부에 오를 때까지 미룰지」를 이걸로 가른다. 복구·래치와 무관하고 `isStreamLost()` 판정도
    *  건드리지 않는다(`muted`는 여전히 「살아 있음」이다).
    *
-   *  🔑 **finalized 슬롯도 포함한다** — `active`는 `stopClipRaw`가 비우지 않고 다음 `startClip`/
-   *  `dispose`까지 남는다. 일부러다: `onstop`(finalized) 뒤 `saveAudioClip`→`recordUnreliable()`
-   *  까지의 창에 unmute가 오면, `!finalized`로 거를 경우 「열린 클립 없음 → 즉시 판정 lost=0 → 침묵」
-   *  이 재발한다. 대가: 직전 구간에서 이미 계수된 슬롯이 다음 `startClip` 전까지 남아 있으면
-   *  헛유예가 한 번 생기고, 그건 세션 종료 시 `mic_interrupt_notice:dropped:*` 1줄로 드러난다(무해). */
-  activeClipSawMuted(): boolean {
-    return this.active?.sawMuted === true;
+   *  🔑 **`finalized`가 아니라 `resultDelivered`로 가른다.** `active`는 `stopClipRaw`가 비우지 않고 다음
+   *  `startClip`/`dispose`까지 남는다. 그래서 r1은 finalized 여부를 무시하고 `sawMuted`만 봤는데
+   *  (`onstop`→`recordUnreliable()` 창 방어), 그러면 **이미 계수까지 끝난** muted 슬롯이 다음 클립 전까지
+   *  남아 클립 없는 인터럽트를 헛유예시켰다(콜드 리뷰 P2-1 · 오라클 ⓙ′). 전달 여부로 가르면:
+   *   · 녹음 중 · post-roll · `onstop`~`processClip`(전달 전) → true — 증거가 아직 올 수 있다
+   *   · 전달 뒤(커밋 경로 진행 중 또는 끝) → false — 그 뒤는 커밋 경로만 안다(`clipHealth.hasMutedClipInFlight`)
+   *  전달 순간과 커밋 경로의 진행 표시 사이는 마이크로태스크뿐이라 unmute 이벤트가 끼어들 수 없다.
+   *  ⚠️ 「이미 판정된 슬롯」을 슬롯 정체(토큰)로 기억하는 방식은 쓰지 않는다 — ⓕ·ⓗ 형상 뒤 같은 열린 클립에
+   *  두 번째 구간이 오면 그 클립이 unreliable로 닫혀도 침묵한다(오라클 ⓛ′). */
+  hasOpenMutedClip(): boolean {
+    return this.active?.sawMuted === true && !this.active.resultDelivered;
   }
 
   /** v0.43.0 #4 — **마이크 캡처를 끄고 켠다(장치는 놓지 않는다).** 백그라운드 진입/복귀 전용.
@@ -923,6 +934,8 @@ export class AudioRecorder {
         //   07:46:34에 왔고 그 뒤 시작된 클립이 5바이트로 닫혔다). 시작 시점 판정이 없으면
         //   그 클립은 `mute` 이벤트를 놓쳐 정상으로 기록된다.
         sawMuted: trackStateOf(this.stream) === 'muted',
+        // v0.51.1 r2 — 결과 전달 전(인터페이스 주석이 SSOT).
+        resultDelivered: false,
       };
 
       // Callbacks close over `slot` exclusively — no `this.*` access, so a stale recorder
@@ -984,6 +997,17 @@ export class AudioRecorder {
    *  호출자가 `…:raw` 키로 보존(민구 결정). 트림/프리롤 실패 시 원본 그대로(현행 폴백). */
   async stopClip(): Promise<ClipResult> {
     const slot = this.active; // stopClipRaw 진행 중 active가 교체될 수 있어 미리 캡처
+    try {
+      return await this.stopClipOf(slot);
+    } finally {
+      // 🔴 v0.51.1 r2 [CLIP-MUTED-SPAN-1] — 결과가 호출자에게 나갔다(정상·빈 클립·예외 전부 한 자리).
+      //   이 순간부터 「열린 muted 클립」이 아니다 — 증거가 오를지는 커밋 경로가 안다(`ClipSlot.resultDelivered`).
+      if (slot) slot.resultDelivered = true;
+    }
+  }
+
+  /** `stopClip()`의 본체 — `slot`은 호출 시점의 활성 슬롯(전달 표시는 바깥 finally가 한다). */
+  private async stopClipOf(slot: ClipSlot | null): Promise<ClipResult> {
     const preroll = slot?.preroll ?? null;
     const rawRecording = await this.stopClipRaw();
     // 🔴 v0.51 [CLIP-MUTED-SPAN-1] — **await 뒤에 읽는다.** 정지를 기다리는 동안 도착한 `mute`도

@@ -1708,7 +1708,7 @@ export function useVoiceSession() {
   //   세션 경계에서 유예를 폐기할 손잡이를 받는다(`stop()`의 dispose 뒤 한 줄).
   const micInterruptionNotice = useMicInterruptionNotice({
     clipHealth: clipHealthRef.current,
-    hasMutedClipOpen: () => recorderRef.current?.activeClipSawMuted() === true,
+    hasMutedClipOpen: () => recorderRef.current?.hasOpenMutedClip() === true,
     say,
     logCell,
   });

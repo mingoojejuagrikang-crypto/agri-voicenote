@@ -2652,7 +2652,7 @@ TTS 구간(`:2522-2523`)에 오버레이가 열리면 **모달 뒤에서 STT 인
   `[CLIP-MUTED-VERDICT-1]`. 🔴 **ID가 다르다** — 이 항목은 **사건**이고 저쪽은 **계약**이다
   (초판이 같은 ID를 써서 `check-docs.mjs` 중복 검사가 red였다 · r2에서 분리).
 - **회귀:** `tests/v051-mic-muted-span.spec.ts` **15건**(r2에서 ⓗ + `[node] ⓪-게이트` 추가 · `--workers=1` 39.7s →
-  v0.51.1에서 ⓘ~ⓜ + `[node] ⓪ 장부 신호` 추가 · 15건 `--workers=1` 1.1분).
+  v0.51.1에서 ⓘ~ⓜ + `[node] ⓪ 장부 신호` 추가 · r2에서 ⓙ′·ⓛ′ + `[node] ⓪ 정산 중` 추가 · **18건** `--workers=1`(실측은 산출물 §6)).
   **반증 9종 실측 red 확인** — 초판 6종(시작 판정 제거 → 2건이 1건 · 이벤트 래치 제거 → 0건 ·
   종전 회계 복원 → 종료 화면 침묵 · muted를 failed로 계수 → `mic_lost:clip_muted` 관측 =
   금지사항 위반이 즉시 드러남 · 문구 분기 제거 · 자동 해제 제거) + r2 3종(고지 판정을
@@ -2696,26 +2696,38 @@ TTS 구간(`:2522-2523`)에 오버레이가 열리면 **모달 뒤에서 STT 인
     설계 수준 후보: 판정을 걸친 클립의 해소 시점으로 **유예**(원샷 플래그를 `recordUnreliable`/`recordFailure(mutedSpan)` 직후 소비).
   정본(teamops): `deliverables/2026-09-02-device-read/read-fable-xhigh.md` §2(판정표·ⓓ 판별표·ms 분포) · §5(계측 공백 G1~G7) · §7(Q1~Q7).
 - 🩹 **처방 v0.51.1 (2026-09-02 · 브랜치 `fix/axis-d-notice-defer` · 미배포):** ⓓ 판정 **시점**을 「걸친 클립 해소 뒤」로 옮겼다.
-  · **규칙(둘 다여야 유예):** unmute 시점에 ⓐ 장부 증가분이 0이고 **그리고** ⓑ 가장 최근 클립 슬롯이 muted 구간에 걸쳤으면
-    (`AudioRecorder.activeClipSawMuted()` · finalized 슬롯 포함 — `onstop`→`recordUnreliable()` 사이 창에서 unmute가 와도 침묵하지
-    않게) 판정을 **유예**하고, 걸친 클립의 증거가 장부에 오르는 순간(`ClipHealth.onMutedEvidence` — `recordUnreliable()`·
-    `recordFailure(mutedSpan=true)` 증가 직후 · `useValueCommit` 무변경)에 판정한다. ⓐ가 아니면(이미 잃은 게 있다) **즉시** 말한다
+  · **규칙(둘 다여야 유예):** unmute 시점에 ⓐ 장부 증가분이 0이고 **그리고** ⓑ 걸친 클립이 **아직 장부에 오를 수 있으면** —
+    레코더가 「가장 최근 슬롯이 muted에 걸쳤고 결과를 아직 안 냈다」(`AudioRecorder.hasOpenMutedClip()` = `sawMuted && !resultDelivered`,
+    `stopClip()` finally가 전달 표시) **또는** 커밋 경로가 「muted 결과를 정산 중」(`ClipHealth.hasMutedClipInFlight()` —
+    `useValueCommit` 저장 IIFE의 try/finally 1쌍) — 판정을 **유예**하고, 걸친 클립의 증거가 장부에 오르는 순간
+    (`ClipHealth.onMutedEvidence` — `recordUnreliable()`·`recordFailure(mutedSpan=true)` 증가 직후)에 판정한다.
+    🔴 r2(콜드 리뷰 P2-1): r1은 ⓑ를 「슬롯이 `sawMuted`」(finalized 무시)로만 봐서 **이미 계수된** muted 슬롯이 다음 클립 전까지
+    남아 클립 없는 인터럽트를 헛유예시켰다(→ `dropped:session_end` 오독). 전달·정산 **상태**로 가르면 `onstop`→`recordUnreliable()`
+    창도 덮고(전달↔정산 사이는 마이크로태스크뿐) 계수 끝난 슬롯은 유예하지 않는다(ⓙ′). 🔴 「같은 슬롯이면 유예 스킵」(슬롯 토큰
+    비교)은 쓰지 않는다 — ⓕ·ⓗ 형상 뒤 같은 열린 클립의 두 번째 구간에서 침묵한다(ⓛ′). ⓐ가 아니면(이미 잃은 게 있다) **즉시** 말한다
     — 🔴 「열린 muted 클립이면 무조건 유예」로 짜면 ⓕ·ⓗ가 red다(mute 중 커밋 → 걸친 클립은 unmute 전에 닫히고 **다음 클립이 muted로
     열려 있다**). ⓑ가 아니면(클립 없는 인터럽트) 종전 즉시 판정.
   · **구간당 1회:** `pendingVerdict` 원샷 · 유예 중 새 muted 구간이 와도 pending과 기준선 유지(유예 = 기준선 고정) · muted **도중**
     해소는 말하지 않고 다음 unmute가 소비 · 두 구간에 걸친 클립 하나 = 고지 1회(ⓛ). 가드레일 ①②·`streak`·회계 3칸·`mutedFailed`
     의미·`clip_summary` 바이트 전부 불변.
-  · **폐기:** 클립이 안 닫힌 채 세션 종료·언마운트 → `mic_interrupt_notice:dropped:<session_end|unmount>` 1줄(ⓚ). 🔴 `stop()`의
+  · **폐기:** 유예가 풀리지 않은 채 세션 종료·언마운트 → `mic_interrupt_notice:dropped:<session_end|unmount>` 1줄(ⓚ). 🔴 `stop()`의
     `dispose()` **뒤**에 폐기한다 — muted 상태로 끝내면 detach가 unmute 콜백을 만들어 새 유예가 생길 수 있다. 다음 세션으로 새면
     `reset()` 뒤 기준선이 낡아 침묵이 재발한다.
+    🔴 **판독 규칙(r2 · P2-1/P2-2):** `deferred` → `dropped:session_end`는 **「유예가 장부 증거 없이 세션을 넘겼다」**는 뜻이지
+    「종료 시 클립이 열려 있었다」는 뜻이 **아니다.** 걸친 클립이 장부에 오르지 않는 경로가 여럿이고 전부 같은 줄이다 — 클립 미닫힘
+    **또는** 재질문 재시작 절단(`startClip`이 prev를 `resolveStop` 없이 stop → 결과가 아무 데도 안 간다) · `clip_stale_pending` ·
+    `clip_save_failed`. 고지 누락 아님 — 장부에 안 오른 클립은 민구 결정 (a)의 「unreliable」이 아니고 결산에도 없다(재질문 클립은
+    버려지고 다음 클립이 증거다). 유예 중 다음 구간이 클립 없이 끝나면 그 unmute의 `skipped`가 앞 유예의 종결 줄을 겸한다.
   · **계측 G1·G2:** `lost<=0` 판정도 `mic_interrupt_notice:skipped,lost=0,unrel=0,fail=0` 1줄(ⓙ) · `setMicInterrupted` 전이마다
     `mic_interrupt_ui:muted=<0|1>,blackout=<0|1>,hold=<0|1>`(ⓓ·ⓙ·ⓜ — `hold`는 `sessionStore.heroHolding`, 작성자는
     `HeroHoldToBlackout`의 `useEffect([holding])` 미러). 유예 시 `mic_interrupt_notice:deferred` 1줄.
     **판독 불변식:** `mic_interrupt:off` 1건당 unmute 시점 `mic_interrupt_notice:` 정확히 1줄(판정·skipped·deferred), 유예는 뒤에
     정확히 1줄로 종결(판정·dropped). `lost=` 접두 판독 불변.
   · **회귀:** ⓘ(걸친 클립이 unmute 뒤에 닫힘 — 실기기 형상) · ⓙ(클립 없음 → skipped) · ⓚ(유예 중 종료 → dropped) · ⓛ(유예 중
-    새 구간 → 1회) · ⓜ(G2 hold=1) · `[node] ⓪ 장부 신호`. **반증 2종 red 실측:** 유예 제거(즉시 판정 복원) → ⓘ·ⓚ·ⓛ red(나머지 12
-    green) · 장부 신호 제거 → ⓘ·ⓛ + `[node]` red.
+    새 구간 → 1회) · ⓜ(G2 hold=1 · r2: 2초 창 전제 단언) · `[node] ⓪ 장부 신호` · **r2:** ⓙ′(계수 끝난 muted 슬롯 뒤 클립 없는
+    인터럽트 → skipped · dropped 없음) · ⓛ′(즉시 판정 뒤 같은 열린 클립의 두 번째 구간 → deferred → 고지 1회 — 슬롯 토큰 비교 금지) ·
+    `[node] ⓪ 정산 중 카운터`. **반증 3종 red 실측:** 유예 제거(즉시 판정 복원) → ⓘ·ⓚ·ⓛ red(나머지 12 green) · 장부 신호 제거 →
+    ⓘ·ⓛ + `[node]` red · r2 「열린」 판정을 슬롯 `sawMuted`만으로 되돌림(전달 여부 무시 = r1) → ⓙ′ red.
   · **실기기 2차 판정 조건(다음 프리뷰 · 🔴 절전 켜고):** 값 청취 중 전화·알림 → ⓑ 절전 문구 전환(`mic_interrupt_ui:…,blackout=1`)
     ⓒ 3초 자동 점등(`mic_muted_blackout:released`) ⓓ **클립 닫힌 뒤** `mic_interrupt_notice:lost=…` + 회복 TTS 청취. 판정 전까지
     이 항목은 **MONITORING**이다(AGENTS.md 계약 ④).

@@ -41,9 +41,13 @@
  * 값을 말하려고 듣는 도중에 인터럽트가 오는 형상 = **이 앱의 기본 형상**이라, 즉시 판정은 항상 이렇게
  * 된다. 민구 결정 (a): **unreliable이면 무조건 고지** — 회복 후 발화가 담겼든 아니든, 절전 여부와 무관.
  *
- * **규칙(둘 다여야 유예다):** unmute 시점에 ⓐ 증가분이 0이고 **그리고** ⓑ 가장 최근 클립 슬롯이
- * muted 구간에 걸쳤으면(`hasMutedClipOpen`) 판정을 **유예**하고, 그 클립의 증거가 장부에 오르는
- * 순간(`clipHealth.onMutedEvidence`)에 판정한다.
+ * **규칙(둘 다여야 유예다):** unmute 시점에 ⓐ 증가분이 0이고 **그리고** ⓑ 걸친 클립이 아직 장부에
+ * 오를 수 있으면 — 가장 최근 슬롯이 muted 구간에 걸쳤고 **결과가 아직 커밋 경로에 전달되지 않았거나**
+ * (`hasMutedClipOpen` = `AudioRecorder.hasOpenMutedClip`), 전달됐지만 **커밋 경로가 정산 중**이면
+ * (`clipHealth.hasMutedClipInFlight`) — 판정을 **유예**하고, 그 클립의 증거가 장부에 오르는 순간
+ * (`clipHealth.onMutedEvidence`)에 판정한다. 🔴 r2(콜드 리뷰 P2-1): r1은 ⓑ를 「슬롯이 `sawMuted`」로만
+ * 봐서 **이미 계수된** muted 슬롯이 다음 클립 전까지 남아 클립 없는 인터럽트를 헛유예시켰다(ⓙ′).
+ * 「이미 판정된 슬롯」을 슬롯 정체로 기억하는 방식은 쓰지 않는다 — 전달·정산 **상태**로만 가른다(ⓛ′).
  *  · ⓐ가 아니면(이미 잃은 게 있다) **즉시** 말한다. 🔴 「열린 muted 클립이 있으면 무조건 유예」로
  *    짜면 안 된다 — mute 중 커밋이 일어나면 걸친 클립은 unmute **전에** 닫히고, **다음 클립이 muted
  *    상태로 열려 있다**(오라클 ⓕ·ⓗ의 형상). 그때 유예하면 이미 확정된 손실을 다음 커밋까지
@@ -57,14 +61,21 @@
  * 오디오 출력이 죽어 있다 — ⓕ·ⓗ 계약) → 다음 unmute가 증가분>0을 보고 즉시 판정해 소비한다.
  * 절전 자동 해제 타이머(②)는 종전대로 구간마다 무장한다 — 유예와 무관하다.
  *
- * **폐기:** 유예가 영영 안 풀리는 경로(클립이 안 닫힌 채 세션 종료·언마운트)는
- * `mic_interrupt_notice:dropped:<reason>` 1줄을 남기고 버린다. 다음 세션으로 새면 `clipHealth.reset()`
- * 뒤 기준선이 낡아 진짜 손실에서 Δ≤0 → 침묵이 재발하므로 **세션 경계에서 반드시** 버린다
- * (`dropPendingVerdict('session_end')` — 호출 위치 계약은 핸들 주석).
+ * **폐기:** 유예가 풀리지 않은 채 세션이 끝나거나 언마운트되면 `mic_interrupt_notice:dropped:<reason>`
+ * 1줄을 남기고 버린다. 다음 세션으로 새면 `clipHealth.reset()` 뒤 기준선이 낡아 진짜 손실에서 Δ≤0 →
+ * 침묵이 재발하므로 **세션 경계에서 반드시** 버린다(`dropPendingVerdict('session_end')` — 호출 위치
+ * 계약은 핸들 주석).
+ * 🔴 **판독 규칙(r2 · 콜드 리뷰 P2-1/P2-2):** `deferred` → `dropped:session_end`는 **「유예가 장부 증거
+ * 없이 세션을 넘겼다」**는 뜻이지 「종료 시 클립이 열려 있었다」는 뜻이 **아니다.** 걸친 클립이 장부에
+ * 오르지 않는 경로가 여럿이다 — 클립 미닫힘 **또는** 재질문 재시작 절단(`startClip`이 prev를
+ * `resolveStop` 없이 stop → 결과가 아무 데도 안 간다) · `clip_stale_pending` · `clip_save_failed`. 전부
+ * 같은 줄로 합쳐진다. 고지 누락은 아니다 — 장부에 안 오른 클립은 민구 결정 (a)의 「unreliable」이 아니고
+ * 결산에도 없다(재질문 클립은 버려지고 다음 클립이 증거다).
  *
  * **판독 불변식(로그):** `mic_interrupt:off` 1건당 unmute 시점에 `mic_interrupt_notice:` **정확히 1줄**
- * (`lost=…` 판정 · `skipped,lost=…` G1 · `deferred`), 유예는 뒤에 **정확히 1줄**로 종결된다
- * (`lost=…` 판정 · `dropped:<reason>`). 기존 `lost=` 접두 판독은 그대로다.
+ * (`lost=…` 판정 · `skipped,lost=…` G1 · `deferred`). 유예는 그 뒤 **첫 판정 줄**(`lost=…`·`skipped,…`)
+ * 또는 `dropped:<reason>`로 종결된다 — 그 판정 줄이 **다음 unmute의 줄을 겸할 수 있다**(유예 중 다음
+ * 구간이 클립 없이 끝나면 그 unmute의 `skipped`가 앞 유예의 종결이다). 기존 `lost=` 접두 판독은 그대로다.
  */
 import { useEffect, useRef } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
@@ -96,8 +107,9 @@ export interface MicInterruptionNoticeDeps {
    *  🔴 v0.51.1 — `onMutedEvidence` 구독도 이 장부에 건다. 마운트 동안 **같은 인스턴스**여야 한다
    *  (호출부는 `useRef`로 고정한다 — 바꿔 끼우면 구독이 옛 장부에 남아 유예가 영영 안 풀린다). */
   clipHealth: ClipHealth;
-  /** 🔴 v0.51.1 ⓓ — unmute 시점에 「가장 최근 클립 슬롯이 muted 구간에 걸쳤는가」(관찰 전용 —
-   *  `AudioRecorder.activeClipSawMuted`). 증가분이 0일 때 판정을 유예할지 가른다. 레코더가 없으면 false
+  /** 🔴 v0.51.1 ⓓ — unmute 시점에 「가장 최근 클립 슬롯이 muted 구간에 걸쳤고 결과가 아직 커밋 경로에
+   *  전달되지 않았는가」(관찰 전용 — `AudioRecorder.hasOpenMutedClip`). 증가분이 0일 때 판정을 유예할지
+   *  가르는 두 조건 중 하나다(다른 하나는 장부의 `hasMutedClipInFlight`). 레코더가 없으면 false
    *  (= 클립 없는 인터럽트 → 즉시 판정). */
   hasMutedClipOpen: () => boolean;
   say: (text: string, interrupt?: boolean) => Promise<boolean>;
@@ -236,7 +248,9 @@ export function useMicInterruptionNotice(
       //   끝났다(구간당 1회). 걸친 클립이 없으면 종전 즉시 판정(G1 `skipped`)이다.
       const now = health.summary();
       const lostNow = (now.unreliable - unreliableAtEnter) + (now.mutedFailed - mutedFailedAtEnter);
-      if (lostNow <= 0 && mutedClipOpen()) {
+      // 「걸친 클립이 아직 장부에 오를 수 있다」 = 레코더가 결과를 아직 안 냈거나(X) · 냈는데 커밋 경로가
+      //   정산 중(Y). r2: 이미 계수된 슬롯은 둘 다 false라 헛유예가 없다(ⓙ′) · 슬롯 정체는 보지 않는다(ⓛ′).
+      if (lostNow <= 0 && (mutedClipOpen() || health.hasMutedClipInFlight())) {
         pendingVerdict = true;
         // 판독 불변식(헤더): unmute 시점에 정확히 1줄 — 유예도 「판정이 안 돌았다」와 갈라야 한다.
         log({ type: 'clip', extra: 'mic_interrupt_notice:deferred' });

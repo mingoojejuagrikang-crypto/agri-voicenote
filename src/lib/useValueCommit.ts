@@ -270,10 +270,16 @@ export function useValueCommit(deps: ValueCommitDeps) {
     // Holder for the savePromise's own identity (assigned right after creation, before the
     // IIFE's first await resumes) so resolveFailedCapture can exclude itself from the flush.
     let savePromiseSelf: Promise<unknown> | null = null;
+    // 🔴 v0.51.1 r2 [CLIP-MUTED-SPAN-1] — muted 결과가 이 커밋 경로에 들어와 있는 동안 true. 회복 고지가
+    //   그 창에서 unmute를 받으면 판정을 유예할 근거다(`clipHealth.beginMutedClip` 주석이 SSOT). 시작은 결과를
+    //   본 직후 한 줄, 종료는 아래 **finally 한 곳** — 출구가 넷(unreliable·failed·stale·save 실패)이라 출구마다
+    //   줄을 두면 하나를 빠뜨린 채 정상 세션에서 아무 증상이 없다. 회계·포인터·저장 순서는 한 글자도 안 바뀐다.
+    let mutedClipInFlight = false;
     const savePromise = (async () => {
       try {
         logCell({ type: 'clip', extra: 'clip_stop_await', row: clipAwaitingRow, colId: clipAwaitingColId });
         const { blob: clipBlob, raw: rawBlob, trimFailed, trimFailReason, mutedSpan } = await clipStopPromise;
+        if (mutedSpan) { mutedClipInFlight = true; clipHealth.beginMutedClip(); }
         logCell({ type: 'clip', extra: `clip_stop_resolved:${clipBlob ? clipBlob.size : 'null'}`, row: clipAwaitingRow, colId: clipAwaitingColId });
         // v0.20.0 BL-2 — 트림이 예외(decodeAudioData 등)로 생략됐으면(저장본=미트림 원본 webm) 가시화한다.
         // 이전엔 무이벤트 침묵 폴백이라 "음성클립 편집 실패"(이원창 c7 3·4·5 = 비고 3행)가 로그에 안 보였다.
@@ -368,6 +374,9 @@ export function useValueCommit(deps: ValueCommitDeps) {
       } catch (e) {
         logCell({ type: 'error', extra: `clip_save_failed:${String((e as Error)?.message ?? e)}`, row: clipAwaitingRow, colId: clipAwaitingColId });
         await resolveFailedCapture(savePromiseSelf);
+      } finally {
+        // r2 — 위 `mutedClipInFlight` 주석. 증거가 올랐든(unreliable·failed) 못 올랐든(stale·save 실패) 여기서 닫는다.
+        if (mutedClipInFlight) clipHealth.endMutedClip();
       }
     })();
     savePromiseSelf = savePromise;

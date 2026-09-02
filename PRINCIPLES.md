@@ -81,6 +81,17 @@
       *"`statechange`가 오지 않는다"*로 잘못 결론냈다 — `stateReadable`은 **「값을 못 읽는 것」과
       「이벤트가 안 오는 것」을 영구히 분리**한다.
     ⚠️ 같은 회차에 추가된 `audio_session_evt:n=…`는 **신규 이벤트**라 이 예외와 무관하다.
+  - **승인된 예외 ④:** `mic_interrupt_notice` — 계약은 「**접두 불변 + 값 변형 4종**」(v0.51.1 · 2026-09-02 콜드
+    리뷰 P2-3). 형태는 `mic_interrupt_notice:lost=<n>,unrel=<a>,fail=<b>`(판정 · 종전 바이트 그대로) ·
+    `mic_interrupt_notice:skipped,lost=<n>,unrel=<a>,fail=<b>`(판정 0) · `mic_interrupt_notice:deferred`(유예) ·
+    `mic_interrupt_notice:dropped:<reason>`(유예 폐기 · `session_end|unmount`). 소비자는 **`lost=` 토큰 유무로
+    먼저 분기**한다 — 있으면 판정(값 3개 · `skipped,` 접두가 붙을 수 있다), 없으면 상태(`deferred`·`dropped:*`).
+    `$` 앵커 금지. 종전 방출 바이트(`lost=…`)는 한 글자도 안 바뀐다.
+    승인 근거: 2026-09-02 콜드 리뷰 전수 grep(레포 `*.ts/tsx/mjs/js/sh/py/md` + teamops) 실소비 파서 **0건**
+    (producer 1곳 · `tests/v051-mic-muted-span.spec.ts` 오라클 · 문서·판독 산출물뿐). 대안(새 이벤트명
+    `mic_interrupt_defer:*`)은 「`mic_interrupt:off` 1건당 unmute 시점 정확히 1줄」 판독 불변식을 두 접두로
+    쪼개므로 기각. ⚠️ teamops `SOP-003`:249의 「`lost<=0`이면 아무 줄도 안 남긴다」 규칙은 이 등재로 낡는다 —
+    머지 뒤 Larry가 갱신(레포 밖).
   - 목록에 없는 이벤트는 **바이트 불변**이다. 확장이 필요하면 필드를 늘리지 말고 **새 이벤트
     이름**을 써라 — 그게 계약을 안 깨고 늘리는 유일한 길이다.
   - 🔴 **오라클은 「프로덕션이 실제로 방출하는 형상」을 재라.** 확장 필드가 항상 붙는 이벤트를

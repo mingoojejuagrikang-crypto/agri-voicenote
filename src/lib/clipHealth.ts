@@ -126,6 +126,20 @@ export interface ClipHealth {
    *  여러 번 돈다 — 세션 경계에서 끊으면 두 번째 세션부터 고지가 죽는다.
    *  @returns 해제 함수 */
   onMutedEvidence(cb: () => void): () => void;
+  /** 🔴 v0.51.1 r2 [CLIP-MUTED-SPAN-1] — **muted 결과가 커밋 경로에 들어와 아직 정산되지 않은 클립**의 시작.
+   *  `useValueCommit`이 `stopClip()` 결과의 `mutedSpan`을 본 직후 부르고, 그 저장 IIFE의 **finally 한 곳**이
+   *  `endMutedClip()`으로 닫는다(모든 출구 — unreliable·failed·stale·save 실패·예외).
+   *
+   *  ## 왜 필요한가 — 「열린 muted 클립」 판정의 두 번째 절반
+   *  레코더는 결과를 **전달한 순간**까지만 안다(`AudioRecorder.hasOpenMutedClip`). 전달 뒤 `saveAudioClip` →
+   *  `recordUnreliable()`까지의 창(IDB 쓰기)에 unmute가 오면 회복 고지가 「걸친 클립 없음」으로 즉시 `skipped`를
+   *  내고, 직후 오르는 증거는 아무도 안 듣는다. 이 카운터가 그 창을 덮는다. 회계 3칸·`streak`·신호와 무관하다. */
+  beginMutedClip(): void;
+  /** 위 `beginMutedClip`의 짝 — 0 아래로는 내려가지 않는다(세션 경계를 넘어 늦게 끝난 저장이 새 세션의 값을
+   *  갉지 않게 · `reset()`이 0으로 되돌린 뒤 늦은 end가 와도 무해). */
+  endMutedClip(): void;
+  /** 커밋 경로가 정산 중인 muted 클립이 하나라도 있는가. */
+  hasMutedClipInFlight(): boolean;
   /** 세션 결산(누적). */
   summary(): ClipHealthSummary;
   /** 세션 경계 초기화 — 연속 카운터·누적 결산·고지 1회 플래그를 모두 비운다. */
@@ -139,6 +153,8 @@ export function createClipHealth(threshold: number = CLIP_FAIL_LATCH_THRESHOLD):
   let unreliable = 0;
   let mutedFailed = 0;
   let alerted = false;
+  // v0.51.1 r2 — 커밋 경로가 정산 중인 muted 클립 수(인터페이스 `beginMutedClip` 주석이 SSOT). 회계 아님.
+  let mutedInFlight = 0;
   // v0.51.1 ⓓ — muted 증거 구독자(인터페이스 `onMutedEvidence` 주석이 SSOT). `reset()`과 무관하다.
   const evidenceListeners = new Set<() => void>();
   const notifyMutedEvidence = () => {
@@ -177,6 +193,15 @@ export function createClipHealth(threshold: number = CLIP_FAIL_LATCH_THRESHOLD):
       evidenceListeners.add(cb);
       return () => { evidenceListeners.delete(cb); };
     },
+    beginMutedClip() {
+      mutedInFlight += 1;
+    },
+    endMutedClip() {
+      mutedInFlight = Math.max(0, mutedInFlight - 1);
+    },
+    hasMutedClipInFlight() {
+      return mutedInFlight > 0;
+    },
     summary() {
       return { saved, failed, unreliable, mutedFailed };
     },
@@ -187,6 +212,8 @@ export function createClipHealth(threshold: number = CLIP_FAIL_LATCH_THRESHOLD):
       unreliable = 0;
       mutedFailed = 0;
       alerted = false;
+      // r2 — 정산 중 카운터도 세션 경계에서 비운다(구독은 비우지 않는다 — `onMutedEvidence` 주석).
+      mutedInFlight = 0;
     },
   };
 }
