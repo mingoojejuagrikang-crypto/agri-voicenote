@@ -50,6 +50,9 @@
  *    (`과피두께x4` → `과피두께`). 수정 확인 TTS 「수정 과피두께x4 12.2」에서 `x4`가 값과 붙어 「…엑스사
  *    십이점이」로 들려 사용자가 42.2로 알아듣고 재수정했다(5세션 노출 14회 · 안내 96회에 0.5초씩).
  *    꼬리는 **이름 끝에서만**, 앞 글자가 라틴 문자가 아닐 때만 뗀다(`box4` 같은 라틴 이름 보호).
+ *    🔴 lookbehind(`(?<!…)`)를 쓰지 않는다 — 빌드 타깃 safari14(Vite 기본 `modules`) 밖이라 esbuild가 **경고 없이**
+ *    `new RegExp("(?<!…")`로 바꿔 Safari <16.4에선 첫 안내에서 SyntaxError로 세션이 죽는다(r2 콜드 리뷰 P2-1 실측).
+ *    앞 글자를 캡처해 `$1`로 되돌리는 꼴이 같은 결과를 낸다(뒤의 공백 접기·trim이 정리한다).
  *    괄호를 뗀 뒤에 적용하므로 `과피두께x4(mm)`도 `과피두께`다. 화면·STT 매칭은 괄호와 같은 규율로 원문이다.
  *
  * 오라클: tests/tts-column-name.spec.ts
@@ -62,7 +65,7 @@ export function formatNameForTts(name: string): string {
     if (ch === ')' || ch === '）') { if (depth > 0) depth -= 1; continue; }
     if (depth === 0) out += ch;
   }
-  const untailed = out.replace(/(?<![A-Za-z])\s*[x×X]\s*\d+\s*$/, '');
+  const untailed = out.replace(/(^|[^A-Za-z])\s*[x×X]\s*\d+\s*$/, '$1');
   const spoken = untailed.replace(/\s+/g, ' ').trim();
   return spoken || name.trim();
 }
