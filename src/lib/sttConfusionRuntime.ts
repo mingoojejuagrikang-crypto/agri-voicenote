@@ -57,8 +57,10 @@ export function evaluateSttConfusion(input: {
   row: number; colId: string; colName: string; col: Column | null; heard: string;
 }, log: SttLogFn): ConfusionQuestion | null {
   const { row, colId, colName, col, heard } = input;
-  if (!col || (col.type !== 'float' && col.type !== 'int')) return null;
-  const decimals = col.type === 'float' ? (col.decimals ?? 1) : 0;
+  // 🔴 r2 P2-3 — **소수(float) 컬럼만** 묻는다. 정수(개수) 컬럼은 1·2·3이 정상값이라 root 폴백의 「1」 질문이 매번 위양성이고
+  //   (09-02 오커밋 64건은 전부 소수 컬럼), 답변 낱말에서 맨 숫자를 뺀 지금은 int 컬럼에 후보 선택 어휘도 없다.
+  if (!col || col.type !== 'float') return null;
+  const decimals = col.decimals ?? 1;
   const cands = generateCandidates({ heard, col: colKey(colName), decimals, colType: col.type, tables: confusionTables() });
   const d = decide(heard, cands);
   if (!d.ask) return null;
@@ -101,14 +103,16 @@ export type ConfusionAnswer =
   | { kind: 'choice'; index: number }
   | { kind: 'relisten' };
 
-const KEEP = /^(첫째|첫번째|첫째거|1번|일번|1|일|하나|처음|앞|앞에|앞에꺼|앞의것|앞엣것|네|예|응|어|넵|맞아|맞아요|맞습니다|맞다|그래|그래요|확인|유지|그대로)$/;
-const SECOND = /^(둘째|두번째|둘째거|2번|이번|2|이|둘|뒤|뒤에|뒤에꺼|뒤의것|뒤엣것|나중|나중거)$/;
-const THIRD = /^(셋째|세번째|셋째거|3번|삼번|3|삼|셋)$/;
+// 🔴 r2 P2-3 — **순서 낱말과 네/아니오만**이다. 맨 숫자·수사(1/2/3 · 일/이/삼 · 하나/둘/셋 · 일번/이번/삼번)는 뺐다: 질문
+//   국면에서도 그것들은 **값 재발화**로 파서에 넘어간다(리뷰 R-A 「일」=소수부 .1 · R-B int 「삼」=값 3). 「N번」은 순서
+//   표지가 붙어 있어 남긴다.
+const KEEP = /^(첫째|첫번째|첫째거|1번|처음|앞|앞에|앞에꺼|앞의것|앞엣것|네|예|응|어|넵|맞아|맞아요|맞습니다|맞다|그래|그래요|확인|유지|그대로)$/;
+const SECOND = /^(둘째|두번째|둘째거|2번|뒤|뒤에|뒤에꺼|뒤의것|뒤엣것|나중|나중거)$/;
+const THIRD = /^(셋째|세번째|셋째거|3번)$/;
 const RELISTEN = /^(아니오|아니요|아니|아냐|아니야|틀려|틀려요|틀렸어|틀렸어요|틀렸습니다|다시|수정|둘다아니|둘다아니야|둘다아니요|둘다아니에요)$/;
 
-/** 확인 질문에 대한 발화 해석(순수). 답변 낱말이 아니면 null — 호출자가 일반 값 경로로 넘긴다(값 재발화).
- *  🔴 「하나/둘」·「일/이」·「1/2」는 이 국면에서 **순번**이다(값 1·2로 파싱되면 침묵 오커밋) — 실측 컬럼(mm·Brix·g)에
- *  1·2·3이 측정값으로 서는 일은 없고, 있더라도 질문 국면 밖에서만 값이다. `nCands`보다 큰 순번은 null. */
+/** 확인 질문에 대한 발화 해석(순수). 답변 낱말이 아니면 null — 호출자가 일반 값 경로로 넘긴다(값 재발화 · 소수부 조각 포함).
+ *  `nCands`보다 큰 순번은 null. */
 export function parseConfusionAnswer(text: string, nCands: number): ConfusionAnswer | null {
   const s = text.replace(/[\s.,!?]+/g, '');
   if (!s) return null;

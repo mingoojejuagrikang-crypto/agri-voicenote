@@ -15,12 +15,15 @@ const BRIX: Column = {
   auto: { kind: 'fixed', value: '' }, decimals: 1,
 };
 const WIDTH: Column = { ...BRIX, id: 'c8', name: '횡경(mm)' };
+const COUNT: Column = { id: 'c20', name: '과수', type: 'int', input: 'voice', ttsAnnounce: true, auto: { kind: 'fixed', value: '' } };
 
 test.describe('parseConfusionAnswer — 답변 어휘(민구 승인 #3)', () => {
   test('원값·후보·재청취 낱말 · 순번은 후보 수를 넘지 않는다 · 그 밖은 null', () => {
-    for (const w of ['첫째', '첫 번째', '1번', '하나', '네', '예', '맞아요', '확인', '유지', '일', '1']) expect(parseConfusionAnswer(w, 2), w).toEqual({ kind: 'keep' });
-    for (const w of ['둘째', '두 번째', '2번', '둘', '이', '2', '뒤에']) expect(parseConfusionAnswer(w, 2), w).toEqual({ kind: 'choice', index: 0 });
-    for (const w of ['셋째', '세 번째', '3번', '셋', '삼']) expect(parseConfusionAnswer(w, 2), w).toEqual({ kind: 'choice', index: 1 });
+    for (const w of ['첫째', '첫 번째', '1번', '네', '예', '맞아요', '확인', '유지']) expect(parseConfusionAnswer(w, 2), w).toEqual({ kind: 'keep' });
+    for (const w of ['둘째', '두 번째', '2번', '뒤에']) expect(parseConfusionAnswer(w, 2), w).toEqual({ kind: 'choice', index: 0 });
+    for (const w of ['셋째', '세 번째', '3번']) expect(parseConfusionAnswer(w, 2), w).toEqual({ kind: 'choice', index: 1 });
+    // r2 P2-3 — 맨 숫자·수사는 답변이 아니다(값 재발화·소수부 조각으로 파서에 간다): 리뷰 R-A 「일」·R-B 「삼」.
+    for (const w of ['하나', '일', '1', '둘', '이', '2', '셋', '삼', '3', '일번', '이번', '삼번']) expect(parseConfusionAnswer(w, 2), w).toBeNull();
     for (const w of ['아니오', '아니요', '아니', '틀려요', '다시', '수정']) expect(parseConfusionAnswer(w, 2), w).toEqual({ kind: 'relisten' });
     expect(parseConfusionAnswer('셋째', 1)).toBeNull(); // 후보가 1개면 셋째는 없다
     expect(parseConfusionAnswer('팔 점 칠', 2)).toBeNull(); // 값 재발화 → 일반 값 경로
@@ -43,6 +46,8 @@ test.describe('evaluate/arm/resolve — 상한·계측 계약', () => {
     expect(q!.rules).toEqual(['L1P0:1>8']);
     expect(evaluateSttConfusion({ row: 1, colId: 'c8', colName: '횡경(mm)', col: WIDTH, heard: '49.5' }, log)).toBeNull();
     expect(evaluateSttConfusion({ row: 1, colId: 'x', colName: '농가명', col: { ...BRIX, type: 'text' }, heard: '1.7' }, log)).toBeNull();
+    // r2 P2-3 — 정수(개수) 컬럼은 묻지 않는다(리뷰 R-B: 과수 「1」이 root 폴백으로 매번 질문 → 「삼」이 셋째로 먹혀 7).
+    expect(evaluateSttConfusion({ row: 1, colId: 'c20', colName: '과수', col: COUNT, heard: '1' }, log)).toBeNull();
     expect(logged).toEqual([]); // 후보가 없거나 안 묻는 경우엔 계측도 없다(발동이 아니다)
   });
 
