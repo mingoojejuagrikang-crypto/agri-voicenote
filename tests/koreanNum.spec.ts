@@ -69,10 +69,12 @@ test.describe('parseKoreanNumber — "점" as a literal word, not a decimal sepa
   test('"당도 점수 8" → "8"', () => {
     expect(parseKoreanNumber('당도 점수 8')).toBe('8');
   });
-  test('"다시 점수 8" → "8" (redo keyword stripped by caller; bare parse keeps 8)', () => {
-    // parseKoreanNumber itself does not handle the redo keyword, but "다시 점수 8" must
-    // still not collapse to null — the trailing 8 is recoverable.
-    expect(parseKoreanNumber('다시 점수 8')).toBe('8');
+  // 🔴 v0.51.1 R3(2026-09-02) — **계약 반전.** 종전 「"다시 점수 8" → "8"」은 픽스처였지 실발화가 아니다
+  //   (09-01·09-02 로그 0건). 실발화의 「다시 <값>」은 재발화 신호라 잡음 낱말에서 뺐다(koreanNum.ts
+  //   HARMLESS_RESIDUAL_TOKENS 주석). 「점」이 낱말인 판정(HIGH-1)은 그대로다 — 아래 "점수 8"·"당도 점수 8".
+  test('"다시 점수 8" → null + extraneous_token (v0.51.1 R3 반전 — 「다시」는 잡음이 아니라 재발화 신호)', () => {
+    expect(parseKoreanNumber('다시 점수 8')).toBeNull();
+    expect(getLastParseFailReason()).toBe('extraneous_token');
   });
 });
 
@@ -349,8 +351,23 @@ test.describe('v0.7.0 STT-C — 단일 숫자 + 무관 비숫자 토큰은 침�
   test('회귀: "당도 점수 8" → "8"', () => {
     expect(parseKoreanNumber('당도 점수 8')).toBe('8');
   });
-  test('회귀: "다시 점수 8" → "8"', () => {
-    expect(parseKoreanNumber('다시 점수 8')).toBe('8');
+  // v0.51.1 R3 — 「다시」 계약 반전(위 HIGH-1 블록의 같은 픽스처 주석 참조). 화이트리스트 유지 대상은
+  //   단위어·조사·'당도'·'점수'뿐이다.
+  test('반전: "다시 점수 8" → null + extraneous_token (v0.51.1 R3)', () => {
+    expect(parseKoreanNumber('다시 점수 8')).toBeNull();
+    expect(getLastParseFailReason()).toBe('extraneous_token');
+  });
+  /**
+   * v0.51.1 R3 (2026-09-02 실기기 · STT 레인 §5 A3) — 「다시 <값>」은 재질문이다.
+   * 09-02 양혁진 r11 「다시 1.4」가 1.4로 커밋됐다(오커밋 → 캐스케이드 5셀 터치 140초). 전 회차 값 동반
+   * 「다시」 4건 중 오커밋 3. 🔴 반증(2026-09-02 실측): HARMLESS_RESIDUAL_TOKENS에 '다시'를 되돌리면
+   * 이 케이스와 위 반전 2건이 red.
+   */
+  test('R3: "다시 1.4" → null + extraneous_token (09-02 오커밋 원문)', () => {
+    expect(parseKoreanNumber('다시 1.4', 1)).toBeNull();
+    expect(getLastParseFailReason()).toBe('extraneous_token');
+    // W4 섀도 계측은 그대로 후보를 남긴다 — 채택은 하지 않는다.
+    expect(getLastSalvageCandidate()).toBe('1.4');
   });
 
   // The healthy re-question guards observed working in the same field log stay intact.
