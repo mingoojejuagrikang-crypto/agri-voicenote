@@ -136,7 +136,8 @@
 - **원인:** STT 엔진이 또렷한 발화에도 낮은 confidence를 산출하는 경우가 잔존 — 엔진 한계.
 - **해결·회피:** 임계값 추가 인하는 노이즈 오탐([STT-3]) 위험과 트레이드오프 — 현행 0.55 유지하고 텔레메트리로 빈도 관측 지속.
 - **출처:** `survey-011 v0.4.3`(T-12 임계값 0.55 도입); `2026-06-10 실기기 로그` — 저신뢰 거부 재발 1건 관측(세션 480 이벤트 중 1건, 빈도는 크게 완화된 상태). `2026-06-15 v0.7.0 실기기 로그` — 저신뢰 거부 2건("수정" conf .28 id48 / "유지" conf .29 id323), 둘 다 재발화로 즉시 복구. 빈도 완화 상태 유지.
-- **현재 상태:** ⚠️주시
+- **🟡 2026-09-02 v0.51.1 후보(R5 · `feat/stt-round-0902`):** 09-02 정식 4세션에서 또렷한 「수정」이 conf 0.443·0.469·0.505로 거절돼 각 4~5초 손실(프리뷰 4 · 09-01 1). **정확 일치 「수정」에 한해** floor 0.55 → **0.40**(`CommandSpec.minConfidenceExact` · 판정 `isExactCommandUtterance` = detectCommand와 같은 정규화). 「수정해줘」·「178.1 수정」·다른 명령은 종전 floor. 근거: 오발동 대가는 직전 값 재청취(값 파괴 없음)이고 같은 로그에 conf<0.55 「수정」 **오인식** 0건 · 잡음 군집 최대 0.313. 오라클 `voiceFinalResolver.spec` R5(특성화 `v049-r4-m11-command-reject` ②·④는 「수정」 conf 0.5 거절 전제가 낡아 0.3으로 갱신). 다음 회차 판정: `rejected_low_confidence`의 「수정」 건수와 0.40~0.55 대역 접수의 오발동 유무.
+- **현재 상태:** ⚠️주시 (R5 실기기 판정 전)
 
 ### [STT-10] STT-C 재질문 가드의 융합 잔여 토큰 — 단위어+조사 융합형("밀리요", "프로요", "mm입니다")은 현재 재질문됨
 - **증상:** v0.7.0 STT-C 가드(`extraneous_token`)의 화이트리스트(`HARMLESS_RESIDUAL_TOKENS`, `src/lib/koreanNum.ts` 161~172)는 단위어·조사를 **개별 토큰**으로만 통과시킨다. STT가 단위어와 조사를 한 토큰으로 융합하면("33.3 밀리요", "8 프로요", "20.5 mm입니다") 화이트리스트 밖이라 정상 발화도 재질문된다.
@@ -2736,3 +2737,49 @@ TTS 구간(`:2522-2523`)에 오버레이가 열리면 **모달 뒤에서 STT 인
   · **실기기 2차 판정 조건(다음 프리뷰 · 🔴 절전 켜고):** 값 청취 중 전화·알림 → ⓑ 절전 문구 전환(`mic_interrupt_ui:…,blackout=1`)
     ⓒ 3초 자동 점등(`mic_muted_blackout:released`) ⓓ **클립 닫힌 뒤** `mic_interrupt_notice:lost=…` + 회복 TTS 청취. 판정 전까지
     이 항목은 **MONITORING**이다(AGENTS.md 계약 ④).
+
+## 2026-09-02 v0.51.1 후보 — 인식률·제보·로그 묶음 (회차 정본: `workspace_teamops/deliverables/2026-09-02-official-round-synthesis.md` · 빌드 SSOT: `…/2026-09-02-stt-improve-build/build-stt-fable-xhigh.md` · 브랜치 `feat/stt-round-0902`)
+
+> 09-02 정식 4세션(`품질조사` 504셀)에서 93셀(18.5%)이 첫 발화로 안 끝났고(손실 약 17분), 제보 3건은 전부 시트값 정상.
+> 민구 결정(09-02 17:4x): 구현 범위 = R2·R3·R5·R4·B1·B2·B3·L·X1. **R1(세션 내 값 타당성 규칙)은 제외** — 이상값 알람
+> 설정옵션이 이미 있고 첫 시도 시트라 설정을 안 했을 뿐(컬럼별 범위 권고는 회차 정본 §7). 아래는 **ID 없이** 서술한다.
+> 실기기 판정 전이라 전부 `MONITORING`이다(AGENTS.md 계약 ④).
+
+- **제보① 「음성 항목 없는 입력방식에서 음성입력시작 무반응」(14:53) — B1.** `start()`가 `vc.length === 0`에서 **무음으로** false를
+  돌려줬고(오디오 unlock·gUM보다 앞이라 권한 프롬프트조차 없음 · 호출부는 반환값 폐기), 시작 버튼 활성 조건은 음성 열 수를 안 봤다
+  (로그 `ready_probe` 뒤 16초 공백). 처방: `ReadyState` ready 조건에 음성 열 ≥1 + 배너 `음성 입력 항목이 없습니다. 입력방식을 확인해
+  주세요.`(`NO_VOICE_COLUMNS_MESSAGE` SSOT) · `start()` 갈래는 같은 문구 `setLastTts`(시트 차단 갈래와 같은 꼴) + 새 이벤트
+  `session_start_blocked:reason=no_voice_columns`(`__app__` 귀속). ⚠️ `lastTts`는 스토어에 쓰이기만 하고 읽는 컴포넌트가 없다
+  (시트 차단 갈래도 같다 — 실측). 오라클 `tests/v0511-b1-no-voice-columns.spec.ts`(강제 호출은 React 프롭스 onClick 직접 호출 —
+  React가 disabled 버튼의 onClick을 DOM 속성과 무관하게 억제한다).
+- **제보② 「마지막 값 뒤 수정 명령 안 됨」(15:50 양승보 r18) — B2.** atEnd에서 「수정」이 STT '회'(0.243)로 와 명령 미매치 →
+  `absorbAtEnd`가 **무로그·무신호** 흡수 → 「마지막행 입력…」만 반복(끝 도달 안내에 조작 어휘가 없어 — W2 — 무엇이 잘못됐는지 알 길
+  없음). 09-01 「수정 종경 두 셀 삭제」([STT-PARSE-1] 계열)와 **다른 클래스**. 처방: atEnd 흡수 갈래가 저신뢰 명령 거절(M11·Z5)과
+  같은 종단 **`rejectValue('low_confidence', awaiting, { tail: 끝 도달 안내 })`**를 탄다(부정 비프 + 화면 「소리가 불확실」 + 꼬리 =
+  끝 도달 안내 · `armRejectCue`는 종단만 부른다 — z5 단일 호출 계약) + 새 이벤트 `command parsed=end_absorb` /
+  `end_absorb:<colId>`(`cell_wait_absorb`와 같은 꼴). **Y6(흡수 시 큐 해제)는 atEnd에서만 반대**, reviewWait·cellWait는 그대로 —
+  그래서 특성화 스펙 `v049-r5-z5-reject-surface` ③·⑧(atEnd)이 반전 갱신됐고 ⑨(reviewWait)는 불변. ⚠️ 미결: 숫자 발화가 atEnd에서
+  흡수될 때도 같은 큐가 뜬다(「소리가 불확실」이 의미상 안 맞는 경우) — 실기기에서 거슬리면 사유 문구를 가르는 것이 다음 처방.
+  오라클 `tests/v0511-b2-atend-absorb-cue.spec.ts`.
+- **제보③ 「과피두께 TTS 42.2 · 칩 12.2」(15:54 양훈성 r2) — B3.** 열 이름 꼬리 `x4`가 수정 확인 TTS 「수정 과피두께x4 12.2」에서
+  값과 붙어 「…엑스사 십이점이」로 들려 사용자가 42.2로 알아듣고 재수정(5세션 노출 14회 · 「과피두께x4.」 안내 96회에 0.5초씩).
+  처방: `formatNameForTts`가 괄호를 뗀 뒤 **끝의 `x`·`×`·`X`+숫자 꼬리**를 뗀다(앞 글자가 라틴이면 보호 · 전부 지워지면 원문 폴백) +
+  「수정 <열>, <값>」 **쉼표 휴지**(직접 수정 확인·재청취 에코 두 콜사이트). 화면·STT 매칭은 원문 그대로(괄호 변경과 같은 규율 —
+  「수정 과피두께」로는 종전처럼 지목되지 않는다). 특성화 스펙 4건이 쉼표로 갱신됐다(의도된 동작 변경 · PRINCIPLES §7 —
+  `trend-alert:704` · `v047-cfix1:180·253` · `v0470-r2-p1:93`). 오라클 `tts-column-name.spec` B3 블록 · `tests/v0511-b3-tts-name-tail.spec.ts`.
+- **파서 R2·R3(전량 재실행 증명 — 빌드 SSOT §2).** R2: whole-spoken 형상 검사에 「하나」가 없어 「3.3 하나」(적정 컬럼 · 4명 전원
+  8시도/6셀)가 `multi_numeric`이었다 — 형상 검사에서만 「하나」→「한」으로 접어 구제(문자 집합에 bare `나`를 넣으면 「4.11 나」가
+  4.11로 조용히 통과해 STT-C 원칙이 깎인다 — 실측). 1,113시도 재실행: 변화 8건 전부 구제 · 커밋값 변화 0. R3: `HARMLESS_RESIDUAL_TOKENS`
+  에서 `'다시'` 제거 — 「다시 <값>」은 `extraneous_token` 재질문. 재실행: 커밋값 변화 정확히 3건 = 오커밋 3(「다시 1.4」·「다시 5.3」·
+  「다시 오」) 전부 구제 · 정답 손실 0(STT 레인이 대가로 본 「다시 점 팔」은 소수부 문맥 경로라 무변화). 종전 픽스처 「다시 점수 8」→8은
+  실발화 0건이라 반전.
+- **로그 L·X1.** `session start` `meta.target={sheet:앞8자,tab,rows}`(시트 미연결 null · `extra:'start'` 바이트 불변) + 새 이벤트
+  `sheet_synced:sheet=,tab=,rows=<from>-<to>,n=`(동기화당 세션당 1건 · 세션 id 명시 귀속 · 행 미상은 `rows=0-0` · tab은
+  `escapeExtraValue` 24자 절단). X1: `exportLogZip(ids)`가 `sessionId:""` 이벤트(`audio_unlock`·`start_ready`·`notify_perm` —
+  `sessionIdRef` 미배정 시점)를 통째로 버리던 것 → 범위 세션 **시작 −10분 ~ 종료** 창 안의 `""`를 동봉(세션 못 찾으면 전량 · 다른
+  `sess_*`는 종전대로 제외 · `exportLogEvents.ts` 순수 술어). 원인 자리(`logCell`의 `''`)는 일부러 안 고쳤다 — 과거 IDB분을 못 살리고
+  `""`가 「세션 밖·앱 수명주기 아님」의 판별값이다.
+- **다음 회차 판정 항목(로그로):** ① `multi_numeric` 중 「하나」 형상 0건 ② `extraneous_token`에 「다시」 동반 재질문 등장(오커밋 대신)
+  ③ 「수정」 `rejected_low_confidence` 감소 · 0.40~0.55 접수의 오발동 유무 ④ `session_start_blocked` 0건(버튼이 먼저 잠기므로)
+  ⑤ atEnd `end_absorb` 뒤 사용자가 「수정」을 되풀이해 성공하는지 ⑥ 수정 확인 TTS 청취(「과피두께, 12.2」) ⑦ `sheet_synced`가
+  동기화 세션마다 1건 ⑧ 세션 zip에 `audio_unlock`·`start_ready` 존재.
