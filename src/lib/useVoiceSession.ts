@@ -8,7 +8,7 @@ import { parseKoreanNumber, detectCommand } from './koreanNum';
 // [ENV-12] v0.43.0 #3 — 값 파싱 시도는 순수 모듈이 소유한다(부수효과 없음). 이 파일은 호출만.
 import { parseValueForCol } from './valueParseAttempt';
 import { VOICE_COMMANDS, type VoiceCommand, type VoiceUiCommandSignal } from './voiceCommands';
-import { decimalReaskPrompt, formatNameForTts, REASK_TTS } from './voicePrompts';
+import { decimalReaskPrompt, formatNameForTts, NO_VOICE_COLUMNS_MESSAGE, REASK_TTS } from './voicePrompts';
 import { SpeechController, speak, cancelTts, isSpeechSupported, formatForTts, warmupTts, setActiveController, setPreferredVoiceName, setBargeInEnabled, refreshVoices, resumeTtsEngine } from './speech';
 import { computeTotalRows, buildCyclingValues, nestedAutoValue, isUserInputColumn } from './autoValue';
 import type { Column, Session, SessionRow, SessionTarget } from '../types';
@@ -31,6 +31,8 @@ import {
   micAutoReconnectSkipped,
   micInitFailed,
   notifyPerm,
+  // v0.51.1 B1 — 음성 열 0개 구성의 세션 시작 차단(제보①).
+  sessionStartBlocked,
 } from './logEvents';
 import { shouldKeepInBackground, LONG_BACKGROUND_OFF_MS } from './backgroundSessionPolicy';
 import { requestNotifyPermissionOnce, showBackgroundOffNotification } from './backgroundNotify';
@@ -2423,7 +2425,17 @@ export function useVoiceSession() {
     if (!s.tableGenerated) return false;
     const columns = structuredClone(s.columns);
     const vc = columns.filter((c) => c.input === 'voice');
-    if (vc.length === 0) return false;
+    if (vc.length === 0) {
+      // 🔴 v0.51.1 B1(제보① 2026-09-02 14:53) — 종전엔 여기서 **무음으로** false였다. 이 갈래는 아래
+      //   `audio_unlock`·gUM보다 앞이라 권한 프롬프트조차 안 뜨고, 호출부(VoiceScreen)는 반환값을 버린다
+      //   → 사용자에겐 「눌렀는데 아무 일도 없다」(로그 16초 공백 · read-fb F1). 시작 버튼은 이제
+      //   `ReadyState`가 같은 조건으로 잠그지만, 강제 호출·상태 드리프트에 대비해 갈래 자체가 말한다 —
+      //   위 시트 차단 갈래와 같은 꼴(`setLastTts`) + 로그 1줄. 새 세션 id가 아직 없으므로 `__app__`으로
+      //   남긴다(직전 세션 id에 얹으면 남의 세션에 귀속된다 — `logCell`을 쓰지 않는 이유).
+      sess.setLastTts(NO_VOICE_COLUMNS_MESSAGE);
+      logger.log({ type: 'app', extra: sessionStartBlocked('no_voice_columns'), sessionId: '__app__' });
+      return false;
+    }
     const total = computeTotalRows(columns);
     if (total === 0) return false;
 

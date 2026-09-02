@@ -6,6 +6,7 @@ import { useSessionStore } from '../../stores/sessionStore';
 import { isSpeechSupported } from '../../lib/speech';
 import { ConnectionStatusCard } from '../ConnectionStatusCard';
 import { isSheetSourceBlocked } from '../../lib/sheetConnection';
+import { NO_VOICE_COLUMNS_MESSAGE } from '../../lib/voicePrompts';
 import { VOICE_TYPE } from './heroLayout';
 import { emitReadyProbe } from './readyProbe';
 
@@ -21,15 +22,22 @@ export function ReadyState({ totalRows, onStart }: { totalRows: number; onStart:
   // v0.45.0 WP-1① — 시작 전 입·출력 상태 프로브(F15 근원 판정용). 스로틀·계약은 readyProbe.ts.
   useEffect(() => { emitReadyProbe(); }, []);
   const sourceBlocked = isSheetSourceBlocked(s);
-  const ready = s.tableGenerated && !sourceBlocked && totalRows > 0 && isSpeechSupported();
   const autoCount = s.columns.filter((c) => c.input === 'auto').length;
   const voiceCount = s.columns.filter((c) => c.input === 'voice').length;
+  // 🔴 v0.51.1 B1(제보① 2026-09-02 14:53) — **음성 열 0개면 시작할 수 없다.** `start()`는 종전부터
+  //   `vc.length === 0`에서 false를 돌려줬는데 이 조건이 그걸 보지 않아 버튼이 활성이었고, 눌러도
+  //   오디오 unlock·gUM보다 앞에서 무음 반환이라 「권한 요청조차 없다」로 보였다(read-fb F1).
+  //   버튼을 잠그고 사유를 아래 배너로 말한다 — 같은 문구를 `start()`의 차단 갈래가 `setLastTts`로 쓴다.
+  const noVoiceColumns = voiceCount === 0;
+  const ready = s.tableGenerated && !sourceBlocked && totalRows > 0 && !noVoiceColumns && isSpeechSupported();
   const ttsHint = !isSpeechSupported()
     ? '이 브라우저는 음성 인식을 지원하지 않습니다 (Chrome 권장)'
     : sourceBlocked
     ? '시트 연결을 다시 확인해 주세요'
     : !s.tableGenerated
     ? '먼저 설정 탭에서 테이블을 생성하세요'
+    : noVoiceColumns
+    ? NO_VOICE_COLUMNS_MESSAGE
     : '';
 
   return (

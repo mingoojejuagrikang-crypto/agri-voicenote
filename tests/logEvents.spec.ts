@@ -39,7 +39,13 @@ import {
   readyProbe,
   holdTtsSkipped,
   fontRenderEcho,
+  sessionStartBlocked,
 } from '../src/lib/logEvents';
+
+/** v0.51.1 B1 (제보① 2026-09-02) — 음성 열 0개 구성의 세션 시작 차단. 종전엔 무로그 return이었다. */
+test('sessionStartBlocked — 세션 시작 차단 사유 바이트 계약 (B1 신규 이벤트)', () => {
+  expect(sessionStartBlocked('no_voice_columns')).toBe('session_start_blocked:reason=no_voice_columns');
+});
 
 test('settingChanged — 기존 4개 콜사이트 산출과 바이트 동일', () => {
   expect(settingChanged('ttsRate', 1.2)).toBe('setting_changed:ttsRate=1.2');

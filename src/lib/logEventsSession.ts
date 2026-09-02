@@ -58,3 +58,10 @@ export function lowConfidenceParsed(fields: {
  *  올린 이유는 소비자(`clipsManifest.findLastCellEvent`)가 그걸 판별해야 하기 때문 — 사유는 그쪽 A3 주석. */
 export const WOULD_SALVAGE_PREFIX = 'would_salvage:';
 export const wouldSalvage = (candidate: string): string => `${WOULD_SALVAGE_PREFIX}${candidate}`;
+
+/** v0.51.1 B1 (제보① 2026-09-02) — 세션 시작이 **구성 때문에** 차단된 사건. 종전 `vc.length === 0`
+ *  갈래는 무로그 return이라 14:51:10 `ready_probe` 뒤 16초가 통째로 비어 있었다(read-fb F1).
+ *  `__app__` 세션으로 남긴다 — 차단 시점엔 새 세션 id가 없고, 직전 세션 id에 얹으면 남의 세션에 귀속된다. */
+export function sessionStartBlocked(reason: 'no_voice_columns'): string {
+  return `session_start_blocked:reason=${reason}`;
+}

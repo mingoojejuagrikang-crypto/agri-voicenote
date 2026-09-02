@@ -59,6 +59,8 @@ export {
 export {
   rowMarked, endReachedRender, anomalyAlertCleared, lowConfidenceParsed,
   wouldSalvage,
+  // v0.51.1 B1 — 음성 열 0개 구성의 세션 시작 차단(제보①).
+  sessionStartBlocked,
 } from './logEventsSession';
 
 // 설정·UI 계측 도메인 — logEventsUi.ts.

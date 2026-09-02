@@ -202,3 +202,11 @@ export function clipUnreliableSummaryScreen(unreliable: number, total: number): 
  *  **안 울렸다**). 그때 큐에 넣으면 들리지도 않고, 한참 뒤 엉뚱한 자리에서 터진다.
  *  👉 **소리는 회복된 뒤에만 쓴다.** 인터럽트 도중의 통지는 화면이 진다(절전 화면 문구 전환). */
 export const MIC_INTERRUPT_RECOVERED_TTS = '마이크가 잠시 멈춰 있었습니다. 그동안의 음성 기록은 확인이 필요합니다.';
+
+/** v0.51.1 B1 (제보① 2026-09-02 14:53) — **음성 입력 열이 0개**인 구성에서 세션을 시작할 수 없다는 사실.
+ *
+ *  종전엔 `start()`가 `vc.length === 0`에서 **무음으로 false**를 돌려줬고(오디오 unlock·gUM보다 앞이라
+ *  권한 프롬프트조차 뜨지 않는다), 시작 버튼의 활성 조건은 음성 열 수를 보지 않았다 → 사용자는 「눌렀는데
+ *  아무 일도 없다」를 겪었다(로그 16초 공백 · 제보 스크린샷 「음성입력 항목 0개 · 버튼 활성」).
+ *  이 한 문장이 **화면 힌트(`ReadyState`)와 `setLastTts`(시트 차단 갈래와 같은 꼴) 양쪽의 SSOT**다. */
+export const NO_VOICE_COLUMNS_MESSAGE = '음성 입력 항목이 없습니다. 입력방식을 확인해 주세요.';
