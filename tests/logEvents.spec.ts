@@ -40,7 +40,13 @@ import {
   holdTtsSkipped,
   fontRenderEcho,
   sessionStartBlocked,
+  endAbsorb,
 } from '../src/lib/logEvents';
+
+/** v0.51.1 B2 (제보② 2026-09-02) — atEnd 흡수. `cell_wait_absorb:<colId>`와 같은 꼴. */
+test('endAbsorb — atEnd 흡수 바이트 계약 (B2 신규 이벤트)', () => {
+  expect(endAbsorb('m2')).toBe('end_absorb:m2');
+});
 
 /** v0.51.1 B1 (제보① 2026-09-02) — 음성 열 0개 구성의 세션 시작 차단. 종전엔 무로그 return이었다. */
 test('sessionStartBlocked — 세션 시작 차단 사유 바이트 계약 (B1 신규 이벤트)', () => {

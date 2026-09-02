@@ -65,3 +65,10 @@ export const wouldSalvage = (candidate: string): string => `${WOULD_SALVAGE_PREF
 export function sessionStartBlocked(reason: 'no_voice_columns'): string {
   return `session_start_blocked:reason=${reason}`;
 }
+
+/** v0.51.1 B2 (제보② 2026-09-02) — 끝 도달(atEnd)에서 명령이 아닌 발화가 **흡수**된 사건. 종전엔 무로그라
+ *  「수정」이 '회'(0.243)로 오인식된 15:49:39는 `stt` 줄 다음에 곧장 끝 도달 안내 TTS만 남았다(read-fb F3).
+ *  `cell_wait_absorb:<colId>`와 같은 꼴 — `command` 이벤트에 `parsed:'end_absorb'`로 실린다. */
+export function endAbsorb(colId: string): string {
+  return `end_absorb:${colId}`;
+}

@@ -37,6 +37,7 @@ import { cancelTts } from './speech';
 import { attemptParseValue } from './valueParseAttempt';
 import { cellWaitPrompt, reviewWaitAbsorbTts } from './voicePrompts';
 import type { Column } from '../types';
+import { endAbsorb } from './logEvents';
 import type { logger } from './logger';
 import type { AwaitingField, FinalCtx } from './useVoiceSession';
 
@@ -50,6 +51,8 @@ export interface FinalValueGateDeps {
     awaiting?: AwaitingField | null,
     opts?: { restartClip?: boolean; tail?: string; whole?: string },
   ) => Promise<void>;
+  /** v0.51.1 B2 — 거절 표면(부정 비프 + 화면 큐)만. TTS·클립 재시작 없이 «못 알아들었다»를 알릴 때(atEnd 흡수). */
+  armRejectCue: (reason: 'low_confidence' | 'parse_failed') => void;
   listEmptyRows: (total: number, vCols: Column[]) => number[];
   buildEndReachedTts: (empties: number[]) => string;
   voiceColsList: () => Column[];
@@ -81,7 +84,7 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
    */
   const runValueGate = useCallback(async (ctx: FinalCtx): Promise<boolean> => {
     const {
-      logCell, say, rejectValue, listEmptyRows, buildEndReachedTts, voiceColsList,
+      logCell, say, rejectValue, armRejectCue, listEmptyRows, buildEndReachedTts, voiceColsList,
       getSessionColumns, getColById, fractionWholeOf, ctrlRef, lastInterimRef,
       lastConfidenceRef, earlyCommitStableRef, epochRef, awaitingFieldRef,
     } = depsRef.current;
@@ -154,12 +157,21 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
     // 여기 도달한 것은 일반 값 발화이므로 새 행으로 커밋하지 않고 종료 안내만 재생한다(자동 종료 제거).
     if (awaiting.kind === 'atEnd') {
       useSessionStore.getState().setRecognized('');
-      // 🔴 v0.49 r6 Y6(claude #5) — **흡수는 사건을 처리한 것이다 → 거절 큐를 내린다.** 착지의
-      //   큐 해제는 `armLanding`이 소유하는데(Z5) 흡수는 착지가 아니라 그 깔때기를 안 탄다.
-      //   그래서 직전 거절로 선 큐가 화면에 남은 채 흡수 안내만 귀로 나갔다 — 화면은 「소리가
-      //   불확실」을 계속 띄우고 귀는 끝 도달을 말하는 §2 표면 모순(M4가 `announceField`에서
-      //   닫은 그 형태). 형제 셋 + 스코프 경계가 같은 지점이다.
-      useSessionStore.getState().setReaskReason(null);
+      // 🔴 v0.51.1 B2(제보② 2026-09-02 15:50 · read-fb F3) — atEnd 흡수는 **「못 알아들었다」 신호를 먼저
+      //   낸다.** 종전 Y6(v0.49 r6)은 「흡수 = 처리됨 → 큐 해제」였는데, atEnd에서 흡수되는 발화의 실체는
+      //   **명령 오인식**이다: 양승보 r18에서 「수정」이 STT '회'(0.243)로 와 명령 미매치 → 여기서 무로그
+      //   흡수 → 「마지막행 입력…」만 반복. 끝 도달 안내에는 조작 어휘가 없어(W2) 사용자는 「수정이 안
+      //   먹는다」만 겪었다. 저신뢰 명령 거절(M11)과 **같은 종단**을 쓴다 — 부정 비프 + 화면 「소리가 불확실」
+      //   (`armRejectCue` · 인라인 복제 금지 Z5·M3) + 로그 1줄(`cell_wait_absorb`와 같은 꼴). 끝 도달 안내는
+      //   그대로 뒤따른다(큐가 먼저 — 확인음→말 순서 계약). 클립 재시작·사유 TTS는 붙이지 않는다.
+      //   ⚠️ reviewWait·cellWait 흡수(아래)는 Y6 그대로다 — 그 두 국면은 값 발화 흡수가 정상이고 제보 형상도
+      //   없다. 숫자 발화가 atEnd에서 흡수될 때도 같은 큐가 뜬다(빌드 산출물 §4 미결).
+      armRejectCue('low_confidence');
+      logCell({
+        type: 'command', parsed: 'end_absorb',
+        extra: endAbsorb(awaiting.colId), text,
+        row: awaiting.row, colId: awaiting.colId,
+      });
       // 🔴 v0.49 r2 W2(확정표 #5+6) — 진입 안내와 **같은 문구**다. 종전엔 여기가 "입력이
       //   끝났습니다…", 진입이 "마지막 행까지 입력했습니다…"로 갈려 있어 같은 상태를 두 이름으로
       //   불렀다. 빈 행 목록은 **이 시점에 다시 센다** — 흡수 시점엔 값이 더 채워졌을 수 있다.
@@ -173,7 +185,10 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
     // '수정' 명령으로만). atEnd 가드와 동일한 흡수 패턴.
     if (awaiting.kind === 'reviewWait') {
       useSessionStore.getState().setRecognized('');
-      useSessionStore.getState().setReaskReason(null); // Y6 — 위 atEnd 흡수와 같은 계약.
+      // 🔴 v0.49 r6 Y6(claude #5) — **흡수는 사건을 처리한 것이다 → 거절 큐를 내린다.** 착지의 큐 해제는
+      //   `armLanding`이 소유하는데(Z5) 흡수는 착지가 아니라 그 깔때기를 안 탄다. 직전 거절의 큐가 남은 채
+      //   흡수 안내만 귀로 나가면 화면·귀가 갈린다(§2 표면 모순). ⚠️ atEnd(위)는 v0.51.1 B2로 반대다.
+      useSessionStore.getState().setReaskReason(null);
       // 🔴 v0.49 fix49b(max 리뷰 #8) — **어휘 재배정(F-1, 08-12) 미이관.** 「다음」이 항목 이동으로
       //   재배정되면서 이 안내가 가르치던 단어가 행을 넘기지 못하게 됐고, 행을 넘기는 말
       //   ('다음행')은 **어떤 안내에도** 등장하지 않아 음성 전용 사용자가 완료 행에 갇혔다
