@@ -207,7 +207,7 @@ test('유일 후보(횡경 49.5)는 묻지 않고 · 당도 「1.7」은 「1.7�
   const values = await valueEvents(page);
   expect(values.filter((v) => v.colId === 'c14').map((v) => [v.text, v.parsed, v.previousValue])).toEqual([['1.7', '1.7', undefined], ['둘째', '8.7', '1.7']]);
   // echo는 수정 의미론으로 새 값을 읽는다.
-  expect((await ttsLog(page)).some((t) => t === '수정 당도 8.7')).toBe(true);
+  expect((await ttsLog(page)).some((t) => t === '수정 당도, 8.7')).toBe(true);
 });
 
 test('「네」(첫째) → 원값 유지·진행 + hint chosen=heard + 프로필 부정 사례 1', async ({ page }) => {
@@ -250,7 +250,7 @@ test('「아니오」 → 재청취 · 같은 셀의 두 번째 후보는 셀당
   await waitForActiveChip(page, '횡경');
   const log = await ttsLog(page);
   expect(log.filter((t) => t.includes('인가요'))).toHaveLength(1);
-  expect(log.some((t) => t === '수정 당도 1.7')).toBe(true);
+  expect(log.some((t) => t === '수정 당도, 1.7')).toBe(true);
   const hints = await eventsWithPrefix(page, 'stt_confusion_hint');
   expect(hints.map((h) => h.extra)).toEqual([
     'stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=1,chosen=respoken',
@@ -297,7 +297,7 @@ test('r2 P1-1 — 질문 대기 중 「8 점 의」(소수부 유실) → 질문
   await waitForActiveChip(page, '횡경');
   await page.waitForTimeout(400);
   expect(await cellValue(page, 1, 'c14')).toBe('8.1');
-  expect((await ttsLog(page)).some((t) => t === '수정 당도 8.1')).toBe(true);
+  expect((await ttsLog(page)).some((t) => t === '수정 당도, 8.1')).toBe(true);
   // 정정 쌍 2건: 거절된 재발화 「8 점 의」는 reask(from=-) · 원 STT 1.7 → 8.1은 강등 뒤 커밋이라 rerecord(후보 선택이 아니다).
   expect((await eventsWithPrefix(page, 'stt_correction')).map((c) => c.extra)).toEqual([
     'stt_correction:from=-,to=8.1,path=reask,text=8 점 의,conf=0.95,alt=-',
