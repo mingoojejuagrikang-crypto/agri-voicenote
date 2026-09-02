@@ -51,8 +51,7 @@ export interface FinalValueGateDeps {
     awaiting?: AwaitingField | null,
     opts?: { restartClip?: boolean; tail?: string; whole?: string },
   ) => Promise<void>;
-  /** v0.51.1 B2 — 거절 표면(부정 비프 + 화면 큐)만. TTS·클립 재시작 없이 «못 알아들었다»를 알릴 때(atEnd 흡수). */
-  armRejectCue: (reason: 'low_confidence' | 'parse_failed') => void;
+
   listEmptyRows: (total: number, vCols: Column[]) => number[];
   buildEndReachedTts: (empties: number[]) => string;
   voiceColsList: () => Column[];
@@ -84,7 +83,7 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
    */
   const runValueGate = useCallback(async (ctx: FinalCtx): Promise<boolean> => {
     const {
-      logCell, say, rejectValue, armRejectCue, listEmptyRows, buildEndReachedTts, voiceColsList,
+      logCell, say, rejectValue, listEmptyRows, buildEndReachedTts, voiceColsList,
       getSessionColumns, getColById, fractionWholeOf, ctrlRef, lastInterimRef,
       lastConfidenceRef, earlyCommitStableRef, epochRef, awaitingFieldRef,
     } = depsRef.current;
@@ -161,12 +160,12 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
       //   낸다.** 종전 Y6(v0.49 r6)은 「흡수 = 처리됨 → 큐 해제」였는데, atEnd에서 흡수되는 발화의 실체는
       //   **명령 오인식**이다: 양승보 r18에서 「수정」이 STT '회'(0.243)로 와 명령 미매치 → 여기서 무로그
       //   흡수 → 「마지막행 입력…」만 반복. 끝 도달 안내에는 조작 어휘가 없어(W2) 사용자는 「수정이 안
-      //   먹는다」만 겪었다. 저신뢰 명령 거절(M11)과 **같은 종단**을 쓴다 — 부정 비프 + 화면 「소리가 불확실」
-      //   (`armRejectCue` · 인라인 복제 금지 Z5·M3) + 로그 1줄(`cell_wait_absorb`와 같은 꼴). 끝 도달 안내는
-      //   그대로 뒤따른다(큐가 먼저 — 확인음→말 순서 계약). 클립 재시작·사유 TTS는 붙이지 않는다.
+      //   먹는다」만 겪었다. 저신뢰 명령 거절(M11·Z5)과 **같은 종단 `rejectValue`**를 탄다 — 부정 비프 + 화면
+      //   「소리가 불확실」(`armRejectCue`는 종단만 부른다: z5 단일 호출 계약) + 꼬리 = 끝 도달 안내(사유 TTS 없음 ·
+      //   atEnd엔 소수 문맥이 없어 종단이 꼬리를 그대로 말한다 · 클립 재시작 없음) + 로그 1줄(`cell_wait_absorb`와
+      //   같은 꼴). 즉 큐가 먼저, 끝 도달 안내가 뒤따른다(확인음→말 순서 계약).
       //   ⚠️ reviewWait·cellWait 흡수(아래)는 Y6 그대로다 — 그 두 국면은 값 발화 흡수가 정상이고 제보 형상도
       //   없다. 숫자 발화가 atEnd에서 흡수될 때도 같은 큐가 뜬다(빌드 산출물 §4 미결).
-      armRejectCue('low_confidence');
       logCell({
         type: 'command', parsed: 'end_absorb',
         extra: endAbsorb(awaiting.colId), text,
@@ -176,7 +175,9 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
       //   끝났습니다…", 진입이 "마지막 행까지 입력했습니다…"로 갈려 있어 같은 상태를 두 이름으로
       //   불렀다. 빈 행 목록은 **이 시점에 다시 센다** — 흡수 시점엔 값이 더 채워졌을 수 있다.
       const vcEnd = voiceColsList();
-      await say(buildEndReachedTts(listEmptyRows(computeTotalRows(getSessionColumns()), vcEnd)));
+      await rejectValue('low_confidence', awaiting, {
+        tail: buildEndReachedTts(listEmptyRows(computeTotalRows(getSessionColumns()), vcEnd)),
+      });
       return true;
     }
 

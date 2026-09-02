@@ -433,8 +433,6 @@ export function useTrendGate(deps: TrendGateDeps) {
 
   return {
     rejectValue,
-    // v0.51.1 B2 — atEnd 흡수가 같은 거절 표면(비프+큐)을 쓴다(useFinalValueGate). 인라인 복제 금지(Z5·M3).
-    armRejectCue,
     relistenInContext,
     evaluateTrend,
     getAnomalyAlertData,

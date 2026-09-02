@@ -1168,7 +1168,7 @@ export function useVoiceSession() {
   // 호출만). 세션 컨텍스트는 주입으로 넘긴다. ⚠️ awaitingFieldRef·epochRef·trendSkipLoggedRef는
   // 의도된 ref 주입이다(useTrendGate.ts 헤더 참조).
   const {
-    rejectValue, armRejectCue, relistenInContext, evaluateTrend, getAnomalyAlertData,
+    rejectValue, relistenInContext, evaluateTrend, getAnomalyAlertData,
     confirmAnomalyTouch, modifyAnomalyTouch, confirmManualAnomaly, modifyManualAnomaly,
   } = useTrendGate({
     logCell,
@@ -1889,7 +1889,6 @@ export function useVoiceSession() {
     logCell,
     say,
     rejectValue,
-    armRejectCue,
     listEmptyRows,
     buildEndReachedTts,
     voiceColsList,
