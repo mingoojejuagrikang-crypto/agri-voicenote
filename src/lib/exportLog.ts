@@ -10,6 +10,7 @@ import { buildSessionsSnapshot } from './sessionSnapshot';
 import { attachClipsManifest, type ManifestSourceEvent } from './clipsManifest';
 import type { Session } from '../types';
 import { withoutPendingCandidate } from './pendingValidation';
+import { APP_SENTINEL, blankSessionWindow, includeEventInSessionExport } from './exportLogEvents';
 
 /** Export logs + audio clips as a ZIP.
  *  - `sessionIds` undefined → include ALL events and clips (used by manual LOG button)
@@ -28,34 +29,46 @@ export async function exportLogZip(sessionIds?: string[]): Promise<Blob> {
 
   const filterSet = sessionIds ? new Set(sessionIds) : null;
 
-  let events: unknown[];
-  try {
-    // v0.5.0 W7(T-19): 세션 필터 ZIP에도 앱 수명주기 이벤트('__app__' sentinel — app_boot,
-    // hydration, recover, drive_upload, setting_changed)를 항상 동봉해 계측 공백을 없앤다.
-    events = await loadLogEvents(sessionIds ? [...sessionIds, '__app__'] : undefined);
-  } catch {
-    events = logger.getAll().filter((e) => {
-      if (!filterSet) return true;
-      return e.sessionId != null && (filterSet.has(e.sessionId) || e.sessionId === '__app__');
-    });
-  }
-  zip.file('events.json', JSON.stringify(events, null, 2));
-
   // v0.5.0 W8: 복구용 세션 스냅샷 — export 범위 세션의 전체 Session 객체를 sessions.json으로 동봉.
   // "세션 복구" 2단계가 Drive의 이 zip만으로 세션+클립을 복원한다(별도 백업 업로드 없음 —
   // 클립은 아래 clips/를 그대로 공유, 중복 없음). 실패해도 zip 자체는 유효(구버전 zip과 동일 취급)
   // 하지만 [REVIEW-1] "빈 catch 금지" — 실패는 반드시 로깅한다.
   // v0.27.0: scoped 세션은 아래 clips-manifest 생성에도 재사용하므로 블록 밖으로 승격.
   // 로드 실패 시 빈 배열 유지 — manifest는 committedValue:null로 정직하게 비운다(추측 금지).
+  // v0.51.1 X1 — events보다 **먼저** 읽는다: 아래 `''` 이벤트 창이 범위 세션의 시각에서 나온다.
+  //   zip 엔트리 순서는 그대로다(device → events → sessions …) — 읽는 순서만 바뀌었다.
   let scopedSessions: Session[] = [];
+  let sessionsJson: string | null = null;
   try {
     const allSessions = await loadAllSessions();
     scopedSessions = (filterSet ? allSessions.filter((s) => filterSet.has(s.id)) : allSessions)
       .map(withoutPendingCandidate);
-    zip.file('sessions.json', buildSessionsSnapshot(scopedSessions, deviceWithUser.appVersion));
+    sessionsJson = buildSessionsSnapshot(scopedSessions, deviceWithUser.appVersion);
   } catch (e) {
     logger.log({ type: 'app', extra: withErr('export_sessions_json_failed', e) });
   }
+
+  // v0.51.1 X1(read-fb F6) — 세션 필터 export는 **빈 sessionId(`''`) 이벤트도 동봉**한다: 세션 시작 직전 진단
+  //   (`audio_unlock`·`start_ready`·`notify_perm`)이 `sessionIdRef` 미배정 시점에 `''`로 찍혀 종전엔 통째로
+  //   빠졌다(09-02 정식 4세션 zip 5개 전부 0건). 창·술어·근거는 `exportLogEvents.ts`.
+  const blankWindow = filterSet ? blankSessionWindow(scopedSessions, Date.now()) : null;
+  let events: unknown[];
+  try {
+    // v0.5.0 W7(T-19): 세션 필터 ZIP에도 앱 수명주기 이벤트('__app__' sentinel — app_boot,
+    // hydration, recover, drive_upload, setting_changed)를 항상 동봉해 계측 공백을 없앤다.
+    // X1: 빈 문자열은 유효한 IDB 키다 — `''` 인덱스 항목을 함께 읽고 창으로 거른다.
+    const loaded = await loadLogEvents(sessionIds ? [...sessionIds, APP_SENTINEL, ''] : undefined);
+    events = filterSet
+      ? loaded.filter((e) => includeEventInSessionExport(e, filterSet, blankWindow))
+      : loaded;
+  } catch {
+    events = logger.getAll().filter((e) => {
+      if (!filterSet) return true;
+      return includeEventInSessionExport(e, filterSet, blankWindow);
+    });
+  }
+  zip.file('events.json', JSON.stringify(events, null, 2));
+  if (sessionsJson != null) zip.file('sessions.json', sessionsJson);
 
   // Include audio clips
   try {
