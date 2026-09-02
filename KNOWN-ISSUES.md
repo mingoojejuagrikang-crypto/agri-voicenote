@@ -221,7 +221,7 @@
 ### 화자별 혼동표 확인 질문 (v0.51.1 R6 · 2026-09-02) — 실기기 판정 대기
 - **무엇:** 값 커밋 직후 화자 프로필(없으면 전역 표 `src/data/stt-confusion-default.json`)에서 「이렇게 들린 값이 실제로는 다른 값이었던」 확률이 높은 후보(자리 치환 `L1P0:1>8` 등 · 「점」 소실 `dec:as3` 등)가 있으면 echo 대신 「1.7인가요, 8.7인가요?」로 되묻는다. 값은 이미 커밋돼 있고(민구 결정 ①) 「둘째」만 재커밋한다. 세션 내 다른 값·범위는 보지 않는다(민구 결정 ⓐ). 설계·운영은 [docs/STT-SPEAKER-PROFILE.md](./docs/STT-SPEAKER-PROFILE.md).
 - **판정 기준(다음 프리뷰 실사용 로그):** ⓐ `stt_confusion_hint` 발동 수와 `chosen` 분포(heard/alt/respoken/-) · ⓑ 질문이 난 셀의 최종값이 후보와 같았던 비율(시뮬 LOSO: 발동 27 · 포착 15 · 오답후보 12) · ⓒ clean 셀 위양성(시뮬 0 — 실기기에서 1건이라도 나오면 `theta`/`kSupport`를 손보고 `tests/sttConfusion-clean-fixture.spec.ts`를 갱신) · ⓓ 「첫째」 뒤 같은 규칙의 질문이 줄어드는지(프로필 `negatives`).
-- **알려진 한계:** 콜드스타트(09-01 표만으로 09-02 평가)는 발동 0 — 표는 같은 컬럼 종류의 데이터가 쌓여야 말한다. 소수부 자리 치환·두 자리 이상 다른 쌍(`multi_diff`)·앞자리 유실은 후보를 만들지 않는다(기록만). 「하나/둘/일/이/1/2」는 질문 국면에서 순번으로 해석된다(값이 아니다). 「둘째」 재커밋의 `value.text`는 답변 낱말이고 원 STT 원문은 첫 커밋 `value`와 `stt_correction`에 있다.
+- **알려진 한계:** 콜드스타트(09-01 표만으로 09-02 평가)는 발동 0 — 표는 같은 컬럼 종류의 데이터가 쌓여야 말한다. 소수부 자리 치환·두 자리 이상 다른 쌍(`multi_diff`)·앞자리 유실은 후보를 만들지 않는다(기록만). 「하나/둘/일/이/1/2」는 질문 국면에서 순번으로 해석된다(값이 아니다). 「둘째」 재커밋의 `value.text`는 답변 낱말이고 원 STT 원문은 첫 커밋 `value`와 `stt_correction`에 있다. 질문이 걸린 셀에 **손으로** 값을 넣으면 질문은 그 자리에서 `chosen=-`로 결산된다(늦게 남는 게 아니다). `exportLogZip`의 `speakerId`·`stt-profile.json` 동봉 배선은 순수 `attachSttProfile` 스펙만 있고 zip 다운로드 e2e는 없다(다음 회차 zip 수확에서 확인).
 - **테스트 함정:** 인식기는 시작 안내 TTS 3문장이 끝난 뒤에야 만들어진다 — `fireStt`를 그 전에 부르면 `__mockSTT`가 없어 **조용히 무시**된다(실측 1.5초 뒤에도 null). `waitForTtsIdle` + `__mockSTT` 존재 대기가 필수다(`tests/v0511-r6-confusion-confirm.spec.ts` 헬퍼).
 - **현재 상태:** 🟡 MONITORING — 데스크톱 e2e·시뮬만. 실기기 판정 전까지 RESOLVED 아님.
 

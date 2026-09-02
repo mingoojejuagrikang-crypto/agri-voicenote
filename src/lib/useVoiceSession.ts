@@ -85,7 +85,7 @@ import { classifyInputDevice, classifyAudioInputClass } from './inputDevice';
 import { ensureSpeakerId, getSpeakerId } from './sttSpeaker';
 import { clearCurrentSttProfile, selectSttProfile } from './sttProfileStore';
 import { noteSttNonVoiceCorrection, resetSttCorrectionTracker } from './sttCorrectionTracker';
-import { finishSttConfusion, resetSttConfusionSession } from './sttConfusionRuntime';
+import { finishSttConfusion, resetSttConfusionSession, resolveSttConfusion } from './sttConfusionRuntime';
 
 
 /** 대기 셀 공통 좌표. */
@@ -2491,7 +2491,11 @@ export function useVoiceSession() {
     //    이미 여기 있다 — 같은 계약이다.
     // 🔴 **이 두 줄 사이에 `await`를 넣지 마라.** 넣는 순간 원래 버그로 되돌아간다.
     const audioCtxState = unlockAudioPlayback();  // AudioContext 생성 + resume (비프 경로)
-    const ttsWarmup = warmupTts();                 // speechSynthesis 개시 (TTS 경로) — 결과는 아래에서 확인
+    const ttsWarmup = warmupTts();
+    // v0.51.1 R6 — 화자 id(이메일 sha256 · 비동기)를 여기서 **기다리지 않고** 띄운다: 부팅(App)이 이미 계산해 둔
+    //   캐시를 로그인 변경에 대비해 재확인하는 것뿐이고, 아래 gUM·정착 await(≥1s) 동안 끝난다. `start()`에 await를
+    //   하나 더 넣으면 그 창마다 언마운트 재확인(F18 B1)이 필요해지므로 값은 시작 로그에서 `getSpeakerId()`로 읽는다.
+    void ensureSpeakerId();                 // speechSynthesis 개시 (TTS 경로) — 결과는 아래에서 확인
     logCell({ type: 'app', extra: `audio_unlock:ctx=${audioCtxState},src=session_start` });
     // 🔴 v0.46.1 WP-1c(민구 지시 08-07) — 준비 **진행 상태**를 화면에 낸다.
     //    *"3초뒤 화면 전환이 아닌, 권한 수락하고 실제 마이크/스피커 입출력이 가능한지 확인하고,
@@ -2646,9 +2650,6 @@ export function useVoiceSession() {
     // v0.34.0 C9(d) — 토큰 조건을 (토큰 || API key)로 완화(readonlySheetsAuth SSOT). 공개 시트면
     // 토큰 만료 세션에서도 신선 인덱스를 당길 수 있다 — [TREND-AUTH-1]의 침묵 창이 좁아진다.
     if (anyAnomalyRule && readonlySheetsAuth()) { resetPastIndexRetries(); prefetchPastIndex(); }
-    // v0.51.1 R6 — 화자 id(sha256 비동기)를 `session start` 메타에 싣기 전에 확정한다. 위 gUM await 뒤라
-    //   phase/warmup 동기 구간과 무관하고, 실측 <1ms.
-    await ensureSpeakerId();
     logger.setSessionId(sessionIdRef.current);
     // #1 reach telemetry: attach session-meta alongside the existing `extra:'start'` tag.
     // `extra` is preserved so any analysis keying on it keeps working; new fields are additive.
@@ -3425,6 +3426,8 @@ export function useVoiceSession() {
   const commitTouchValue = useCallback(async (row: number, colId: string, value: string) => {
     logCell({ type: 'command', parsed: 'touch_commit', extra: 'touch', text: value, row, colId });
     // v0.51.1 R6 — 정정 쌍(터치 인라인): 이 셀에 음성 커밋 기억이 있을 때만 쌍이 남는다(터치 전용 컬럼은 침묵).
+    //   `getColById`는 매 렌더 재생성 함수라 이 useCallback deps에 없다 — 컬럼은 세션 중 바뀌지 않아 stale 캡처가 무해하다
+    //   (`commitManualValue`가 같은 방식으로 얻는다).
     {
       const prevTouch = useSessionStore.getState().getRowValues(row)[colId];
       const colTouch = getColById(colId);
@@ -3566,6 +3569,9 @@ export function useVoiceSession() {
     //   사용자는 그 행의 **아무 칩이나** 눌러 고친다(v0.34.0 A3). 컬럼까지 요구하면 첫 컬럼 외
     //   전부가 흐름 밖으로 떨어져 「검토 중 정정」 계약([NAV-FILLED-CELL-1] 계열)이 깨진다.
     //   오라클: tests/v049-r4-m1-crossrow-ownsflow.spec.ts
+    // v0.51.1 R6 — 확인 질문이 걸린 셀에 손으로 값을 넣었다 = 질문은 끝났다(chosen=-). 아래 재무장이 awaiting을 modify로
+    //   덮기 전에 결산해야 hint가 세션 종료까지 늦어지지 않는다(발동당 1건 계약은 그대로).
+    if (awaiting?.kind === 'confusionConfirm' && awaiting.row === row && awaiting.colId === colId) resolveSttConfusion(null, logCell);
     const ownsReviewWait = awaiting?.kind === 'reviewWait' && awaiting.row === row;
     const ownsCell = !!awaiting && awaiting.kind !== 'reviewWait' && awaiting.kind !== 'atEnd'
       && awaiting.row === row && awaiting.colId === colId;

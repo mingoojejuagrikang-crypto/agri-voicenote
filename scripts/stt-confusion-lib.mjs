@@ -16,7 +16,7 @@ import {
   addObservation, alignPair, colKey, emptyTable, isNumericString, mergeTables, noteSeen,
 } from '../src/lib/sttConfusionCore.ts';
 
-export function sha8(email) {
+function sha8(email) {
   return createHash('sha256').update(String(email).trim().toLowerCase()).digest('hex').slice(0, 8);
 }
 

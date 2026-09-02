@@ -92,6 +92,24 @@ async function eventsWithPrefix(page: Page, prefix: string): Promise<{ extra: st
   }, prefix);
 }
 
+/** `session start` 이벤트의 meta.speaker — R6 수집 배선(미로그인 mock 환경이면 `anon`). */
+async function sessionStartSpeaker(page: Page): Promise<string | undefined> {
+  return page.evaluate(async () => {
+    const db: IDBDatabase = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('agri-voicenote');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const all: any[] = await new Promise((resolve, reject) => {
+      const req = db.transaction('logEvents', 'readonly').objectStore('logEvents').getAll();
+      req.onsuccess = () => resolve(req.result as any[]);
+      req.onerror = () => reject(req.error);
+    });
+    const start = all.filter((e) => e.type === 'session' && e.extra === 'start').at(-1);
+    return start?.meta?.speaker;
+  });
+}
+
 async function valueEvents(page: Page) {
   return page.evaluate(async () => {
     const db: IDBDatabase = await new Promise((resolve, reject) => {
@@ -143,6 +161,8 @@ async function sttProfiles(page: Page): Promise<any[]> {
 
 test('유일 후보(횡경 49.5)는 묻지 않고 · 당도 「1.7」은 「1.7인가요, 8.7인가요…」 1회 → 「둘째」 → 8.7 재커밋 + 정정 쌍', async ({ page }) => {
   await setupAndStart(page);
+  // 수집 배선: 세션 시작 메타에 화자 id — 미로그인 mock 환경이라 `anon`(로그인이면 이메일 sha256 앞 8자).
+  expect(await sessionStartSpeaker(page)).toBe('anon');
   await fireStt(page, '49.5', 500);
   await waitForActiveChip(page, '당도');
   await waitForTtsIdle(page);
