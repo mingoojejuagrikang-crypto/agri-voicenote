@@ -92,6 +92,15 @@
     `mic_interrupt_defer:*`)은 「`mic_interrupt:off` 1건당 unmute 시점 정확히 1줄」 판독 불변식을 두 접두로
     쪼개므로 기각. ⚠️ teamops `SOP-003`:249의 「`lost<=0`이면 아무 줄도 안 남긴다」 규칙은 이 등재로 낡는다 —
     머지 뒤 Larry가 갱신(레포 밖).
+  - **신규 이벤트 ⑤·⑥(v0.51.1 R6 · 2026-09-02):** `stt_correction` · `stt_confusion_hint` — 둘 다 **`type:'stt'` + `extra` 접두**로
+    방출한다(신규 `LogEntry.type` 없음 — log-replay 호환 · `clipsManifest`는 extra가 붙은 stt를 앱 주석으로 보고 건너뛴다).
+    형태(바이트 고정 · 빌더 `logEventsStt.ts` · 리터럴 `tests/logEvents.spec.ts`):
+    `stt_correction:from=<parsed|->,to=<final>,path=<direct_modify|rerecord|touch|reask|confusion>,text=<escapeExtraValue 24자>,conf=<c|->,alt=<idx|->`
+    (값이 정정되는 순간 1건 · 재질문은 거절된 시도마다 1건 · `text`는 그 값을 만든 **원 STT 원문**) ·
+    `stt_confusion_hint:heard=<v>,cands=<a|b>,rule=<r1|r2>,asked=<0|1>,chosen=<heard|alt|respoken|->`
+    (후보 발동당 **정확히 1건** — 물었으면 답이 정해진 뒤, 상한으로 안 물었으면 그 자리에서 asked=0).
+    같은 회차의 `session start` `meta.speaker`(이메일 sha256 앞 8자)는 meta 필드 추가(additive)다.
+    ⚠️ `field_nav_blocked:<국면>`에 값 `confusionConfirm`이 **추가**됐다 — 꼬리가 아니라 값 하나짜리 형태의 새 값이다(예외 ②의 주의 그대로).
   - 목록에 없는 이벤트는 **바이트 불변**이다. 확장이 필요하면 필드를 늘리지 말고 **새 이벤트
     이름**을 써라 — 그게 계약을 안 깨고 늘리는 유일한 길이다.
   - 🔴 **오라클은 「프로덕션이 실제로 방출하는 형상」을 재라.** 확장 필드가 항상 붙는 이벤트를

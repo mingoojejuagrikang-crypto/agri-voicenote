@@ -132,6 +132,9 @@ interface SessionMeta {
    *  toggle is a Vance follow-up. userEmail (device.json) + value-pattern already allow
    *  crude post-hoc splitting today. */
   sessionMode?: 'field' | 'test';
+  /** v0.51.1 R6 — 화자 id(로그인 이메일 sha256 앞 8자 · 미로그인 `anon`). `session start`에만 실린다.
+   *  프로필(`stt-profile.json`)·판독이 같은 값으로 사람을 잇는다 — 이메일 원문은 device.json에만. */
+  speaker?: string;
 }
 
 export interface DeviceInfo {

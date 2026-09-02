@@ -44,6 +44,8 @@ import {
   sessionStartBlocked,
   endAbsorb,
   sheetSynced,
+  sttCorrection,
+  sttConfusionHint,
 } from '../src/lib/logEvents';
 
 /** v0.51.1 L (민구 지시 2026-09-02) — 동기화 완료 계측. 예시는 STT 레인 §6 L의 형태 그대로. */
@@ -468,4 +470,26 @@ test('[node] ⓪-게이트 이 오라클이 릴리스 게이트 목록에 등재
   };
   const listed = (pkg.scripts['test:e2e:gate'] ?? '').split(/\s+/).filter((x) => x.startsWith('tests/'));
   expect(listed, 'tests/logEvents.spec.ts가 릴리스 게이트 목록에 없다 — predeploy에서 한 번도 돌지 않는다').toContain('tests/logEvents.spec.ts');
+});
+
+/** v0.51.1 R6 — 정정 쌍 명시 이벤트·혼동 후보 계측(화자별 혼동표). PRINCIPLES §4 등재 바이트 계약. */
+test('sttCorrection — from/to/path/text/conf/alt 순서 고정 · 미정 값은 - · text는 escapeExtraValue', () => {
+  expect(sttCorrection({ from: '1.7', to: '8.7', path: 'rerecord', text: '1.7', conf: 0.91, alt: null }))
+    .toBe('stt_correction:from=1.7,to=8.7,path=rerecord,text=1.7,conf=0.91,alt=-');
+  expect(sttCorrection({ from: null, to: '7.6', path: 'reask', text: '3. 육', conf: 0.94, alt: null }))
+    .toBe('stt_correction:from=-,to=7.6,path=reask,text=3. 육,conf=0.94,alt=-');
+  expect(sttCorrection({ from: '100.4', to: '8.4', path: 'direct_modify', text: '십 2008', conf: 0.56, alt: 1 }))
+    .toBe('stt_correction:from=100.4,to=8.4,path=direct_modify,text=십 2008,conf=0.56,alt=1');
+  // 시트 불특정 자유 문자열 — `,`·`=`·`%`가 kv 문법을 깨지 않게 이스케이프되고 24자에서 잘린다(`~`).
+  expect(sttCorrection({ from: '1', to: '2', path: 'touch', text: 'a,b=c%', conf: null, alt: null }))
+    .toBe('stt_correction:from=1,to=2,path=touch,text=a%2Cb%3Dc%25,conf=-,alt=-');
+  expect(sttCorrection({ from: '1', to: '2', path: 'confusion', text: '', conf: 0, alt: 0 }))
+    .toBe('stt_correction:from=1,to=2,path=confusion,text=-,conf=0,alt=0');
+});
+
+test('sttConfusionHint — heard/cands/rule/asked/chosen · 후보·규칙은 |로 잇는다', () => {
+  expect(sttConfusionHint({ heard: '1.7', cands: ['8.7', '7.7'], rules: ['L1P0:1>8', 'L1P0:1>7'], asked: true, chosen: 'alt' }))
+    .toBe('stt_confusion_hint:heard=1.7,cands=8.7|7.7,rule=L1P0:1>8|L1P0:1>7,asked=1,chosen=alt');
+  expect(sttConfusionHint({ heard: '738', cands: ['7.8'], rules: ['dec:as3'], asked: false, chosen: null }))
+    .toBe('stt_confusion_hint:heard=738,cands=7.8,rule=dec:as3,asked=0,chosen=-');
 });

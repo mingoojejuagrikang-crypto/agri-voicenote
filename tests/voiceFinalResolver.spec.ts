@@ -211,3 +211,21 @@ test('[node] ⓪-게이트 이 오라클이 릴리스 게이트 목록에 등재
   const listed = (pkg.scripts['test:e2e:gate'] ?? '').split(/\s+/).filter((x) => x.startsWith('tests/'));
   expect(listed, 'tests/voiceFinalResolver.spec.ts가 릴리스 게이트 목록에 없다 — predeploy에서 한 번도 돌지 않는다').toContain('tests/voiceFinalResolver.spec.ts');
 });
+
+/** v0.51.1 R6 — 혼동 확인 질문 대기(민구 결정 09-02 ①): 값은 이미 커밋돼 있다. 기존 단언은 한 글자도 안 바뀐다 —
+ *  `confusionDismissed`는 이 국면의 타 명령에만 붙는다(있을 때만). */
+test('confusionConfirm — 확인/유지=원값 확정, UI·이동 명령=질문 보존 통과, 타 명령=질문 접고 디스패치, 값=폴스루', () => {
+  const cc = { ...base, awaitingKind: 'confusionConfirm' as const };
+  expect(resolveFinal({ ...cc, cmd: 'confirm' })).toEqual({ act: 'confusionResolve' });
+  expect(resolveFinal({ ...cc, cmd: 'keep' })).toEqual({ act: 'confusionResolve' });
+  // 항목 이동은 알림(질문)을 소모하지 않고 통과한다 — 거부는 gotoAdjacentField의 국면 가드가 한다([PHASE-NAV-1]).
+  expect(resolveFinal({ ...cc, cmd: 'nextField' })).toEqual({ act: 'dispatch', cmd: 'nextField', trendDemoted: false });
+  expect(resolveFinal({ ...cc, cmd: 'help' })).toEqual({ act: 'dispatch', cmd: 'help', trendDemoted: false });
+  // 종료·수정 등은 질문을 접는다(confusionDismissed) — 호출부가 modify로 강등하고 정상 dispatch한다.
+  expect(resolveFinal({ ...cc, cmd: 'end' })).toEqual({ act: 'dispatch', cmd: 'end', trendDemoted: false, confusionDismissed: true });
+  expect(resolveFinal({ ...cc, cmd: 'modify' })).toEqual({ act: 'dispatch', cmd: 'modify', trendDemoted: false, confusionDismissed: true });
+  // 명령 아님 = 값 경로(답변 낱말·값 재발화는 값 게이트가 해석). trendCorrection은 아니다.
+  expect(resolveFinal({ ...cc, cmd: null })).toEqual({ act: 'value', trendCorrection: false });
+  // 신뢰도 게이트가 먼저다(종전 순서 그대로).
+  expect(resolveFinal({ ...cc, cmd: 'end', confidence: 0.3 })).toEqual({ act: 'rejectLowConfidence', minConfidence: 0.7 });
+});

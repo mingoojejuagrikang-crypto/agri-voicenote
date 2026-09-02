@@ -11,6 +11,7 @@ import type { logger } from './logger';
 import { cancelTts } from './speech';
 import type { Column } from '../types';
 import type { AwaitingField } from './useVoiceSession';
+import { CONFUSION_ANSWER_FIRST_TTS } from './voicePrompts';
 
 type LogCell = (entry: Omit<Parameters<typeof logger.log>[0], 'sessionId'>) => void;
 
@@ -116,6 +117,10 @@ export function useFieldNav(deps: FieldNavDeps) {
     //   여기서 거부해 봐야 알람은 사라진 뒤다 — 두 파일이 한 계약이다.
     const blockedPhase = awaiting?.kind === 'trendConfirm'
       ? 'trendConfirm'
+      // v0.51.1 R6 — 혼동 확인 질문도 「답을 기다리는 국면」이다([PHASE-NAV-1] — 리졸버가 이동 명령을 보존
+      //   통과시키고 여기서 거부한다 · 알람과 같은 두 반쪽). 값은 커밋돼 있어 데이터 유실은 없다.
+      : awaiting?.kind === 'confusionConfirm'
+        ? 'confusionConfirm'
       : awaiting?.kind === 'modify'
         ? 'modify'
         : (awaiting && fractionWholeOf(awaiting) != null) ? 'fractionWhole' : null;
@@ -130,7 +135,9 @@ export function useFieldNav(deps: FieldNavDeps) {
       //   겹치지 않는다(detectCommand는 공백 제거 후 startsWith — "먼저…"로 시작하므로 안전).
       const msg = blockedPhase === 'trendConfirm'
         ? '먼저 알람을 확인하세요.'
-        : '먼저 값을 말씀해 주세요.';
+        : blockedPhase === 'confusionConfirm'
+          ? CONFUSION_ANSWER_FIRST_TTS
+          : '먼저 값을 말씀해 주세요.';
       sess.setLastTts(msg);
       await say(msg);
       return;

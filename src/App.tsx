@@ -27,6 +27,8 @@ import { bgEnterSnapshot, lifecycleSignal, visibilityContext } from './lib/logEv
 import { useSessionStore, isSessionLive } from './stores/sessionStore';
 import { onTokenSettled } from './lib/googleAuth';
 import { touchConnection } from './lib/googleConnection';
+import { hydrateSttProfiles } from './lib/sttProfileStore';
+import { ensureSpeakerId } from './lib/sttSpeaker';
 
 export default function App() {
   const [tab, setTab] = useState<TabId>('settings');
@@ -101,6 +103,9 @@ export default function App() {
     initAutoCapture();
     // v0.33.0 항목11 — 개선요청 큐 자동 재전송 배선(부팅 즉시 1회 + online 복귀 + 토큰 settle).
     initFeedbackQueueFlush();
+    // v0.51.1 R6 — 화자 프로필 하이드레이션 + 화자 id 선계산(둘 다 idempotent · 세션 시작이 각각 await/재확인한다).
+    void hydrateSttProfiles();
+    void ensureSpeakerId();
   }, []);
 
   // v0.33.0 B(신규) — lifecycle:vis_* 계측(07-13 분석 §3 권고). 화면 끄기/OS 앱 전환/브라우저

@@ -46,11 +46,13 @@ import { buildAnomalyAlert } from './anomalyAlert';
 import { playBeep } from './beep';
 import { useModifyPhase } from './modifyPhase';
 import { formatForTts, speak } from './speech';
-import { formatNameForTts } from './voicePrompts';
+import { formatNameForTts, confusionQuestionTts } from './voicePrompts';
 import type { Column } from '../types';
 import type { logger } from './logger';
 import type { TrendViolation } from './trendCheck';
 import type { AwaitingField, FinalCtx } from './useVoiceSession';
+import { noteSttVoiceCommit } from './sttCorrectionTracker';
+import { armSttConfusion, evaluateSttConfusion, parseConfusionAnswer } from './sttConfusionRuntime';
 import type { ValueCommitResult } from './useValueCommit';
 
 type LogCell = (entry: Omit<Parameters<typeof logger.log>[0], 'sessionId'>) => void;
@@ -108,6 +110,13 @@ export function useCommitLanding(deps: CommitLandingDeps) {
     const {
       parsed, col, lowConfParsedExtra, myEpoch, commitLatencyMs, runCorrectedPersistCheck,
     } = committed;
+    // v0.51.1 R6 r2 P2-4 — 정정 쌍의 경로. 질문 대기 중 커밋은 둘로 갈린다: **후보를 골랐다**(「둘째」 → parsed가 후보
+    //   목록에 있고 발화가 순서 낱말) = `confusion`(사용자 선택 · STT 관측이 아니다 → 트래커가 기억·분모를 남기지 않는다) ·
+    //   **값을 다시 말했다** = STT가 새로 들은 값이라 종전 재녹음과 같은 `rerecord`. 순수 함수로 가르고 ctx에 필드를 늘리지 않는다.
+    const correctionPath: 'value' | 'rerecord' | 'confusion' = (
+      awaiting.kind === 'confusionConfirm' && awaiting.cands.includes(parsed)
+      && parseConfusionAnswer(text, awaiting.cands.length)?.kind === 'choice'
+    ) ? 'confusion' : isModifyLike(awaiting) ? 'rerecord' : 'value';
 
     // ── v0.7.0 B4: 추세 검증 — 값 커밋 직후 · echo/advance 전 ──
     // 값↔클립 매핑은 위에서 이미 확정됐고 커밋된 값은 위반이어도 그대로 선다(롤백 없음 — 민구
@@ -153,6 +162,13 @@ export function useCommitLanding(deps: CommitLandingDeps) {
           ? { previousValue: previousValueOf(awaiting) }
           : {}),
       });
+      // v0.51.1 R6 — 정정 쌍·분모(알람 분기도 커밋이다 — 위 value 이벤트와 같은 이유로 모수에서 빼지 않는다).
+      noteSttVoiceCommit({
+        row: awaiting.row, colId: awaiting.colId, colName: awaiting.name, col,
+        text, conf: confidence, altIdx: ctx.altIdx ?? null, parsed,
+        previousValue: isModifyLike(awaiting) ? previousValueOf(awaiting) ?? null : null,
+        path: correctionPath,
+      }, logCell);
       // 응답 대기 상태 무장 — 새 값 발화가 기존 수정(isModify) 의미론으로 재커밋되도록
       // previousValue=방금 커밋된 값과 함께 세팅한다.
       // 🔴 v0.47.0-r3(이중 콜드 리뷰 08-09, codex f2 + claude §1 독립 일치) — **재위반 재무장도
@@ -225,6 +241,51 @@ export function useCommitLanding(deps: CommitLandingDeps) {
       // 단 알람 TTS까지 끝난 지금 시점에 스케줄한다.
       runCorrectedPersistCheck();
       return; // advance 중단 — 해소는 명령 스테이지(useFinalCommands)의 trendConfirm 분기
+    }
+
+    // ── v0.51.1 R6 — 혼동 후보 확인 질문(민구 결정 09-02 ①: 커밋은 이미 됐다 · echo 대신 질문) ──
+    //   알람이 위에서 떴으면 여기 오지 않는다(알람 우선 — 민구 #3). 답변 재커밋(confusionConfirm)에는 다시 묻지
+    //   않고, 셀·세션 상한은 `evaluateSttConfusion`이 센다. 🔴 후보는 혼동표 확률만으로 고른다(ⓐ — 세션 내 값
+    //   규칙 없음). 값 이벤트·정정 쌍은 정상 커밋과 **같은 형태**로 먼저 남긴다(질문은 그 뒤의 일이다).
+    if (awaiting.kind !== 'confusionConfirm') {
+      const q = evaluateSttConfusion({ row: awaiting.row, colId: awaiting.colId, colName: awaiting.name, col, heard: parsed }, logCell);
+      if (q) {
+        logCell({
+          type: 'value',
+          row: awaiting.row, colId: awaiting.colId, colName: awaiting.name,
+          text, parsed, confidence,
+          durationMs: commitLatencyMs,
+          ...(lowConfParsedExtra ? { extra: lowConfParsedExtra } : {}),
+          ...(isModifyLike(awaiting) && previousValueOf(awaiting) != null
+            ? { previousValue: previousValueOf(awaiting) }
+            : {}),
+        });
+        noteSttVoiceCommit({
+          row: awaiting.row, colId: awaiting.colId, colName: awaiting.name, col,
+          text, conf: confidence, altIdx: ctx.altIdx ?? null, parsed,
+          previousValue: isModifyLike(awaiting) ? previousValueOf(awaiting) ?? null : null,
+          path: correctionPath,
+        }, logCell);
+        armSttConfusion(q, logCell);
+        // 응답 대기 상태 무장 — 「둘째」/재발화가 수정 의미론(previousValue=들린 값)으로 재커밋되도록. 착지 예약
+        // (resumeReview/resumeCell)은 알람 재무장과 같은 이유로 보존한다.
+        awaitingFieldRef.current = {
+          kind: 'confusionConfirm',
+          row: awaiting.row, colId: awaiting.colId, name: awaiting.name,
+          previousValue: parsed, heard: parsed, cands: q.cands, rules: q.rules,
+          ...(resumeReviewOf(awaiting) != null ? { resumeReview: resumeReviewOf(awaiting) } : {}),
+          ...(resumeCellOf(awaiting) != null ? { resumeCell: resumeCellOf(awaiting) } : {}),
+        };
+        // 응답 발화 클립 시작(알람과 같은 패턴 — TTS 이전 시작, barge-in 수록).
+        armClipForCell(awaiting.row, awaiting.colId);
+        playBeep('alert');
+        const question = confusionQuestionTts(parsed, q.cands);
+        useSessionStore.getState().setLastTts(question);
+        bargeInEpochRef.current = -1;
+        await say(question);
+        runCorrectedPersistCheck();
+        return; // advance 중단 — 해소는 값 게이트(답변)·명령 스테이지('확인'/타 명령)의 confusionConfirm 분기
+      }
     }
 
     // ── v0.13.0 R2(민구 요청): 추세 알림에 새 값으로 응답한 정정이 '정상'으로 판명된 경우 ──
@@ -307,6 +368,14 @@ export function useCommitLanding(deps: CommitLandingDeps) {
         ? { previousValue: previousValueOf(awaiting) }
         : {}),
     });
+    // v0.51.1 R6 — 정정 쌍 명시 이벤트(`stt_correction`) + 화자 프로필 갱신. `value` 이벤트 **뒤**에 남겨
+    //   판독이 「커밋 → 그 커밋이 만든 쌍」 순서로 읽는다. 재녹음(modify/trendConfirm)이면 previousValue와 짝.
+    noteSttVoiceCommit({
+      row: awaiting.row, colId: awaiting.colId, colName: awaiting.name, col,
+      text, conf: confidence, altIdx: ctx.altIdx ?? null, parsed,
+      previousValue: isModifyLike(awaiting) ? previousValueOf(awaiting) ?? null : null,
+      path: correctionPath,
+    }, logCell);
 
     // v0.34.0 O1 — 교정 persist 검사는 커밋 경로 종단(echo TTS·value 이벤트 이후)에 스케줄.
     runCorrectedPersistCheck();

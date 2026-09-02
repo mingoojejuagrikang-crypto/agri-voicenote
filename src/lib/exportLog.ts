@@ -11,6 +11,9 @@ import { attachClipsManifest, type ManifestSourceEvent } from './clipsManifest';
 import type { Session } from '../types';
 import { withoutPendingCandidate } from './pendingValidation';
 import { APP_SENTINEL, blankSessionWindow, includeEventInSessionExport } from './exportLogEvents';
+import { attachSttProfile } from './sttProfileCore.ts';
+import { hydrateSttProfiles, listSttProfiles } from './sttProfileStore';
+import { ensureSpeakerId } from './sttSpeaker';
 
 /** Export logs + audio clips as a ZIP.
  *  - `sessionIds` undefined → include ALL events and clips (used by manual LOG button)
@@ -24,7 +27,10 @@ export async function exportLogZip(sessionIds?: string[]): Promise<Blob> {
   const zip = new JSZip();
   const deviceInfo = await logger.deviceAsync();
   const userEmail = getCurrentEmail();
-  const deviceWithUser = { ...deviceInfo, userEmail: userEmail ?? null };
+  // v0.51.1 R6 — 화자 id(이메일 sha256 앞 8자). 이벤트·프로필의 `speaker`와 같은 값 — 판독이 device.json만
+  //   보고 「이 zip의 프로필이 누구 것인가」를 잇는다(이메일 원문은 종전대로 여기에만 있다).
+  const speakerId = await ensureSpeakerId();
+  const deviceWithUser = { ...deviceInfo, userEmail: userEmail ?? null, speakerId };
   zip.file('device.json', JSON.stringify(deviceWithUser, null, 2));
 
   const filterSet = sessionIds ? new Set(sessionIds) : null;
@@ -119,6 +125,16 @@ export async function exportLogZip(sessionIds?: string[]): Promise<Blob> {
     attachClipsManifest(zip, scopedSessions, events as ManifestSourceEvent[], deviceWithUser.appVersion);
   } catch (e) {
     logger.log({ type: 'app', extra: withErr('manifest_error', e) });
+  }
+
+  // v0.51.1 R6 — stt-profile.json: 기기 누적 화자 혼동표 프로필(민구 09-02 「사람들 각각의 발음 정보」).
+  // additive-only · 세션 필터와 무관하게 기기 전체 프로필을 싣는다(프로필은 세션 경계가 없다).
+  // 실패해도 export는 성공([REVIEW-1] 빈 catch 금지 — stt_profile_export_failed 로깅).
+  try {
+    await hydrateSttProfiles();
+    attachSttProfile(zip, listSttProfiles(), deviceWithUser.appVersion, speakerId);
+  } catch (e) {
+    logger.log({ type: 'app', extra: withErr('stt_profile_export_failed', e) });
   }
 
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });

@@ -44,6 +44,7 @@ import type { Column } from '../types';
 import type { logger } from './logger';
 import type { PendingCommandClip } from './useClipCapture';
 import type { AwaitingField, FinalCtx, ResumeCell } from './useVoiceSession';
+import { resolveSttConfusion } from './sttConfusionRuntime';
 
 type LogCell = (entry: Omit<Parameters<typeof logger.log>[0], 'sessionId'>) => void;
 
@@ -84,6 +85,8 @@ export interface FinalCommandsDeps {
   resumeCellOf: (a: AwaitingField) => ResumeCell | undefined;
   resumeReviewOf: (a: AwaitingField) => number | undefined;
   demoteTrendConfirm: (a: Extract<AwaitingField, { kind: 'trendConfirm' }>) => AwaitingField;
+  /** v0.51.1 R6 — 혼동 확인 질문 강등(타 명령으로 질문을 접을 때). */
+  demoteConfusionConfirm: (a: Extract<AwaitingField, { kind: 'confusionConfirm' }>) => Extract<AwaitingField, { kind: 'modify' }>;
   awaitingFieldRef: { current: AwaitingField | null };
   epochRef: { current: number };
   uiCommandSeqRef: { current: number };
@@ -413,6 +416,23 @@ export function useFinalCommands(deps: FinalCommandsDeps) {
     }
     // action 'value'의 trendCorrection(새 값 폴스루)은 값 경로가 처리 — 커밋 지점에서
     // trend_alert_corrected 기록.
+
+    // ── v0.51.1 R6 — 혼동 확인 질문 해소(민구 결정 09-02 ①: 들린 값은 이미 커밋돼 있다) ──
+    // '확인'/'유지' = 원값이 맞았다 → 계측(chosen=heard) + 프로필 부정 사례 + 착지 진행(trendResolve와 같은 문).
+    if (action.act === 'confusionResolve' && cmd && awaiting.kind === 'confusionConfirm') {
+      cancelTts();
+      resolveSttConfusion('heard', logCell);
+      awaitingFieldRef.current = null;
+      await proceedAfterCommit(awaiting);
+      return true;
+    }
+    // 타 명령(종료·일시정지·수정…)은 질문을 접는다 — 원값은 그대로 서 있다. '수정'은 재청취(chosen=respoken),
+    // 나머지는 소멸(chosen=-). 수정 의미론으로 강등해 '수정'이 같은 셀 재청취로, 그 밖은 정상 dispatch로 간다.
+    if (action.act === 'dispatch' && action.confusionDismissed && awaiting.kind === 'confusionConfirm') {
+      resolveSttConfusion(cmd === 'modify' ? 'respoken' : null, logCell);
+      awaiting = depsRef.current.demoteConfusionConfirm(awaiting);
+      awaitingFieldRef.current = awaiting;
+    }
 
     if (action.act === 'dispatch') {
       // v0.38.0 리뷰#1 — UI 전용 명령은 목록을 여기 복붙하지 않고 voiceCommands의 SSOT로 판정한다

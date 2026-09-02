@@ -219,3 +219,12 @@ export const MIC_INTERRUPT_RECOVERED_TTS = '마이크가 잠시 멈춰 있었습
  *  아무 일도 없다」를 겪었다(로그 16초 공백 · 제보 스크린샷 「음성입력 항목 0개 · 버튼 활성」).
  *  이 한 문장이 **화면 힌트(`ReadyState`)와 `setLastTts`(시트 차단 갈래와 같은 꼴) 양쪽의 SSOT**다. */
 export const NO_VOICE_COLUMNS_MESSAGE = '음성 입력 항목이 없습니다. 입력방식을 확인해 주세요.';
+
+/** v0.51.1 R6 — 혼동 확인 질문(TTS·화면 공용). 원값이 항상 **첫째**, 후보는 최대 2개(`maxCands`). TTS는 아라비아
+ *  숫자를 그대로 읽으므로(`formatForTts` 통과) 「1.7인가요, 8.7인가요?」로 짧다([TTS-WATCHDOG-1]). 민구 승인 09-02(#3). */
+export function confusionQuestionTts(heard: string, cands: string[]): string {
+  return `${[heard, ...cands].map((v) => `${v}인가요`).join(', ')}?`;
+}
+
+/** v0.51.1 R6 — 확인 질문에 답하기 전 항목 이동을 거부할 때의 한 마디([PHASE-NAV-1] · 알람의 「먼저 알람을 확인하세요.」 짝). */
+export const CONFUSION_ANSWER_FIRST_TTS = '먼저 답해 주세요.';
