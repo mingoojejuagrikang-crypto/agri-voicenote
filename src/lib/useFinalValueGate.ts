@@ -213,10 +213,6 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
       return true;
     }
 
-    // v0.51.1 R6 — 흡수 3종을 지난 발화 = 「이 셀의 값이 되려는 시도」. 트래커가 기억해 두었다가 커밋 시
-    //   거절됐던 시도들을 `stt_correction:path=reask` 쌍으로 남긴다(아래 가드 4종·파싱 실패 전부 「거절」이다).
-    noteSttAttempt(awaiting.row, awaiting.colId, text, confidence);
-
     // v0.51.1 R6 — 혼동 확인 질문의 답변 해석(컬럼명·응답어·단음절 가드보다 **앞** — 근거·계약은 그 파일 헤더).
     if (awaiting.kind === 'confusionConfirm') {
       const r = await runConfusionAnswerGate(ctx, awaiting, {
@@ -228,6 +224,12 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
       if (r === 'handled') return true;
       if (r === 'commit') return false;
     }
+
+    // v0.51.1 R6 — 흡수 3종·답변 낱말을 지난 발화 = 「이 셀의 값이 되려는 시도」. 트래커가 기억해 두었다가 커밋 시
+    //   거절됐던 시도들을 `stt_correction:path=reask` 쌍으로 남긴다(아래 가드 4종·파싱 실패 전부 「거절」이다).
+    //   🔴 r2 P2-5 — 답변 분기 **뒤**다: 「아니오/네/첫째/둘째」는 값이 되려는 시도가 아니라 답이라 시도로 기억하지 않는다
+    //   (종전엔 앞에 있어 `path=reask,text=아니오` 가짜 쌍이 남았다 — 리뷰 R-E).
+    noteSttAttempt(awaiting.row, awaiting.colId, text, confidence);
 
     // Item 12: 컬럼명 완전 일치 STT 거부 — 숫자/날짜 컬럼에만 적용 (text/options 컬럼은 컬럼명이 유효한 값일 수 있음)
     const allColumns = getSessionColumns();

@@ -52,7 +52,7 @@ import type { logger } from './logger';
 import type { TrendViolation } from './trendCheck';
 import type { AwaitingField, FinalCtx } from './useVoiceSession';
 import { noteSttVoiceCommit } from './sttCorrectionTracker';
-import { armSttConfusion, evaluateSttConfusion } from './sttConfusionRuntime';
+import { armSttConfusion, evaluateSttConfusion, parseConfusionAnswer } from './sttConfusionRuntime';
 import type { ValueCommitResult } from './useValueCommit';
 
 type LogCell = (entry: Omit<Parameters<typeof logger.log>[0], 'sessionId'>) => void;
@@ -110,6 +110,13 @@ export function useCommitLanding(deps: CommitLandingDeps) {
     const {
       parsed, col, lowConfParsedExtra, myEpoch, commitLatencyMs, runCorrectedPersistCheck,
     } = committed;
+    // v0.51.1 R6 r2 P2-4 — 정정 쌍의 경로. 질문 대기 중 커밋은 둘로 갈린다: **후보를 골랐다**(「둘째」 → parsed가 후보
+    //   목록에 있고 발화가 순서 낱말) = `confusion`(사용자 선택 · STT 관측이 아니다 → 트래커가 기억·분모를 남기지 않는다) ·
+    //   **값을 다시 말했다** = STT가 새로 들은 값이라 종전 재녹음과 같은 `rerecord`. 순수 함수로 가르고 ctx에 필드를 늘리지 않는다.
+    const correctionPath: 'value' | 'rerecord' | 'confusion' = (
+      awaiting.kind === 'confusionConfirm' && awaiting.cands.includes(parsed)
+      && parseConfusionAnswer(text, awaiting.cands.length)?.kind === 'choice'
+    ) ? 'confusion' : isModifyLike(awaiting) ? 'rerecord' : 'value';
 
     // ── v0.7.0 B4: 추세 검증 — 값 커밋 직후 · echo/advance 전 ──
     // 값↔클립 매핑은 위에서 이미 확정됐고 커밋된 값은 위반이어도 그대로 선다(롤백 없음 — 민구
@@ -160,7 +167,7 @@ export function useCommitLanding(deps: CommitLandingDeps) {
         row: awaiting.row, colId: awaiting.colId, colName: awaiting.name, col,
         text, conf: confidence, altIdx: ctx.altIdx ?? null, parsed,
         previousValue: isModifyLike(awaiting) ? previousValueOf(awaiting) ?? null : null,
-        path: awaiting.kind === 'confusionConfirm' ? 'confusion' : isModifyLike(awaiting) ? 'rerecord' : 'value',
+        path: correctionPath,
       }, logCell);
       // 응답 대기 상태 무장 — 새 값 발화가 기존 수정(isModify) 의미론으로 재커밋되도록
       // previousValue=방금 커밋된 값과 함께 세팅한다.
@@ -257,7 +264,7 @@ export function useCommitLanding(deps: CommitLandingDeps) {
           row: awaiting.row, colId: awaiting.colId, colName: awaiting.name, col,
           text, conf: confidence, altIdx: ctx.altIdx ?? null, parsed,
           previousValue: isModifyLike(awaiting) ? previousValueOf(awaiting) ?? null : null,
-          path: isModifyLike(awaiting) ? 'rerecord' : 'value',
+          path: correctionPath,
         }, logCell);
         armSttConfusion(q);
         // 응답 대기 상태 무장 — 「둘째」/재발화가 수정 의미론(previousValue=들린 값)으로 재커밋되도록. 착지 예약
@@ -366,7 +373,7 @@ export function useCommitLanding(deps: CommitLandingDeps) {
       row: awaiting.row, colId: awaiting.colId, colName: awaiting.name, col,
       text, conf: confidence, altIdx: ctx.altIdx ?? null, parsed,
       previousValue: isModifyLike(awaiting) ? previousValueOf(awaiting) ?? null : null,
-      path: awaiting.kind === 'confusionConfirm' ? 'confusion' : isModifyLike(awaiting) ? 'rerecord' : 'value',
+      path: correctionPath,
     }, logCell);
 
     // v0.34.0 O1 — 교정 persist 검사는 커밋 경로 종단(echo TTS·value 이벤트 이후)에 스케줄.

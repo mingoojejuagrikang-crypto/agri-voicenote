@@ -108,6 +108,13 @@ export function noteSttVoiceCommit(input: {
     recordSttCorrection(ck, previousValue, parsed, decimals);
   }
 
+  // 🔴 r2 P2-4 — 「둘째」로 **고른** 값은 STT 관측이 아니다: 기억을 답변 낱말로 덮으면 이후 정정이 「STT가 8.7로 들었는데
+  //   8.4였다」는 가짜 쌍(리뷰 R-D · F0 7>4)이 되고, 분모(seen[8])도 들은 적 없는 숫자로 오른다. 기억을 비우고 분모도
+  //   올리지 않는다(값을 **다시 말한** 재커밋은 `rerecord`라 종전대로 기억·분모를 남긴다).
+  if (path === 'confusion') {
+    m.lastVoice = null;
+    return;
+  }
   // ③ 이 커밋이 이제 그 셀의 STT 기억이다 + 분모.
   m.lastVoice = { text, conf, altIdx, parsed };
   if (col) recordSttCommit(ck, parsed, decimals, col.type);

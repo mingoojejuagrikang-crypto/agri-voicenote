@@ -244,6 +244,8 @@ test('「아니오」 → 재청취 · 같은 셀의 두 번째 후보는 셀당
     'stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=1,chosen=respoken',
     'stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=0,chosen=-',
   ]);
+  // r2 P2-5 — 답변 낱말 「아니오」는 시도가 아니다: 재커밋(1.7→1.7 · 같은 값)에 `path=reask,text=아니오` 가짜 쌍이 없다(리뷰 R-E).
+  expect(await eventsWithPrefix(page, 'stt_correction')).toEqual([]);
 });
 
 test('질문 대기 중 「다음」은 거부+안내([PHASE-NAV-1]) · 「확인」으로 해소하면 진행한다', async ({ page }) => {

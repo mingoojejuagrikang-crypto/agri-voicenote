@@ -100,6 +100,22 @@ test.describe('sttCorrectionTracker — 정정 쌍 이벤트', () => {
     noteSttNonVoiceCorrection({ row: 5, colId: 'c14', colName: '당도', col: BRIX, from: '9.3', to: '9.5', path: 'touch' }, log);
     expect(logged).toHaveLength(1);
   });
+  test('r2 P2-4 — 「둘째」로 고른 값(path=confusion)은 쌍만 남기고 STT 기억을 비운다 · 재발화(rerecord)는 기억을 남긴다', () => {
+    noteSttAttempt(4, 'c14', '1.7', 0.95);
+    noteSttVoiceCommit({ row: 4, colId: 'c14', colName: '당도', col: BRIX, text: '1.7', conf: 0.95, altIdx: null, parsed: '1.7', previousValue: null, path: 'value' }, log);
+    noteSttVoiceCommit({ row: 4, colId: 'c14', colName: '당도', col: BRIX, text: '둘째', conf: 0.95, altIdx: null, parsed: '8.7', previousValue: '1.7', path: 'confusion' }, log);
+    expect(logged.map((l) => l.extra)).toEqual(['stt_correction:from=1.7,to=8.7,path=confusion,text=1.7,conf=0.95,alt=-']);
+    expect(peekSttCellMemory(4, 'c14')).toEqual({ lastParsed: null, pendingAttempts: 0 });
+    // 이어지는 직접값 정정은 STT 기억이 없으니 침묵 — 「STT가 8.7로 들었다」는 가짜 쌍(리뷰 R-D)이 안 남는다.
+    noteSttNonVoiceCorrection({ row: 4, colId: 'c14', colName: '당도', col: BRIX, from: '8.7', to: '8.4', path: 'direct_modify' }, log);
+    expect(logged).toHaveLength(1);
+    // 반증 짝: 값을 다시 말한 재커밋(rerecord)은 STT 관측이라 기억이 남고 다음 정정에 쌍이 난다.
+    noteSttVoiceCommit({ row: 5, colId: 'c14', colName: '당도', col: BRIX, text: '1.7', conf: 0.95, altIdx: null, parsed: '1.7', previousValue: null, path: 'value' }, log);
+    noteSttVoiceCommit({ row: 5, colId: 'c14', colName: '당도', col: BRIX, text: '팔 점 칠', conf: 0.9, altIdx: null, parsed: '8.7', previousValue: '1.7', path: 'rerecord' }, log);
+    expect(peekSttCellMemory(5, 'c14')).toEqual({ lastParsed: '8.7', pendingAttempts: 0 });
+    noteSttNonVoiceCorrection({ row: 5, colId: 'c14', colName: '당도', col: BRIX, from: '8.7', to: '8.4', path: 'direct_modify' }, log);
+    expect(logged.at(-1)!.extra).toBe('stt_correction:from=8.7,to=8.4,path=direct_modify,text=팔 점 칠,conf=0.9,alt=-');
+  });
   test('text는 escapeExtraValue를 거친다(쉼표·등호·24자 절단) · previousValue가 같으면 쌍 없음', () => {
     noteSttVoiceCommit({ row: 7, colId: 'c14', colName: '당도', col: BRIX, text: '십 2008, 그리고=아주 긴 발화 원문 문자열입니다', conf: 0.5, altIdx: 2, parsed: '10.8', previousValue: null, path: 'value' }, log);
     noteSttVoiceCommit({ row: 7, colId: 'c14', colName: '당도', col: BRIX, text: '10.8', conf: 0.9, altIdx: null, parsed: '10.8', previousValue: '10.8', path: 'rerecord' }, log);
