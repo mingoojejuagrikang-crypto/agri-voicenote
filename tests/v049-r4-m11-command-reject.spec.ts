@@ -40,6 +40,9 @@ const MINI_ROWS = [[PREV_ROUND, '이원창', '1', '100.0', '']];
 
 /** 명령 게이트 기본값은 0.7(`commandMinConfidence`) — 0.5는 확실히 그 아래다. */
 const LOW_CONF = 0.5;
+/** v0.51.1 R5 — **정확 일치 「수정」**은 floor가 0.40이다(`minConfidenceExact` · 09-02 실기기 0.443~0.505 거절 구제).
+ *  종전 0.5는 이제 접수되므로, 「수정」 거절 케이스(②·④)는 0.40 **아래**로 쏜다(잡음 군집 최대 0.313 부근). */
+const LOW_CONF_MODIFY = 0.3;
 
 type LogEv = { type: string; extra?: string };
 
@@ -102,7 +105,7 @@ test('② 셀 검토 대기에서도 같은 거절 신호 — 문구만 그 상�
   expect((await ttsLog(page)).join(' | '), '전제: cellWait 착지').toContain('기록값');
 
   const before = await rejectBeeps(page);
-  await fireStt(page, '수정', 1500, LOW_CONF);
+  await fireStt(page, '수정', 1500, LOW_CONF_MODIFY);
   await waitForTtsIdle(page);
 
   await expect.poll(() => rejectBeeps(page), { timeout: 5000 }).toBe(before + 1);
@@ -130,7 +133,7 @@ test('④ 가드 — 소수 재질문 중의 명령 거절이 소수 문맥을 �
   await waitForTtsIdle(page);
   await expect(cue(page)).toContainText('111 점, 소수점 아래');
 
-  await fireStt(page, '수정', 1500, LOW_CONF); // 저신뢰 **명령** 거절
+  await fireStt(page, '수정', 1500, LOW_CONF_MODIFY); // 저신뢰 **명령** 거절(R5 뒤에도 0.40 아래)
   await waitForTtsIdle(page);
 
   // `armRejectCue`의 setReaskReason이 정수부를 함께 지운다 — 되살리지 않으면 여기서 red.
