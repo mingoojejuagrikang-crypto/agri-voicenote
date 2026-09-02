@@ -12,6 +12,8 @@ import { test, expect } from '@playwright/test';
 import { DEFAULT_CANDIDATE_PARAMS, decide, generateCandidates, type ConfusionTable } from '../src/lib/sttConfusionCore.ts';
 import defaultJson from '../src/data/stt-confusion-default.json' with { type: 'json' };
 import fixture from './fixtures/stt-commits-0902.json' with { type: 'json' };
+import { evaluateSttConfusion, resetSttConfusionSession } from '../src/lib/sttConfusionRuntime';
+import type { Column } from '../src/types';
 
 interface Commit { sid: string; row: number; colId: string; col: string; colType: string; decimals: number; heard: string; truth: string }
 
@@ -52,3 +54,30 @@ test('🔴 clean 892 시도에서 발동 0 — 위양성이 있으면 목록으�
   expect(r.caught).toBeGreaterThanOrEqual(10);
 });
 
+/** r2 P2-6 — 픽스처 984건은 지배 규칙(`L1P0:1>8`)에 대해 「1.x가 정상인 clean」이 사실상 없어(적정 1.95 1건 · 셀 상한에 가려짐)
+ *  공집합 검증이었다. 1.x가 정상인 컬럼의 **합성 clean**을 런타임 경로(`evaluateSttConfusion` · 출하 표 · 프로필 미선택)로
+ *  넣어 발동 0을 단언한다. 같은 describe에 반드시 발동해야 하는 행(당도 1.7)을 두어 압력을 건다([TEAMOPS-37]). */
+test.describe('r2 P2-6 — 1.x가 정상인 컬럼의 합성 clean 픽스처 · 출하 표 · 발동 0', () => {
+  const col = (id: string, name: string, type: 'float' | 'int', decimals?: number): Column => ({
+    id, name, type, input: 'voice', ttsAnnounce: true, auto: { kind: 'fixed', value: '' }, ...(decimals != null ? { decimals } : {}),
+  });
+  const TITR = col('c15', '적정', 'float', 2);      // 적정 1.9x — 실측 정상값(09-02 r5 1.95)
+  const PEEL = col('c7', '과피두께x4', 'float', 1);  // 과피두께 1.x — mm 단위 정상 범위
+  const COUNT = col('c20', '과수', 'int');          // 개수 「1」
+  const BRIX = col('c14', '당도', 'float', 1);
+  const noop = () => {};
+  test.beforeEach(() => resetSttConfusionSession());
+
+  test('적정 1.91~1.95 ×5 · 과피두께 1.1~1.5 ×5 · 과수 「1」 ×3 → 발동 0', () => {
+    const fired: string[] = [];
+    let row = 1;
+    for (const heard of ['1.91', '1.92', '1.93', '1.94', '1.95']) if (evaluateSttConfusion({ row: row++, colId: TITR.id, colName: TITR.name, col: TITR, heard }, noop)) fired.push(`적정 ${heard}`);
+    for (const heard of ['1.1', '1.2', '1.3', '1.4', '1.5']) if (evaluateSttConfusion({ row: row++, colId: PEEL.id, colName: PEEL.name, col: PEEL, heard }, noop)) fired.push(`과피두께 ${heard}`);
+    for (const heard of ['1', '1', '1']) if (evaluateSttConfusion({ row: row++, colId: COUNT.id, colName: COUNT.name, col: COUNT, heard }, noop)) fired.push(`과수 ${heard}`);
+    expect(fired, '1.x가 정상인 컬럼에서 질문이 났다').toEqual([]);
+  });
+  test('압력: 같은 표·같은 경로에서 당도 「1.7」은 발동한다(발동 0이 「아무것도 안 묻는 코드」로 통과하지 않게)', () => {
+    const q = evaluateSttConfusion({ row: 1, colId: BRIX.id, colName: BRIX.name, col: BRIX, heard: '1.7' }, noop);
+    expect(q?.cands).toEqual(['8.7']);
+  });
+});
