@@ -15,6 +15,8 @@ import type { Column } from '../types';
 import type { AwaitingField, FinalCtx } from './useVoiceSession';
 
 type ConfusionAwaiting = Extract<AwaitingField, { kind: 'confusionConfirm' }>;
+/** 값 게이트 블록 E에 도달한 kind(atEnd/reviewWait/cellWait는 흡수 가드가 앞에서 return — 게이트 헤더의 내로잉 증명). */
+type ValueAwaiting = Exclude<AwaitingField, { kind: 'atEnd' | 'reviewWait' | 'cellWait' }>;
 
 export interface ConfusionAnswerGateDeps {
   logCell: SttLogFn;
@@ -23,6 +25,19 @@ export interface ConfusionAnswerGateDeps {
   proceedAfterCommit: (awaiting: AwaitingField | null, opts?: { echoValue?: string }) => Promise<void>;
   relistenInContext: (a: AwaitingField) => Promise<void>;
   demoteConfusionConfirm: (a: ConfusionAwaiting) => Extract<AwaitingField, { kind: 'modify' }>;
+}
+
+/** 🔴 r2 P1-1(정본 ⓑ) — 질문 대기 중 재발화가 「점」 뒤를 잃었다(`decimal_fraction_lost`) = 답은 「값을 다시 말한다」로 정해졌다
+ *  (chosen=respoken). 질문을 **여기서 접고**(modify 강등 · previousValue=들린 값 보존) 돌려준다 — 게이트는 그 위에
+ *  `fractionWhole`을 세운다. 접지 않으면 다음 조각 「일」(= .1)이 답변 해석에 먼저 걸려 순번 「첫째」로 먹히고, 사용자가
+ *  8.1을 말했는데 1.7이 무에코로 남는다(리뷰 R-A · 조용한 오커밋). 질문 대기가 아니면 그대로 돌려준다. */
+export function closeConfusionForRespoken(
+  awaiting: ValueAwaiting,
+  deps: Pick<ConfusionAnswerGateDeps, 'logCell' | 'demoteConfusionConfirm'>,
+): Exclude<ValueAwaiting, ConfusionAwaiting> {
+  if (awaiting.kind !== 'confusionConfirm') return awaiting;
+  resolveSttConfusion('respoken', deps.logCell);
+  return deps.demoteConfusionConfirm(awaiting);
 }
 
 export async function runConfusionAnswerGate(

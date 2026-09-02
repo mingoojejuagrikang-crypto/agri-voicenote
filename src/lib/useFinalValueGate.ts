@@ -38,7 +38,7 @@ import { attemptParseValue } from './valueParseAttempt';
 import { cellWaitPrompt, reviewWaitAbsorbTts } from './voicePrompts';
 import { noteSttAttempt } from './sttCorrectionTracker';
 import { resolveSttConfusion } from './sttConfusionRuntime';
-import { runConfusionAnswerGate } from './finalValueGateConfusion';
+import { closeConfusionForRespoken, runConfusionAnswerGate } from './finalValueGateConfusion';
 import type { Column } from '../types';
 import type { logger } from './logger';
 import type { AwaitingField, FinalCtx } from './useVoiceSession';
@@ -214,8 +214,7 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
     }
 
     // v0.51.1 R6 — 혼동 확인 질문의 답변 해석(컬럼명·응답어·단음절 가드보다 **앞** — 근거·계약은 그 파일 헤더).
-    //   r2 P1-1 ⓐ — 소수 문맥이 열려 있으면 답변 해석을 건너뛴다(조각 「일」은 .1이지 순번이 아니다). 정본 처방 ⓑ(아래
-    //   decimal_fraction_lost 분기가 질문을 접고 강등)로 이 조합은 생기지 않지만, 두 처방이 서로 독립으로 반증되게 둔다.
+    //   r2 P1-1 ⓐ — 소수 문맥이 열려 있으면 건너뛴다(조각 「일」은 .1이지 순번이 아니다 · 정본 ⓑ와 독립 반증용 겹방어).
     if (awaiting.kind === 'confusionConfirm' && fractionWholeOf(awaiting) == null) {
       const r = await runConfusionAnswerGate(ctx, awaiting, {
         logCell, getColById, awaitingFieldRef,
@@ -452,13 +451,8 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
         // concat이 없어 iOS decodeAudioData(webm/opus) 위험(CLIP-2 ⚠️주시)을 구조적으로 피한다.
         // `:raw`도 재시작이 없어 1회만 보존됨.
         logCell({ type: 'clip', extra: 'clip_decimal_kept', row: awaiting.row, colId: awaiting.colId });
-        // 🔴 v0.51.1 R6 r2 P1-1(정본 ⓑ) — 질문 대기 중 재발화가 「점」 뒤를 잃었다 = 답은 「값을 다시 말한다」로 정해졌다
-        //   (chosen=respoken). 질문 국면을 **여기서 접고**(modify 강등 · previousValue=들린 값 보존) 소수 문맥을 연다.
-        //   접지 않으면 다음 조각 「일」(= .1)이 위 답변 해석에 먼저 걸려 순번 「첫째」로 먹히고, 사용자가 8.1을 말했는데
-        //   1.7이 무에코로 남는다(리뷰 R-A · 조용한 오커밋). 이후 조각 합성·재질문 유지는 종전 modify 규칙 그대로다.
-        const base = awaiting.kind === 'confusionConfirm'
-          ? (resolveSttConfusion('respoken', logCell), depsRef.current.demoteConfusionConfirm(awaiting))
-          : awaiting;
+        // r2 P1-1(정본 ⓑ) — 질문 대기 중이면 먼저 접는다(근거·계약은 finalValueGateConfusion.ts).
+        const base = closeConfusionForRespoken(awaiting, { logCell, demoteConfusionConfirm: depsRef.current.demoteConfusionConfirm });
         awaitingFieldRef.current = { ...base, fractionWhole: parseFailWhole };
         // FB#4 — 화면 큐와 TTS의 글자 일치(정수부를 store에 싣는다)는 종단이 한다. 이 분기는
         //   문맥을 **새로 여는** 쪽이라 `awaiting`엔 아직 없다 — 그래서 `whole`로 넘긴다.
