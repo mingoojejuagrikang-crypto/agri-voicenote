@@ -116,11 +116,21 @@ export function parseKoreanNumber(raw: string, maxDecimals?: number): string | n
   const trailingDecimalWord = /[점쩜]$/.test(s);
 
   // If the whole string is a clean spoken-Korean number (incl. 점-decimal), parse it.
+  // 🔴 v0.51.1 R2(2026-09-02 실기기 · STT 레인 §5 A1) — 아래 형상 검사의 문자 집합에 `하`·`한`은
+  //   있는데 **`나`가 없어** 「3.3 하나」(적정 컬럼 · STT가 「삼점삼일」을 이렇게 낸다)가 이 경로에서
+  //   탈락하고 per-token에서 `multi_numeric` 재질문이 됐다 — 같은 꼴 「3.2 둘」은 3.22로 커밋되는데
+  //   「하나」만 안 됐다(09-02 정식 4세션 8시도/6셀 · 4명 전원).
+  //   ⚠️ 집합에 bare `나`를 넣지 **않는다** — 넣으면 「4.11 나」(alt 실측)가 4.11로 조용히 통과해
+  //   잡토큰 재질문(`extraneous_token`) 원칙이 깎인다. 형상 검사에서만 「하나」를 「한」으로 접어
+  //   구제 범위를 정확히 「하나」로 고정한다(값 자체는 위 `parseKoreanSpokenAll`이 이미 3.31로 읽는다).
+  //   대가 0: 오늘 커밋 1,113시도 전량 재실행에서 커밋값이 바뀌는 시도 0 · bare 「나」 형상 무변화
+  //   (빌드 산출물 §2). 「333 하나」는 `parseKoreanSpokenAll`이 null이라 여전히 `multi_numeric`이다
+  //   (「점」 소실을 살리지 않는다). 오라클: tests/koreanNum.spec.ts R2.
   const wholeSpoken = trailingDecimalWord ? null : parseKoreanSpokenAll(s.replace(/\s+/g, ''));
   if (
     wholeSpoken !== null &&
     Math.abs(wholeSpoken) <= OVERFLOW_THRESHOLD &&
-    /^[\s영공일이삼사사오육륙칠팔구하한둘두셋세넷네다섯여섯일곱여덟아홉열십백천만억점쩜.\d]+$/.test(s)
+    /^[\s영공일이삼사사오육륙칠팔구하한둘두셋세넷네다섯여섯일곱여덟아홉열십백천만억점쩜.\d]+$/.test(s.replace(/하나/g, '한'))
   ) {
     return formatNum(wholeSpoken, maxDecimals);
   }

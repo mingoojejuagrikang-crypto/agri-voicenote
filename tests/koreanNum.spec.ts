@@ -390,6 +390,42 @@ test.describe('parseKoreanNumber — maxDecimals rounding', () => {
   });
 });
 
+/**
+ * v0.51.1 R2 (2026-09-02 실기기 · STT 레인 §5 A1) — whole-spoken 정규식 문자 집합의 「나」 누락.
+ *
+ * 09-02 정식 4세션에서 STT가 「삼점삼일」을 「3.3 하나」로 낸 시도가 8건(6셀 · 4명 전원)인데 전부
+ * `multi_numeric` 재질문이었다. 같은 꼴 「3.2 둘」은 3.22로 커밋됐다 — `하`·`한`은 집합에 있고 `나`만
+ * 없어서 「하나」 하나만 whole-spoken 경로를 못 탔다. 아래 세 형상은 그 로그의 원문이다.
+ *
+ * 🔴 반증(2026-09-02 실측): `koreanNum.ts`의 문자 집합에서 `나`를 도로 빼면 ①②③이 red(multi_numeric),
+ *    ④는 그대로 green(변환과 무관한 불변 — 「점」 소실은 살리지 않는다).
+ */
+test.describe('v0.51.1 R2 — 「X.Y 하나」는 「X.Y 둘」과 같은 계약으로 X.Y1', () => {
+  test('① "3.3 하나" → 3.31 (적정 컬럼 · decimals 2)', () => {
+    expect(parseKoreanNumber('3.3 하나', 2)).toBe('3.31');
+    expect(getLastParseFailReason()).toBeNull();
+  });
+  test('② "50. 하나" → 50.1', () => {
+    expect(parseKoreanNumber('50. 하나', 2)).toBe('50.1');
+  });
+  test('③ "4.5 하나" → 4.51', () => {
+    expect(parseKoreanNumber('4.5 하나', 2)).toBe('4.51');
+  });
+  test('④ 회귀 — "333 하나" → null + multi_numeric (「점」 소실은 살리지 않는다)', () => {
+    expect(parseKoreanNumber('333 하나', 2)).toBeNull();
+    expect(getLastParseFailReason()).toBe('multi_numeric');
+  });
+  test('기존 계약 대조 — "3.2 둘" → 3.22 (「하나」와 같은 경로)', () => {
+    expect(parseKoreanNumber('3.2 둘', 2)).toBe('3.22');
+  });
+  // 🔴 구제 범위는 정확히 「하나」다. 문자 집합에 bare `나`를 넣으면 아래가 4.11로 조용히 통과한다
+  //   (09-02 alt 실측 「4.11 나」) — 잡토큰 재질문 원칙(STT-C)을 지킨다.
+  test('⑤ 가드 — bare "나"는 여전히 잡토큰: "4.11 나" → null + extraneous_token', () => {
+    expect(parseKoreanNumber('4.11 나', 2)).toBeNull();
+    expect(getLastParseFailReason()).toBe('extraneous_token');
+  });
+});
+
 test.describe('extractModifyValue — 단일 단어 "수정"만 인식', () => {
   test('"수정 178.1" → "178.1"', () => {
     expect(extractModifyValue('수정 178.1')).toBe('178.1');
