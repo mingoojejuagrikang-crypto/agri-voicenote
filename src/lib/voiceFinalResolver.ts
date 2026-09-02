@@ -20,7 +20,7 @@
  */
 import { VOICE_COMMANDS, isVoiceUiCommand, preservesAnomalyAlert, type VoiceCommand } from './voiceCommands';
 
-export type AwaitingKind = 'value' | 'modify' | 'trendConfirm' | 'atEnd' | 'reviewWait' | 'cellWait';
+export type AwaitingKind = 'value' | 'modify' | 'trendConfirm' | 'confusionConfirm' | 'atEnd' | 'reviewWait' | 'cellWait';
 
 export type FinalAction =
   | { act: 'pausedResume' }
@@ -28,7 +28,10 @@ export type FinalAction =
   | { act: 'pausedIgnore' }
   | { act: 'rejectLowConfidence'; minConfidence: number }
   | { act: 'trendResolve' }
-  | { act: 'dispatch'; cmd: Exclude<VoiceCommand, null>; trendDemoted: boolean }
+  /** v0.51.1 R6 — 혼동 확인 질문의 「확인/유지」(원값 확정·진행). */
+  | { act: 'confusionResolve' }
+  /** `confusionDismissed`는 혼동 질문 대기 중 타 명령이 질문을 접을 때만 붙는다(있을 때만 — 기존 단언 불변). */
+  | { act: 'dispatch'; cmd: Exclude<VoiceCommand, null>; trendDemoted: boolean; confusionDismissed?: true }
   | { act: 'absorbAtEnd' }
   | { act: 'absorbReviewWait' }
   | { act: 'absorbCellWait' }
@@ -73,6 +76,18 @@ export function resolveFinal(input: {
     if (cmd && preservesAnomalyAlert(cmd)) return { act: 'dispatch', cmd, trendDemoted: false };
     if (cmd) return { act: 'dispatch', cmd, trendDemoted: true };
     return { act: 'value', trendCorrection: true };
+  }
+
+  // v0.51.1 R6 — 혼동 확인 질문 대기(민구 결정 09-02 ①: 값은 이미 커밋돼 있다). '확인'/'유지'=원값 확정·진행,
+  //   UI 명령·항목 이동은 질문을 보존한 채 통과(이동은 `gotoAdjacentField` 국면 가드가 거부 — [PHASE-NAV-1]의
+  //   두 반쪽), 그 밖의 명령(종료·일시정지·수정…)=질문을 접고(원값 유지) 디스패치, 명령 아님=값 경로(답변 낱말
+  //   해석은 값 게이트 — 「둘째」는 후보 재커밋, 값 재발화는 그 값으로 재커밋).
+  if (awaitingKind === 'confusionConfirm') {
+    if (cmd === 'confirm' || cmd === 'keep') return { act: 'confusionResolve' };
+    if (isVoiceUiCommand(cmd)) return { act: 'dispatch', cmd, trendDemoted: false };
+    if (cmd && preservesAnomalyAlert(cmd)) return { act: 'dispatch', cmd, trendDemoted: false };
+    if (cmd) return { act: 'dispatch', cmd, trendDemoted: false, confusionDismissed: true };
+    return { act: 'value', trendCorrection: false };
   }
 
   if (cmd) return { act: 'dispatch', cmd, trendDemoted: false };

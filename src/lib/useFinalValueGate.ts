@@ -37,6 +37,8 @@ import { cancelTts } from './speech';
 import { attemptParseValue } from './valueParseAttempt';
 import { cellWaitPrompt, reviewWaitAbsorbTts } from './voicePrompts';
 import { noteSttAttempt } from './sttCorrectionTracker';
+import { resolveSttConfusion } from './sttConfusionRuntime';
+import { runConfusionAnswerGate } from './finalValueGateConfusion';
 import type { Column } from '../types';
 import type { logger } from './logger';
 import type { AwaitingField, FinalCtx } from './useVoiceSession';
@@ -58,6 +60,10 @@ export interface FinalValueGateDeps {
   getColById: (id: string) => Column | null;
   /** 🔴 모듈 레벨 비-export 헬퍼 — 값 import는 순환이다(헤더). */
   fractionWholeOf: (a: AwaitingField) => string | undefined;
+  /** v0.51.1 R6 — 혼동 확인 질문의 답변 종단: 「첫째」=원값 확정·진행 · 「아니오」=재청취(modify 강등). []-고정 콜백. */
+  proceedAfterCommit: (awaiting: AwaitingField | null, opts?: { echoValue?: string }) => Promise<void>;
+  relistenInContext: (a: AwaitingField) => Promise<void>;
+  demoteConfusionConfirm: (a: Extract<AwaitingField, { kind: 'confusionConfirm' }>) => AwaitingField;
   ctrlRef: { current: { isTtsMuted: () => boolean } | null };
   lastInterimRef: { current: { text: string; at: number; confidence?: number } | null };
   lastConfidenceRef: { current: number };
@@ -211,6 +217,18 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
     //   거절됐던 시도들을 `stt_correction:path=reask` 쌍으로 남긴다(아래 가드 4종·파싱 실패 전부 「거절」이다).
     noteSttAttempt(awaiting.row, awaiting.colId, text, confidence);
 
+    // v0.51.1 R6 — 혼동 확인 질문의 답변 해석(컬럼명·응답어·단음절 가드보다 **앞** — 근거·계약은 그 파일 헤더).
+    if (awaiting.kind === 'confusionConfirm') {
+      const r = await runConfusionAnswerGate(ctx, awaiting, {
+        logCell, getColById, awaitingFieldRef,
+        proceedAfterCommit: depsRef.current.proceedAfterCommit,
+        relistenInContext: depsRef.current.relistenInContext,
+        demoteConfusionConfirm: depsRef.current.demoteConfusionConfirm,
+      });
+      if (r === 'handled') return true;
+      if (r === 'commit') return false;
+    }
+
     // Item 12: 컬럼명 완전 일치 STT 거부 — 숫자/날짜 컬럼에만 적용 (text/options 컬럼은 컬럼명이 유효한 값일 수 있음)
     const allColumns = getSessionColumns();
     const currentCol = allColumns.find((c) => c.id === awaiting.colId);
@@ -355,7 +373,7 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
     const parseFailReason = attempt.failReason;
     const parseFailWhole = attempt.failWhole;
     if (fractionWhole != null) {
-      // 여기 도달 시 kind는 value|modify|trendConfirm — 위 가드가 atEnd/reviewWait를 return(내로잉 증명).
+      // 여기 도달 시 kind는 value|modify|trendConfirm|confusionConfirm — 위 가드가 atEnd/reviewWait를 return(내로잉 증명).
       // 소수부 문맥은 **한 번만** 적용하고 즉시 해제한다(합성 실패 시 아래 실패 분기가 다시 세운다).
       awaitingFieldRef.current = { ...awaiting, fractionWhole: undefined };
     }
@@ -456,6 +474,8 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
 
     // 값으로 설 자격을 통과했다 = 본체의 커밋 경로로 폴스루. 산출물을 ctx에 싣는다
     // (블록 F~H가 종전 지역변수 이름으로 되받는다 — 본체의 되받기 주석 참조).
+    // v0.51.1 R6 — 질문 국면에서 값을 다시 말했다 = 답이 정해졌다(chosen=respoken). 재커밋은 아래 경로가 한다.
+    if (awaiting.kind === 'confusionConfirm') resolveSttConfusion('respoken', logCell);
     ctx.col = col;
     ctx.parsed = parsed;
     ctx.lowConfParsedExtra = lowConfParsedExtra;

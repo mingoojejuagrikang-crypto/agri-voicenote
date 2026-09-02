@@ -46,12 +46,13 @@ import { buildAnomalyAlert } from './anomalyAlert';
 import { playBeep } from './beep';
 import { useModifyPhase } from './modifyPhase';
 import { formatForTts, speak } from './speech';
-import { formatNameForTts } from './voicePrompts';
+import { formatNameForTts, confusionQuestionTts } from './voicePrompts';
 import type { Column } from '../types';
 import type { logger } from './logger';
 import type { TrendViolation } from './trendCheck';
 import type { AwaitingField, FinalCtx } from './useVoiceSession';
 import { noteSttVoiceCommit } from './sttCorrectionTracker';
+import { armSttConfusion, evaluateSttConfusion } from './sttConfusionRuntime';
 import type { ValueCommitResult } from './useValueCommit';
 
 type LogCell = (entry: Omit<Parameters<typeof logger.log>[0], 'sessionId'>) => void;
@@ -159,7 +160,7 @@ export function useCommitLanding(deps: CommitLandingDeps) {
         row: awaiting.row, colId: awaiting.colId, colName: awaiting.name, col,
         text, conf: confidence, altIdx: ctx.altIdx ?? null, parsed,
         previousValue: isModifyLike(awaiting) ? previousValueOf(awaiting) ?? null : null,
-        path: isModifyLike(awaiting) ? 'rerecord' : 'value',
+        path: awaiting.kind === 'confusionConfirm' ? 'confusion' : isModifyLike(awaiting) ? 'rerecord' : 'value',
       }, logCell);
       // 응답 대기 상태 무장 — 새 값 발화가 기존 수정(isModify) 의미론으로 재커밋되도록
       // previousValue=방금 커밋된 값과 함께 세팅한다.
@@ -233,6 +234,51 @@ export function useCommitLanding(deps: CommitLandingDeps) {
       // 단 알람 TTS까지 끝난 지금 시점에 스케줄한다.
       runCorrectedPersistCheck();
       return; // advance 중단 — 해소는 명령 스테이지(useFinalCommands)의 trendConfirm 분기
+    }
+
+    // ── v0.51.1 R6 — 혼동 후보 확인 질문(민구 결정 09-02 ①: 커밋은 이미 됐다 · echo 대신 질문) ──
+    //   알람이 위에서 떴으면 여기 오지 않는다(알람 우선 — 민구 #3). 답변 재커밋(confusionConfirm)에는 다시 묻지
+    //   않고, 셀·세션 상한은 `evaluateSttConfusion`이 센다. 🔴 후보는 혼동표 확률만으로 고른다(ⓐ — 세션 내 값
+    //   규칙 없음). 값 이벤트·정정 쌍은 정상 커밋과 **같은 형태**로 먼저 남긴다(질문은 그 뒤의 일이다).
+    if (awaiting.kind !== 'confusionConfirm') {
+      const q = evaluateSttConfusion({ row: awaiting.row, colId: awaiting.colId, colName: awaiting.name, col, heard: parsed }, logCell);
+      if (q) {
+        logCell({
+          type: 'value',
+          row: awaiting.row, colId: awaiting.colId, colName: awaiting.name,
+          text, parsed, confidence,
+          durationMs: commitLatencyMs,
+          ...(lowConfParsedExtra ? { extra: lowConfParsedExtra } : {}),
+          ...(isModifyLike(awaiting) && previousValueOf(awaiting) != null
+            ? { previousValue: previousValueOf(awaiting) }
+            : {}),
+        });
+        noteSttVoiceCommit({
+          row: awaiting.row, colId: awaiting.colId, colName: awaiting.name, col,
+          text, conf: confidence, altIdx: ctx.altIdx ?? null, parsed,
+          previousValue: isModifyLike(awaiting) ? previousValueOf(awaiting) ?? null : null,
+          path: isModifyLike(awaiting) ? 'rerecord' : 'value',
+        }, logCell);
+        armSttConfusion(q);
+        // 응답 대기 상태 무장 — 「둘째」/재발화가 수정 의미론(previousValue=들린 값)으로 재커밋되도록. 착지 예약
+        // (resumeReview/resumeCell)은 알람 재무장과 같은 이유로 보존한다.
+        awaitingFieldRef.current = {
+          kind: 'confusionConfirm',
+          row: awaiting.row, colId: awaiting.colId, name: awaiting.name,
+          previousValue: parsed, heard: parsed, cands: q.cands, rules: q.rules,
+          ...(resumeReviewOf(awaiting) != null ? { resumeReview: resumeReviewOf(awaiting) } : {}),
+          ...(resumeCellOf(awaiting) != null ? { resumeCell: resumeCellOf(awaiting) } : {}),
+        };
+        // 응답 발화 클립 시작(알람과 같은 패턴 — TTS 이전 시작, barge-in 수록).
+        armClipForCell(awaiting.row, awaiting.colId);
+        playBeep('alert');
+        const question = confusionQuestionTts(parsed, q.cands);
+        useSessionStore.getState().setLastTts(question);
+        bargeInEpochRef.current = -1;
+        await say(question);
+        runCorrectedPersistCheck();
+        return; // advance 중단 — 해소는 값 게이트(답변)·명령 스테이지('확인'/타 명령)의 confusionConfirm 분기
+      }
     }
 
     // ── v0.13.0 R2(민구 요청): 추세 알림에 새 값으로 응답한 정정이 '정상'으로 판명된 경우 ──
@@ -320,7 +366,7 @@ export function useCommitLanding(deps: CommitLandingDeps) {
       row: awaiting.row, colId: awaiting.colId, colName: awaiting.name, col,
       text, conf: confidence, altIdx: ctx.altIdx ?? null, parsed,
       previousValue: isModifyLike(awaiting) ? previousValueOf(awaiting) ?? null : null,
-      path: isModifyLike(awaiting) ? 'rerecord' : 'value',
+      path: awaiting.kind === 'confusionConfirm' ? 'confusion' : isModifyLike(awaiting) ? 'rerecord' : 'value',
     }, logCell);
 
     // v0.34.0 O1 — 교정 persist 검사는 커밋 경로 종단(echo TTS·value 이벤트 이후)에 스케줄.

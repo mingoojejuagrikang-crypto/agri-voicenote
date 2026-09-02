@@ -159,6 +159,9 @@ export function useValueCommit(deps: ValueCommitDeps) {
       });
       archiveCellClip(awaiting.row, awaiting.colId);
     }
+    // v0.51.1 R6 — 혼동 확인 「둘째」/재발화 재커밋도 들린 값의 발화 클립을 :a<n>으로 보관한다(같은 bare key를 답변
+    //   발화가 덮어쓰면 **실제 측정 발화**가 사라진다 — 알람 정정과 같은 부품). trend 이벤트는 남기지 않는다.
+    if (awaiting.kind === 'confusionConfirm') archiveCellClip(awaiting.row, awaiting.colId);
 
     // v0.10 클립 누락 수정: stopClip을 echo TTS 이전에 시작 (병렬 실행)
     // 이전 버그: await speak(echo) 동안 마이크 stream이 idle → 다음 startClip이 호출되면 이전 슬롯 손실

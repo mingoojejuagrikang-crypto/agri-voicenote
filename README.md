@@ -93,6 +93,7 @@ TTS 안내와 음성 인식만으로 측정값을 Google Sheets에 기록합니�
 | [ENGINEERING-GUARDRAILS.md](./ENGINEERING-GUARDRAILS.md) | 해결됐지만 **다시 어기면 안 되는** 계약 |
 | [KNOWN-ISSUES-ARCHIVE.md](./KNOWN-ISSUES-ARCHIVE.md) | 종결된 사건 기록 (역사) |
 | [docs/INDEX.md](./docs/INDEX.md) | 아키텍처·실기기 검증 등 상세 문서 색인 |
+| [docs/STT-SPEAKER-PROFILE.md](./docs/STT-SPEAKER-PROFILE.md) | **화자 프로필** — 발음 혼동을 사람별로 기억해 되묻는 기능이 무엇을 모으고 어디에 남기는지 |
 
 > 🛠️ **개발자/AI에게:** 코드를 만지기 전에 [`AGENTS.md`](./AGENTS.md)를 먼저 읽으세요.
 > 새 함정을 만나면 [`KNOWN-ISSUES.md`](./KNOWN-ISSUES.md)에 같은 형식으로 추가해 주세요.

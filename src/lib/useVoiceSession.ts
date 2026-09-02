@@ -85,6 +85,7 @@ import { classifyInputDevice, classifyAudioInputClass } from './inputDevice';
 import { ensureSpeakerId, getSpeakerId } from './sttSpeaker';
 import { clearCurrentSttProfile, selectSttProfile } from './sttProfileStore';
 import { noteSttNonVoiceCorrection, resetSttCorrectionTracker } from './sttCorrectionTracker';
+import { finishSttConfusion, resetSttConfusionSession } from './sttConfusionRuntime';
 
 
 /** 대기 셀 공통 좌표. */
@@ -137,6 +138,10 @@ export type AwaitingField =
   | (AwaitingBase & { kind: 'value'; fractionWhole?: string })
   | (AwaitingBase & { kind: 'modify'; previousValue?: string; fractionWhole?: string; resumeReview?: number; resumeCell?: ResumeCell })
   | (AwaitingBase & { kind: 'trendConfirm'; previousValue: string; fractionWhole?: string; resumeReview?: number; resumeCell?: ResumeCell })
+  // v0.51.1 R6 — 혼동 확인 질문 대기(민구 결정 09-02 ①). 들린 값(`heard`=`previousValue`)은 **이미 커밋돼 있고**
+  //   후보(`cands`)를 물은 상태. 「첫째/네/확인」=그대로 진행 · 「둘째」=후보 재커밋 · 값 재발화=재커밋 · 「아니오/수정」=
+  //   재청취(modify 강등). 수정 의미론을 겸장한다(isModifyLike — trendConfirm과 같은 축). 배선: sttConfusionRuntime.ts.
+  | (AwaitingBase & { kind: 'confusionConfirm'; previousValue: string; heard: string; cands: string[]; rules: string[]; fractionWhole?: string; resumeReview?: number; resumeCell?: ResumeCell })
   | (AwaitingBase & { kind: 'atEnd' })
   | (AwaitingBase & { kind: 'reviewWait' })
   | (AwaitingBase & { kind: 'cellWait'; previousValue: string });
@@ -192,12 +197,12 @@ export interface FinalCtx {
 
 /** 수정 의미론 보유 여부 — 종전 `awaiting.isModify`(trendConfirm은 isModify를 겸장했다). */
 function isModifyLike(a: AwaitingField): boolean {
-  return a.kind === 'modify' || a.kind === 'trendConfirm';
+  return a.kind === 'modify' || a.kind === 'trendConfirm' || a.kind === 'confusionConfirm';
 }
 
 /** 종전 `awaiting.previousValue` 접근(모드 무관 optional 읽기 지점용). */
 function previousValueOf(a: AwaitingField): string | undefined {
-  return a.kind === 'modify' || a.kind === 'trendConfirm' ? a.previousValue : undefined;
+  return a.kind === 'modify' || a.kind === 'trendConfirm' || a.kind === 'confusionConfirm' ? a.previousValue : undefined;
 }
 
 /** 🔴 v0.47.0-r2 P1(FB-A) — 알람 해소 후 **검토 대기 재진입** 예약(그 행 번호).
@@ -210,7 +215,7 @@ function previousValueOf(a: AwaitingField): string | undefined {
  *  `demoteTrendConfirm`('수정' 등 타 명령으로 강등)도 이 예약을 **보존**한다 — 강등 뒤 재커밋의
  *  착지 역시 검토 대기여야 한다. */
 function resumeReviewOf(a: AwaitingField): number | undefined {
-  return a.kind === 'modify' || a.kind === 'trendConfirm' ? a.resumeReview : undefined;
+  return a.kind === 'modify' || a.kind === 'trendConfirm' || a.kind === 'confusionConfirm' ? a.resumeReview : undefined;
 }
 
 /** 🔴 v0.49 r2 A2(codex F1 = 합집합 C3) — 알람/재기록 뒤 **셀 검토 대기 재진입** 예약.
@@ -221,13 +226,13 @@ function resumeReviewOf(a: AwaitingField): number | undefined {
  *  **의도적으로 이동해 들어온** 검토 문맥이 증발했다.
  *  ⚠️ `resumeReview`와 동시에 서지 않는다 — 출신은 행(reviewWait) 아니면 셀(cellWait) 하나다. */
 function resumeCellOf(a: AwaitingField): ResumeCell | undefined {
-  return a.kind === 'modify' || a.kind === 'trendConfirm' ? a.resumeCell : undefined;
+  return a.kind === 'modify' || a.kind === 'trendConfirm' || a.kind === 'confusionConfirm' ? a.resumeCell : undefined;
 }
 
 /** 종전 `awaiting.fractionWhole` 접근(모드 무관 optional 읽기 지점용). 추세확인 중 소수부 유실
  *  재질문(trendConfirm+fractionWhole)도 실측 도달 조합이라 포함한다. */
 function fractionWholeOf(a: AwaitingField): string | undefined {
-  return a.kind === 'value' || a.kind === 'modify' || a.kind === 'trendConfirm'
+  return a.kind === 'value' || a.kind === 'modify' || a.kind === 'trendConfirm' || a.kind === 'confusionConfirm'
     ? a.fractionWhole
     : undefined;
 }
@@ -240,6 +245,18 @@ function fractionWholeOf(a: AwaitingField): string | undefined {
  *  모양을 **인라인으로** 적어 놨다 — 위 union만 넓히고 여기를 빠뜨리면 TS가 새 필드를 조용히
  *  떨어뜨린다(강등 경로에서만 복귀가 사라지는, 오라클 없으면 안 보이는 결함). */
 function demoteTrendConfirm(a: AwaitingBase & { kind: 'trendConfirm'; previousValue: string; fractionWhole?: string; resumeReview?: number; resumeCell?: ResumeCell }): AwaitingField {
+  return {
+    kind: 'modify', row: a.row, colId: a.colId, name: a.name,
+    previousValue: a.previousValue, fractionWhole: a.fractionWhole,
+    ...(a.resumeReview != null ? { resumeReview: a.resumeReview } : {}),
+    ...(a.resumeCell != null ? { resumeCell: a.resumeCell } : {}),
+  };
+}
+
+/** v0.51.1 R6 — confusionConfirm → modify 강등(질문 해제, 수정 의미론 유지). `demoteTrendConfirm`과 같은 계약:
+ *  previousValue(=들린 값)·fractionWhole·resumeReview·resumeCell을 보존한다. 「아니오/수정」 재청취와 타 명령
+ *  소멸이 이 문을 쓴다 — 후보 목록은 버린다(질문은 끝났다). */
+function demoteConfusionConfirm(a: Extract<AwaitingField, { kind: 'confusionConfirm' }>): AwaitingField {
   return {
     kind: 'modify', row: a.row, colId: a.colId, name: a.name,
     previousValue: a.previousValue, fractionWhole: a.fractionWhole,
@@ -1883,6 +1900,7 @@ export function useVoiceSession() {
     resumeCellOf,
     resumeReviewOf,
     demoteTrendConfirm,
+    demoteConfusionConfirm,
     awaitingFieldRef,
     epochRef,
     uiCommandSeqRef,
@@ -1897,6 +1915,10 @@ export function useVoiceSession() {
     logCell,
     say,
     rejectValue,
+    // v0.51.1 R6 — 혼동 확인 질문의 답변 종단(「첫째」 진행 · 「아니오」 재청취 · modify 강등).
+    proceedAfterCommit,
+    relistenInContext,
+    demoteConfusionConfirm,
     listEmptyRows,
     buildEndReachedTts,
     voiceColsList,
@@ -2085,7 +2107,7 @@ export function useVoiceSession() {
     //   'complete'로 내리면 히어로 ✓·레이아웃이 「조사 완료」가 된다), 조기확정 차단을 아래
     //   phase 게이트에 기댈 수 없다. 여기서 kind로 명시 차단한다 — 안 막으면 interim 숫자가
     //   확정된 셀에 곧장 커밋된다(B-1을 final 경로에서만 막고 interim으로 새는 형태).
-    if (!awaiting || awaiting.kind === 'trendConfirm' || awaiting.kind === 'atEnd'
+    if (!awaiting || awaiting.kind === 'trendConfirm' || awaiting.kind === 'confusionConfirm' || awaiting.kind === 'atEnd'
       || awaiting.kind === 'reviewWait' || awaiting.kind === 'cellWait') return;
     if (useSessionStore.getState().phase !== 'active') return;
     if (ctrlRef.current?.isTtsMuted()) {
@@ -2592,6 +2614,7 @@ export function useVoiceSession() {
     // v0.51.1 R6 — 세션 경계: 정정 쌍 트래커(셀 좌표가 새 세션에 겹친다) + 프로필 선택 해제(마이크 획득 뒤 재선택).
     resetSttCorrectionTracker();
     clearCurrentSttProfile();
+    resetSttConfusionSession();
     // v0.22.0 P0 — micLost 게이트 리셋: 이전 세션이 마이크 소실로 끝났어도 새 세션은 깨끗한
     // 스트림으로 시작한다(start()가 새 AudioRecorder.init()로 재획득).
     micLostLatchedRef.current = false;
@@ -2773,6 +2796,8 @@ export function useVoiceSession() {
     clearBgOffTimer();
     bgKeepRef.current = null;
     bgOffGenRef.current += 1;
+    // v0.51.1 R6 — 답 없이 세션이 끝난 혼동 확인 질문은 chosen=- 로 결산한다(발동당 hint 1건 계약).
+    finishSttConfusion(logCell);
     // #1 reach telemetry: session-meta on stop. `extra:'stop'` preserved; new fields additive.
     // completedRows here is the denominator-complement for reach/completion-rate aggregation.
     {
@@ -3007,7 +3032,8 @@ export function useVoiceSession() {
       // 루프가 무응답으로 소멸**한다. 재구성하지 않고 그대로 둔다 — 팝업은 paused 해제로
       // 다시 보이고, awaiting·previousValue·fractionWhole 전부 산 채로 응답을 기다린다.
       // 응답 발화 클립만 재무장한다(pause가 recorder를 dispose했다 — 알람 시점의 arm은 죽었다).
-      if (awaiting?.kind === 'trendConfirm') {
+      // v0.51.1 R6 — 혼동 확인 질문 대기도 같은 축이다(값은 커밋돼 있고 답만 기다린다 — 질문 국면을 보존한다).
+      if (awaiting?.kind === 'trendConfirm' || awaiting?.kind === 'confusionConfirm') {
         armClipForCell(awaiting.row, awaiting.colId);
         return;
       }

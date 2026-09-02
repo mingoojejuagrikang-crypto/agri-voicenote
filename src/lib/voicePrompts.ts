@@ -202,3 +202,12 @@ export function clipUnreliableSummaryScreen(unreliable: number, total: number): 
  *  **안 울렸다**). 그때 큐에 넣으면 들리지도 않고, 한참 뒤 엉뚱한 자리에서 터진다.
  *  👉 **소리는 회복된 뒤에만 쓴다.** 인터럽트 도중의 통지는 화면이 진다(절전 화면 문구 전환). */
 export const MIC_INTERRUPT_RECOVERED_TTS = '마이크가 잠시 멈춰 있었습니다. 그동안의 음성 기록은 확인이 필요합니다.';
+
+/** v0.51.1 R6 — 혼동 확인 질문(TTS·화면 공용). 원값이 항상 **첫째**, 후보는 최대 2개(`maxCands`). TTS는 아라비아
+ *  숫자를 그대로 읽으므로(`formatForTts` 통과) 「1.7인가요, 8.7인가요?」로 짧다([TTS-WATCHDOG-1]). 민구 승인 09-02(#3). */
+export function confusionQuestionTts(heard: string, cands: string[]): string {
+  return `${[heard, ...cands].map((v) => `${v}인가요`).join(', ')}?`;
+}
+
+/** v0.51.1 R6 — 확인 질문에 답하기 전 항목 이동을 거부할 때의 한 마디([PHASE-NAV-1] · 알람의 「먼저 알람을 확인하세요.」 짝). */
+export const CONFUSION_ANSWER_FIRST_TTS = '먼저 답해 주세요.';

@@ -12,7 +12,7 @@ import {
   type ConfusionTable, type Observation,
 } from './sttConfusionCore.ts';
 
-export const STT_PROFILE_SCHEMA = 1;
+const STT_PROFILE_SCHEMA = 1;
 export const STT_PROFILE_FILENAME = 'stt-profile.json';
 
 export interface SttProfile {

@@ -41,6 +41,7 @@ survey-011의 문서는 **네 층**으로 나뉜다. 무엇을 찾는지에 따�
 |------|------|
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | 현재 코드 구조 — 화면·상태·`lib/` 모듈 지도 |
 | [REAL-DEVICE-TEST.md](./REAL-DEVICE-TEST.md) | 실기기 검증 절차와 판정 기록 방법 |
+| [STT-SPEAKER-PROFILE.md](./STT-SPEAKER-PROFILE.md) | 화자 프로필 — 발음 혼동을 사람별로 무엇을 모으고, 어디에 남기며, 되묻기에 어떻게 쓰는가(사용자 고지) |
 
 ## 상태 모델
 
