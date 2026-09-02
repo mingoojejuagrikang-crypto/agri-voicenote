@@ -123,6 +123,11 @@ interface SessionMeta {
    *  전제 조건인데 세션 메타에 없어 로그만으로 D1 상태를 몰랐다(연구 A5). 세션 **중** 변경은
    *  기존 `setting_changed:bargeInEnabled` 이벤트가 남긴다 — 판독은 둘을 짝으로 읽는다(SOP-003). */
   bargeInEnabled?: boolean;
+  /** v0.51.1 L(민구 지시 09-02) — 세션의 **대상 시트**. 종전엔 `sessions.json.target`에만 있어 events.json만으로는
+   *  어느 시트·탭에 기록한 세션인지 알 수 없었다(09-02 4세션 events에 sync|sheet 문자열 0건). PII 최소화:
+   *  spreadsheetId **앞 8자**와 탭 이름만. `rows`는 시작 시점의 totalRows(행 범위는 동기화 때 `sheet_synced`가 남긴다).
+   *  시트 미연결(로컬 기록 모드)은 `null`. `extra:'start'` 바이트는 그대로다(meta는 additive). */
+  target?: { sheet: string; tab: string; rows: number } | null;
   /** Reserved slot for self-test vs real-field split. Defaults to 'field'; an explicit UI
    *  toggle is a Vance follow-up. userEmail (device.json) + value-pattern already allow
    *  crude post-hoc splitting today. */

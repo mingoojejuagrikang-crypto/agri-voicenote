@@ -41,7 +41,20 @@ import {
   fontRenderEcho,
   sessionStartBlocked,
   endAbsorb,
+  sheetSynced,
 } from '../src/lib/logEvents';
+
+/** v0.51.1 L (민구 지시 2026-09-02) — 동기화 완료 계측. 예시는 STT 레인 §6 L의 형태 그대로. */
+test('sheetSynced — 동기화 완료 바이트 계약 (L 신규 이벤트)', () => {
+  expect(sheetSynced({ sheet: '1ov3FvV-', tab: '품질조사', from: 200, to: 217, n: 18 }))
+    .toBe('sheet_synced:sheet=1ov3FvV-,tab=품질조사,rows=200-217,n=18');
+  // 행 번호를 모르는 경우(updatedRange 파싱 실패)의 결정적 센티널.
+  expect(sheetSynced({ sheet: 'SHEET_TA', tab: '농가', from: 0, to: 0, n: 3 }))
+    .toBe('sheet_synced:sheet=SHEET_TA,tab=농가,rows=0-0,n=3');
+  // 탭 이름의 `,`·`=`는 extra 문법을 깨지 않게 %-이스케이프된다(escapeExtraValue 계약).
+  expect(sheetSynced({ sheet: 'abcdefgh', tab: 'a,b=c', from: 5, to: 5, n: 1 }))
+    .toBe('sheet_synced:sheet=abcdefgh,tab=a%2Cb%3Dc,rows=5-5,n=1');
+});
 
 /** v0.51.1 B2 (제보② 2026-09-02) — atEnd 흡수. `cell_wait_absorb:<colId>`와 같은 꼴. */
 test('endAbsorb — atEnd 흡수 바이트 계약 (B2 신규 이벤트)', () => {

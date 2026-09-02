@@ -4,6 +4,7 @@ import { appendRows, updateCellsSparse, fetchHeaderRow } from './sheets';
 import { saveSession } from './db';
 import { getAccessToken } from './googleAuth';
 import { logger } from './logger';
+import { sheetSynced } from './logEvents';
 import {
   hasSyncState,
   recountSynced,
@@ -225,6 +226,8 @@ export async function syncSelected(sessionIds: string[]): Promise<SyncReport> {
     let pushedAnything = false;
     let sessionFailed = false;
     let failReason = '';
+    // v0.51.1 L — 이번 동기화가 실제로 쓴 시트 행(1-based). `sheet_synced`의 rows=min-max 재료.
+    const pushedSheetRows: number[] = [];
 
     if (appendTargets.length > 0) {
       const matrix = appendTargets.map((row) => buildRowForMapping(row.values, mapping));
@@ -237,6 +240,7 @@ export async function syncSelected(sessionIds: string[]): Promise<SyncReport> {
           // Map each appended row to its 1-based sheet row in order; mark synced.
           const sheetRowFor = new Map<number, number>();
           appendTargets.forEach((row, i) => sheetRowFor.set(row.index, res.firstSheetRow! + i));
+          pushedSheetRows.push(...sheetRowFor.values());
           rows = rows.map((r) =>
             sheetRowFor.has(r.index)
               ? { ...r, sheetRow: sheetRowFor.get(r.index), syncState: 'synced' as const }
@@ -285,6 +289,7 @@ export async function syncSelected(sessionIds: string[]): Promise<SyncReport> {
           await updateCellsSparse(spreadsheetId, sheetTab, row.sheetRow!, cells);
           pushedAnything = true;
           updated++;
+          pushedSheetRows.push(row.sheetRow!);
           rows = rows.map((r) => (r.index === row.index ? { ...r, syncState: 'synced' as const } : r));
         } catch (err) {
           const msg = (err as Error).message || '';
@@ -375,6 +380,17 @@ export async function syncSelected(sessionIds: string[]): Promise<SyncReport> {
     if (pushedAnything) {
       report.ok++;
       report.rows += appended;
+      // v0.51.1 L(민구 지시 09-02) — 동기화 완료 계측(세션당·동기화당 1건). 세션 id를 명시한다 — 세션이 끝난 뒤의
+      //   동기화라 logger의 현재 세션 컨텍스트가 비어 있다. 행 번호를 모르면(no_range) rows=0-0(빌더 주석).
+      logger.log({
+        type: 'app', sessionId: session.id,
+        extra: sheetSynced({
+          sheet: spreadsheetId.slice(0, 8), tab: sheetTab,
+          from: pushedSheetRows.length > 0 ? Math.min(...pushedSheetRows) : 0,
+          to: pushedSheetRows.length > 0 ? Math.max(...pushedSheetRows) : 0,
+          n: appended + updated,
+        }),
+      });
       // v0.34.0 리뷰(Codex 전용 리뷰 하네스, P1) — **보류(pendingValidation) 행이 있는 세션도 제외**.
       // 위 pass 1·2가 보류 행만 건너뛰고 나머지 행을 올리면 pushedAnything=true가 되는데, 여기서
       // 세션 전체를 successIds에 넣으면 DataScreen이 "동기화 완료"로 보고 **자동 삭제**한다. 백업에는

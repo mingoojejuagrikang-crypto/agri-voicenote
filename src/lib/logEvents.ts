@@ -63,6 +63,8 @@ export {
   sessionStartBlocked,
   // v0.51.1 B2 — atEnd에서 비명령 발화가 흡수된 사건(제보②).
   endAbsorb,
+  // v0.51.1 L — 동기화 완료(대상 시트·탭·행 범위·건수).
+  sheetSynced,
 } from './logEventsSession';
 
 // 설정·UI 계측 도메인 — logEventsUi.ts.

@@ -6,7 +6,7 @@
  * 전문은 `logEvents.ts` 헤더가 정본이다. 방출 문자열은 이동 전과 바이트 동일
  * (tests/logEvents.spec.ts 특성화 테스트가 고정). `kv` 순환 import는 logEventsAudio.ts 헤더 참조.
  */
-import { kv } from './logEvents';
+import { kv, escapeExtraValue } from './logEvents';
 
 /** `${kind}:${row},src=${source}` — 행 완료/스킵 계측(SOP-003 진행 파서 대상).
  *  v0.44.0 §C8 F13 — `row_last_stop` 추가: '다음'이 마지막 행 경계에서 이동 없이 멈춘 사건
@@ -71,4 +71,14 @@ export function sessionStartBlocked(reason: 'no_voice_columns'): string {
  *  `cell_wait_absorb:<colId>`와 같은 꼴 — `command` 이벤트에 `parsed:'end_absorb'`로 실린다. */
 export function endAbsorb(colId: string): string {
   return `end_absorb:${colId}`;
+}
+
+/** v0.51.1 L (민구 지시 2026-09-02) — **동기화 완료 계측**(세션당·동기화당 1건). 종전엔 어느 시트에 몇 행이
+ *  붙었는지가 `sessions.json`에만 있었고 events.json엔 `sync|sheet|append` 문자열이 0건이었다.
+ *  `sheet`는 spreadsheetId **앞 8자**(PII 최소화) · `tab`은 `escapeExtraValue`로 감싼다(`,`·`=`·`%` 이스케이프 —
+ *  ⚠️ 24자를 넘는 탭 이름은 `~`로 잘린다) · `rows`는 이번 동기화가 쓴 시트 행의 최소-최대(1-based).
+ *  🔴 행 번호를 모르면(`sync_append_no_range` — updatedRange 파싱 실패) `rows=0-0`이다(0은 유효한 시트 행이 아니다).
+ *  `n`은 이번 동기화가 밀어 올린 행 수(append + update). 예: `sheet_synced:sheet=1ov3FvV-,tab=품질조사,rows=200-217,n=18`. */
+export function sheetSynced(fields: { sheet: string; tab: string; from: number; to: number; n: number }): string {
+  return `sheet_synced:sheet=${fields.sheet},tab=${escapeExtraValue(fields.tab)},rows=${fields.from}-${fields.to},n=${fields.n}`;
 }

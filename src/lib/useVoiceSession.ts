@@ -2645,6 +2645,9 @@ export function useVoiceSession() {
         anomalyRuleCount,
         // v0.45.0 WP-1③ — D1 말끊기 스냅샷(축 C 판정 전제). :2512가 이미 읽는 같은 s를 재사용.
         bargeInEnabled: s.bargeInEnabled,
+        // v0.51.1 L(민구 지시 09-02) — 대상 시트(앞 8자·탭·행 수). 판독이 sessions.json 없이 시트를 식별한다.
+        //   위 `target`은 이 함수 첫머리에서 고정한 세션 목적지(sessionTargetFromSettings)와 같은 객체다.
+        target: target ? { sheet: target.spreadsheetId.slice(0, 8), tab: target.sheetTab, rows: total } : null,
         // NOTE: session label intentionally NOT logged — buildAutoLabel derives it from the first
         // fixed auto column (농가명 = grower name), a PII vector. Reach is fully computable from
         // sessionId + appVersion + totalRows + completedRows. The label still lives on the Session
