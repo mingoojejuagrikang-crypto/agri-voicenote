@@ -38,8 +38,9 @@ test.describe('evaluate/arm/resolve — 상한·계측 계약', () => {
   test('전역 표만으로 당도 「1.7」은 8.7을 묻고, 「49.5」·비숫자 컬럼은 묻지 않는다', () => {
     const q = evaluateSttConfusion({ row: 1, colId: 'c14', colName: '당도', col: BRIX, heard: '1.7' }, log);
     expect(q).not.toBeNull();
-    expect(q!.cands[0]).toBe('8.7');
-    expect(q!.rules[0]).toBe('L1P0:1>8');
+    // r2 P2-2 — 당도 컬럼 증거(seen[1]=11 · 1>8=7 ≥ k · 1>7=2 < k)라 후보는 8.7 하나다(1>7은 컬럼에서 미생성).
+    expect(q!.cands).toEqual(['8.7']);
+    expect(q!.rules).toEqual(['L1P0:1>8']);
     expect(evaluateSttConfusion({ row: 1, colId: 'c8', colName: '횡경(mm)', col: WIDTH, heard: '49.5' }, log)).toBeNull();
     expect(evaluateSttConfusion({ row: 1, colId: 'x', colName: '농가명', col: { ...BRIX, type: 'text' }, heard: '1.7' }, log)).toBeNull();
     expect(logged).toEqual([]); // 후보가 없거나 안 묻는 경우엔 계측도 없다(발동이 아니다)
@@ -51,7 +52,7 @@ test.describe('evaluate/arm/resolve — 상한·계측 계약', () => {
     expect(getPendingSttConfusion()).toBe(q);
     expect(logged).toEqual([]); // 묻는 순간엔 남기지 않는다
     resolveSttConfusion('alt', log);
-    expect(logged.map((l) => l.extra)).toEqual(['stt_confusion_hint:heard=1.7,cands=8.7|7.7,rule=L1P0:1>8|L1P0:1>7,asked=1,chosen=alt']);
+    expect(logged.map((l) => l.extra)).toEqual(['stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=1,chosen=alt']);
     expect(getPendingSttConfusion()).toBeNull();
     resolveSttConfusion('alt', log); // 대기 질문이 없으면 아무것도 안 남긴다
     expect(logged).toHaveLength(1);
@@ -64,8 +65,8 @@ test.describe('evaluate/arm/resolve — 상한·계측 계약', () => {
     const again = evaluateSttConfusion({ row: 3, colId: 'c14', colName: '당도', col: BRIX, heard: '1.3' }, log);
     expect(again).toBeNull();
     expect(logged.map((l) => l.extra)).toEqual([
-      'stt_confusion_hint:heard=1.7,cands=8.7|7.7,rule=L1P0:1>8|L1P0:1>7,asked=1,chosen=respoken',
-      'stt_confusion_hint:heard=1.3,cands=8.3|7.3,rule=L1P0:1>8|L1P0:1>7,asked=0,chosen=-',
+      'stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=1,chosen=respoken',
+      'stt_confusion_hint:heard=1.3,cands=8.3,rule=L1P0:1>8,asked=0,chosen=-',
     ]);
     // 다른 셀은 묻는다(셀 단위 상한).
     expect(evaluateSttConfusion({ row: 4, colId: 'c14', colName: '당도', col: BRIX, heard: '1.7' }, log)).not.toBeNull();
@@ -90,6 +91,6 @@ test.describe('evaluate/arm/resolve — 상한·계측 계약', () => {
     const q = evaluateSttConfusion({ row: 1, colId: 'c14', colName: '당도', col: BRIX, heard: '1.7' }, log)!;
     armSttConfusion(q);
     finishSttConfusion(log);
-    expect(logged.map((l) => l.extra)).toEqual(['stt_confusion_hint:heard=1.7,cands=8.7|7.7,rule=L1P0:1>8|L1P0:1>7,asked=1,chosen=-']);
+    expect(logged.map((l) => l.extra)).toEqual(['stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=1,chosen=-']);
   });
 });

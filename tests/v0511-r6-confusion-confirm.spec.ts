@@ -188,7 +188,7 @@ test('유일 후보(횡경 49.5)는 묻지 않고 · 당도 「1.7」은 「1.7�
   expect(await cellValue(page, 1, 'c14')).toBe('8.7');
   const hints = await eventsWithPrefix(page, 'stt_confusion_hint');
   expect(hints).toHaveLength(1);
-  expect(hints[0].extra).toBe('stt_confusion_hint:heard=1.7,cands=8.7|7.7,rule=L1P0:1>8|L1P0:1>7,asked=1,chosen=alt');
+  expect(hints[0].extra).toBe('stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=1,chosen=alt');
   const corrections = await eventsWithPrefix(page, 'stt_correction');
   expect(corrections.map((c) => c.extra)).toEqual(['stt_correction:from=1.7,to=8.7,path=confusion,text=1.7,conf=0.95,alt=-']);
   // 재커밋 value 이벤트는 previousValue=1.7을 싣는다(기존 판독 호환 — 원 STT text는 첫 커밋에 있다).
@@ -211,7 +211,7 @@ test('「네」(첫째) → 원값 유지·진행 + hint chosen=heard + 프로�
   await page.waitForTimeout(500);
   expect(await cellValue(page, 1, 'c14')).toBe('1.3');
   const hints = await eventsWithPrefix(page, 'stt_confusion_hint');
-  expect(hints.map((h) => h.extra)).toEqual(['stt_confusion_hint:heard=1.3,cands=8.3|7.3,rule=L1P0:1>8|L1P0:1>7,asked=1,chosen=heard']);
+  expect(hints.map((h) => h.extra)).toEqual(['stt_confusion_hint:heard=1.3,cands=8.3,rule=L1P0:1>8,asked=1,chosen=heard']);
   expect(await eventsWithPrefix(page, 'stt_correction')).toEqual([]); // 원값 유지 — 정정이 아니다
   // 프로필: 「첫째」는 물었던 규칙의 분모만 올린다(negatives 1 · conf 증가 0).
   const profiles = await sttProfiles(page);
@@ -241,8 +241,8 @@ test('「아니오」 → 재청취 · 같은 셀의 두 번째 후보는 셀당
   expect(log.some((t) => t === '수정 당도 1.7')).toBe(true);
   const hints = await eventsWithPrefix(page, 'stt_confusion_hint');
   expect(hints.map((h) => h.extra)).toEqual([
-    'stt_confusion_hint:heard=1.7,cands=8.7|7.7,rule=L1P0:1>8|L1P0:1>7,asked=1,chosen=respoken',
-    'stt_confusion_hint:heard=1.7,cands=8.7|7.7,rule=L1P0:1>8|L1P0:1>7,asked=0,chosen=-',
+    'stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=1,chosen=respoken',
+    'stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=0,chosen=-',
   ]);
 });
 
@@ -262,5 +262,5 @@ test('질문 대기 중 「다음」은 거부+안내([PHASE-NAV-1]) · 「확�
   await waitForTtsIdle(page);
   await waitForActiveChip(page, '횡경');
   expect(await cellValue(page, 1, 'c14')).toBe('1.7');
-  expect((await eventsWithPrefix(page, 'stt_confusion_hint')).map((h) => h.extra)).toEqual(['stt_confusion_hint:heard=1.7,cands=8.7|7.7,rule=L1P0:1>8|L1P0:1>7,asked=1,chosen=heard']);
+  expect((await eventsWithPrefix(page, 'stt_confusion_hint')).map((h) => h.extra)).toEqual(['stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=1,chosen=heard']);
 });

@@ -60,7 +60,10 @@ export type Observation =
   | { kind: 'other'; tag: string };
 
 export interface CandidateParams {
-  /** (시뮬·판독용 기록) 분모 하한 — 스코프 선택은 규칙별 지지수(kSupport)로 하므로 후보 생성엔 안 쓴다. */
+  /** 🔴 **컬럼 증거 하한**(r2 P2-1·P2-2): 어떤 표의 **컬럼 스코프**에서 그 숫자(또는 「점」 소실 형상)가 이만큼 이상
+   *  들렸는데 해당 치환의 지지수가 kSupport에 못 미치면, 그 컬럼에선 그 규칙을 **만들지 않는다**(더 뒤 스코프·표로
+   *  내려가지 않는다). 「첫째」 부정 사례가 프로필 컬럼 스코프의 seen을 올리므로 새 사용자(프로필 비어 전역 폴백)도
+   *  kSeen번 뒤엔 그 컬럼에서 멎는다 — 이것이 출하 구성에서 작동하는 유일한 억제다. */
   kSeen: number;
   /** 치환 규칙 하나의 지지수 하한(브리핑 기본 3). */
   kSupport: number;
@@ -217,7 +220,9 @@ export function addObservation(table: ConfusionTable, col: string, obs: Observat
   }
 }
 
-/** 「첫째」(들린 값이 맞았다) — 그 규칙의 분모만 올려 P를 스스로 낮춘다. */
+/** 「첫째」(들린 값이 맞았다) — 그 규칙의 분모(seen)만 올린다. 프로필 컬럼 스코프의 seen이 kSeen에 닿으면
+ *  `pickDigitScope`의 컬럼 증거 게이트가 그 컬럼에서 규칙 생성을 멈춘다(r2 P2-1 — 전역 규칙으로 묻는 새 사용자에게도
+ *  작동하는 억제). 같은 표 안에서는 P도 내려간다. */
 export function addNegative(table: ConfusionTable, col: string, rule: string): void {
   const dec = /^dec:/.test(rule);
   const m = /^(L\d+P\d+):(\d)>(\d)$/.exec(rule);
@@ -298,6 +303,9 @@ export function generateCandidates(input: CandidateInput): Candidate[] {
     // 🔴 스코프는 **규칙별**로 고른다 — 「그 heard 자리의 분모가 있는 첫 스코프」로 고르면 컬럼 표에
     //   분모만 있고 해당 치환의 지지수가 모자랄 때(당도 as00 2건) 문맥·전역 표의 지지수(3건)로
     //   폴백하지 못한다. 규칙 (x→y)의 지지수가 kSupport 이상인 첫 스코프가 그 규칙의 P·분모를 준다.
+    //   단 **컬럼 증거가 우선한다**(r2 P2-2): 컬럼 스코프의 seen[digit] ≥ kSeen인데 지지수가 모자라면 그 컬럼에선
+    //   규칙을 만들지 않는다(적정의 「1.x」는 정상값 — root 표의 당도 지배 규칙이 덮어쓰면 안 된다). 표에 없는
+    //   컬럼(첫 회차의 새 항목)만 root 문맥 표로 폴백한다 — 그 컬럼은 kSeen번 커밋이 쌓일 때까지 「1.x」를 묻는다.
     const saidDigits = new Set<string>();
     for (const t of tables) {
       for (const s of [t.byColumn[col]?.ctx[d.ctx], t.ctx[d.ctx]]) {
@@ -306,7 +314,7 @@ export function generateCandidates(input: CandidateInput): Candidate[] {
     }
     for (const y of saidDigits) {
       if (y === d.digit) continue;
-      const pick = pickDigitScope(tables, col, d.ctx, d.digit, y, p.kSupport);
+      const pick = pickDigitScope(tables, col, d.ctx, d.digit, y, p);
       if (!pick) continue;
       const { scope, label } = pick;
       const seen = Math.max(scope.seen[d.digit] ?? 0, 1);
@@ -323,7 +331,7 @@ export function generateCandidates(input: CandidateInput): Candidate[] {
 
   if (decimalLossEligible(heard, decimals, colType)) {
     for (const r of DECIMAL_LOSS_RULES) {
-      const pick = pickDecimalScope(tables, col, r, p.kSupport);
+      const pick = pickDecimalScope(tables, col, r, p);
       if (!pick) continue;
       const { scope, label } = pick;
       const seen = Math.max(scope.seen, 1);
@@ -346,23 +354,34 @@ export function generateCandidates(input: CandidateInput): Candidate[] {
   return [...best.values()].sort((a, b) => b.p - a.p);
 }
 
-function pickDigitScope(tables: ConfusionTable[], col: string, ctx: DigitCtx, digit: string, said: string, kSupport: number): { scope: DigitScope; label: string } | null {
+/** 규칙 (digit→said)의 스코프. 표 순서(화자 프로필 → 전역)대로 「컬럼 → root 문맥」을 본다.
+ *  🔴 r2 P2-1·P2-2 — 컬럼 스코프에 **증거가 있는데**(seen[digit] ≥ kSeen) 이 치환의 지지수가 kSupport 미만이면 **null로
+ *  끝낸다**(뒤 표로 내려가지 않는다). 프로필 컬럼의 seen은 커밋과 「첫째」 부정 사례가 올리므로, 새 사용자가 전역
+ *  규칙으로 질문받다가 「첫째」가 kSeen번 쌓이면 그 컬럼에서 질문이 멎는다. 컬럼 스코프 자체가 없으면 root로 폴백한다. */
+function pickDigitScope(tables: ConfusionTable[], col: string, ctx: DigitCtx, digit: string, said: string, p: CandidateParams): { scope: DigitScope; label: string } | null {
   for (let t = 0; t < tables.length; t++) {
     const table = tables[t];
     const cs = table.byColumn[col]?.ctx[ctx];
-    if (cs && (cs.conf[digit]?.[said] ?? 0) >= kSupport) return { scope: cs, label: `col${t}` };
+    if (cs) {
+      if ((cs.conf[digit]?.[said] ?? 0) >= p.kSupport) return { scope: cs, label: `col${t}` };
+      if ((cs.seen[digit] ?? 0) >= p.kSeen) return null;
+    }
     const gs = table.ctx[ctx];
-    if (gs && (gs.conf[digit]?.[said] ?? 0) >= kSupport) return { scope: gs, label: `ctx${t}` };
+    if (gs && (gs.conf[digit]?.[said] ?? 0) >= p.kSupport) return { scope: gs, label: `ctx${t}` };
   }
   return null;
 }
 
-function pickDecimalScope(tables: ConfusionTable[], col: string, rule: DecimalLossRule, kSupport: number): { scope: DecimalLossScope; label: string } | null {
+/** 「점」 소실 규칙의 스코프 — 위와 같은 계약(컬럼 decimalLoss.seen ≥ kSeen인데 지지수 미달이면 null). */
+function pickDecimalScope(tables: ConfusionTable[], col: string, rule: DecimalLossRule, p: CandidateParams): { scope: DecimalLossScope; label: string } | null {
   for (let t = 0; t < tables.length; t++) {
     const table = tables[t];
     const cs = table.byColumn[col]?.decimalLoss;
-    if (cs && (cs.rules[rule] ?? 0) >= kSupport) return { scope: cs, label: `col${t}` };
-    if ((table.decimalLoss.rules[rule] ?? 0) >= kSupport) return { scope: table.decimalLoss, label: `ctx${t}` };
+    if (cs) {
+      if ((cs.rules[rule] ?? 0) >= p.kSupport) return { scope: cs, label: `col${t}` };
+      if (cs.seen >= p.kSeen) return null;
+    }
+    if ((table.decimalLoss.rules[rule] ?? 0) >= p.kSupport) return { scope: table.decimalLoss, label: `ctx${t}` };
   }
   return null;
 }

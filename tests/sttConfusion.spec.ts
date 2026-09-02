@@ -141,6 +141,41 @@ test.describe('decide — 판정·부정 사례·상한', () => {
   });
 });
 
+test.describe('r2 P2-1·P2-2 — 컬럼 증거 우선(kSeen) · 부정 사례 억제', () => {
+  const K = DEFAULT_CANDIDATE_PARAMS.kSeen;
+  test('P2-2 컬럼에서 그 숫자가 kSeen번 이상 들렸는데 치환 지지수가 모자라면 그 컬럼에선 규칙을 만들지 않는다 · 표에 없는 컬럼은 root 폴백', () => {
+    const g = tableWith('당도', [{ heard: '1.7', said: '8.7', n: 6, seen: 12 }]); // root L1P0 1>8 = 6/12 (당도 지배 규칙)
+    for (let i = 0; i < K; i++) noteSeen(g, '적정', '1.9', 2, 'float'); // 적정: 1.x가 정상 — 컬럼 seen[1]=K · conf 없음
+    expect(generateCandidates({ heard: '1.95', col: '적정', decimals: 2, colType: 'float', tables: [g] })).toEqual([]);
+    // 반증 짝(압력): 컬럼 증거가 kSeen-1이면 root 폴백으로 여전히 묻는다.
+    const g2 = tableWith('당도', [{ heard: '1.7', said: '8.7', n: 6, seen: 12 }]);
+    for (let i = 0; i < K - 1; i++) noteSeen(g2, '적정', '1.9', 2, 'float');
+    expect(generateCandidates({ heard: '1.95', col: '적정', decimals: 2, colType: 'float', tables: [g2] })[0]).toMatchObject({ value: '8.95', scope: 'ctx0' });
+    // 표에 없는 컬럼(첫 회차의 새 항목)은 root 폴백을 유지한다 — 의도된 동작(민구·Larry r2).
+    expect(generateCandidates({ heard: '1.5', col: '굵기', decimals: 1, colType: 'float', tables: [g] })[0]).toMatchObject({ value: '8.5', scope: 'ctx0' });
+    // 「점」 소실도 같은 계약: 컬럼 decimalLoss.seen ≥ kSeen인데 지지수 미달이면 그 컬럼에선 안 만든다.
+    const d = tableWith('당도', [{ heard: '738', said: '7.8', n: 4, seen: 6 }]); // root dec:as3 4/6
+    for (let i = 0; i < K; i++) noteSeen(d, '과중', '123', 1, 'float');
+    expect(generateCandidates({ heard: '738', col: '과중', decimals: 1, colType: 'float', tables: [d] })).toEqual([]);
+    expect(generateCandidates({ heard: '738', col: '과피중', decimals: 1, colType: 'float', tables: [d] })[0]).toMatchObject({ value: '7.8', scope: 'ctx0' });
+  });
+  test('P2-1 프로필이 비어 전역 규칙으로 묻는 새 사용자 — 「첫째」가 kSeen번 쌓이면 그 컬럼에서 멎는다(억제는 컬럼에 국한)', () => {
+    const profile = emptyTable();
+    const global = tableWith('당도', [{ heard: '1.7', said: '8.7', n: 6, seen: 12 }]);
+    const ask = (col: string, heard: string) => decide(heard, generateCandidates({ heard, col, decimals: 1, colType: 'float', tables: [profile, global] })).ask;
+    expect(ask('당도', '1.7')).toBe(true);
+    for (let i = 0; i < K - 1; i++) addNegative(profile, '당도', 'L1P0:1>8');
+    expect(ask('당도', '1.7'), `${K - 1}회는 아직 묻는다`).toBe(true);
+    addNegative(profile, '당도', 'L1P0:1>8');
+    expect(ask('당도', '1.7'), `${K}회면 멎는다`).toBe(false);
+    // 다른 컬럼(과피두께)은 프로필 컬럼 증거가 없어 여전히 전역 root로 묻는다.
+    expect(ask('과피두께x4', '1.5')).toBe(true);
+    // 프로필에 그 치환의 지지수가 쌓이면(「둘째」 정정) 다시 묻는다 — 억제는 「맞았다는 증거」에만 기댄다.
+    for (let i = 0; i < DEFAULT_CANDIDATE_PARAMS.kSupport; i++) for (const o of alignPair('1.7', '8.7', 1)) addObservation(profile, '당도', o);
+    expect(ask('당도', '1.7')).toBe(true);
+  });
+});
+
 test.describe('표 유틸', () => {
   test('colKey — 괄호 단위·공백을 벗겨 시트 간 같은 이름을 잇는다', () => {
     expect(colKey('종경(mm)')).toBe('종경');
