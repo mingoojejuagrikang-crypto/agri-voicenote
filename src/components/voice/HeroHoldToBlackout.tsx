@@ -128,6 +128,15 @@ export function HeroHoldToBlackout({ children }: { children: ReactNode }) {
   /** V-FIX1ⓑ — 아직 발화하지 않은 안내 예약. 조기 해제가 이걸 끈다. */
   const ttsTimerRef = useRef<number | null>(null);
 
+  // 🔴 v0.51.1 [CLIP-MUTED-SPAN-1] G2 — 「홀드 문구가 떠 있는가」를 스토어에 비춘다(관찰 전용 · 이 컴포넌트가
+  //   유일한 작성자). 소비자는 `useMicInterruptionNotice`의 `mic_interrupt_ui:…,hold=` 계측뿐이다 — 실기기
+  //   판정 ⓑ(문구가 실제로 바뀌었나)를 로그로 닫으려면 전이 순간 이 문구가 보이고 있었는지가 필요하다.
+  //   홀드 종료·언마운트 어느 쪽이든 cleanup이 false로 되돌린다. 렌더 경로에는 영향이 없다(구독자 0).
+  useEffect(() => {
+    useSessionStore.getState().setHeroHolding(holding);
+    return () => { useSessionStore.getState().setHeroHolding(false); };
+  }, [holding]);
+
   /** 🔴 v0.51 H1 — **홀드를 시작한 그 포인터만 홀드를 끝낼 수 있다.**
    *
    *  ## 왜 이게 결함이었나 (비대칭이 근거다)

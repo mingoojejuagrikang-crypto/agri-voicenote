@@ -36,6 +36,9 @@
  *  · 🔴 r2 [P1-2] 고지 판정을 `unreliable`만으로 되돌리면 → **ⓗ red**(실측 사고 형상에서 침묵)
  *  · 🔴 r2 [P1-2] `recordFailure(mutedSpan)`의 사유 인자를 빼면 → **ⓗ red**(같은 자리, 다른 층)
  *  · 🔴 r2 [P1-1] 게이트 목록에서 스펙 이름을 지우면 → **⓪-게이트 red**
+ *  · 🔴 v0.51.1 ⓓ unmute 시점 **즉시 판정**으로 되돌리면(유예 제거) → **ⓘ·ⓚ·ⓛ red**
+ *    (2026-09-02 실기기 1차의 ⓓ 실패 형상 — 걸친 클립이 unmute 뒤에 닫힌다)
+ *  · 🔴 v0.51.1 장부의 `onMutedEvidence` 발화를 빼면 → ⓘ red(유예가 영영 안 풀린다) + `[node] ⓪ 장부 신호` red
  *
  * ## 🔴 안 재는 것 — 정직하게 적는다
  * **iOS가 언제 트랙을 muted로 만드는지는 Playwright로 만들 수 없다**(OS 레벨 사건 —
@@ -43,10 +46,17 @@
  * 여기서 재는 것은 **「muted 표면이 오면 우리가 그것을 구간으로 잡아, 세지 않고, 말하는가」**다.
  * 실기기 판정 전까지 `[CLIP-MUTED-SPAN-1]`의 상태는 `MONITORING`이다(AGENTS.md 계약 ④).
  *
+ * ## 🔴 v0.51.1 ⓓ — 판정 「시점」(2026-09-02 실기기 1차 `sess_1788316707658`)
+ * 정식 v0.51.0은 unmute **즉시** 장부 증가분을 봤는데, 걸친 클립의 증거는 클립이 닫힐 때(unmute
+ * +8~11초 뒤) 올라와 `lost=0` → 침묵했다(`mic_interrupt_notice` 0건). 처방은 「Δ0 && 걸친 클립이
+ * 열려 있으면 유예 → 장부에 증거가 오르는 순간 판정」이다(훅 헤더가 SSOT). 시간축 케이스 ⓘ~ⓛ +
+ * 계측 G1(`skipped`)·G2(`mic_interrupt_ui`)를 여기서 잠근다. ⓑ는 사실상 같은 시간 형상이라 이제
+ * 회복 TTS가 나가지만 단언은 없다(무해).
+ *
  * ## 릴리스 게이트
  * 이 스펙은 `package.json`의 `test:e2e:gate`에 등재돼 있고, `[node] ⓪-게이트`가 **그 등재
  * 자체를 계약으로 잠근다**(초판에서 빠져 있었다 — 2026-09-02 콜드 리뷰 [P1-1]).
- * 비용: 9건 `--workers=1` **39.7초**.
+ * 비용: 15건 `--workers=1` (실측치는 산출물 §3 · v0.51.1 착수 시점 9건 39.7초).
  */
 import { test, expect, type Page } from '@playwright/test';
 import { boot, PHONE_402, PREV_ROUND, SETTINGS as AZ_SETTINGS } from './fixtures/activeZones';
@@ -205,6 +215,46 @@ test('[node] ⓪ clipHealth 계약 — unreliable은 saved도 failed도 아니�
   expect(h.summary()).toEqual({ saved: 0, failed: 0, unreliable: 0, mutedFailed: 0 });
 });
 
+/** 🔴 v0.51.1 ⓓ — 회복 고지의 「판정 시점」을 장부가 알린다. 이 계약이 없으면 유예가 풀릴 자리가 없다. */
+test('[node] ⓪ clipHealth 장부 신호 — muted 증거에만 울리고, 증가 직후이며, reset()은 구독을 지우지 않는다', () => {
+  const h = createClipHealth();
+  let fired = 0;
+  const off = h.onMutedEvidence(() => { fired += 1; });
+
+  // muted와 무관한 경로에서는 울리지 않는다 — 울리면 유예가 엉뚱한 클립에서 풀려 위양성 고지가 나간다.
+  h.recordSaved();
+  h.recordFailure();
+  h.recordFailure(false);
+  expect(fired, 'muted가 아닌 경로에서 울렸다').toBe(0);
+
+  h.recordUnreliable();
+  expect(fired, 'recordUnreliable()이 안 울렸다 — 실기기 1차 형상(저장은 됐지만 muted)에서 유예가 영영 안 풀린다').toBe(1);
+  h.recordFailure(true);
+  expect(fired, 'recordFailure(mutedSpan=true)가 안 울렸다 — 실측 사고 형상(5바이트)에서 유예가 영영 안 풀린다').toBe(2);
+
+  // 🔴 구독자는 **증가 직후**에 읽는다 — 울리는 시점에 summary()가 이미 올라 있어야 한다.
+  let seen: ReturnType<typeof h.summary> | null = null;
+  const off2 = h.onMutedEvidence(() => { seen = h.summary(); });
+  h.recordUnreliable();
+  expect(seen, '증가 전에 울렸다 — 판정이 한 박자 늦은 장부를 본다')
+    .toEqual({ saved: 1, failed: 3, unreliable: 2, mutedFailed: 1 });
+  off2();
+
+  // 🔴 reset()은 구독을 지우지 않는다 — 세션 경계 ≠ 구독 수명(훅은 마운트당 1회 구독한다).
+  h.reset();
+  h.recordUnreliable();
+  expect(fired, 'reset()이 구독을 지웠다 — 두 번째 세션부터 고지가 죽는다').toBe(4);
+
+  off();
+  h.recordUnreliable();
+  expect(fired, '해제 뒤에도 울린다 — 언마운트된 훅이 깨어난다').toBe(4);
+
+  // 구독자 예외가 장부를 깨지 않는다(회계가 고지보다 우선이다).
+  h.onMutedEvidence(() => { throw new Error('boom'); });
+  expect(() => h.recordUnreliable(), '구독자 예외가 장부 호출로 새어 나왔다').not.toThrow();
+  expect(h.summary().unreliable, '예외 뒤 회계가 어긋났다').toBe(3);
+});
+
 test('ⓐ muted 상태로 **시작된** 클립 → 저장은 되지만 「신뢰불가」로 센다 + ⓒ 불가침 + 결산', async ({ page }) => {
   await bootMini(page);
   await waitForTtsIdle(page);
@@ -311,6 +361,13 @@ test('ⓓ 절전 화면이 실상태를 말한다 — muted면 「음성 입력�
   await expect(hint, '무슨 일이 일어났는지 말하지 않는다 — 문구를 지우기만 하면 사용자는 여전히 모른다')
     .toContainText('마이크가 멈춰');
   expect(await hint.getAttribute('data-mic-interrupted'), '상태 플래그가 화면에 반영되지 않았다').toBe('1');
+
+  // G2(v0.51.1) — 전이 순간 절전 화면이 떠 있었다는 사실이 로그에 남는다. 실기기 1차에서 ⓑ(문구가
+  //   실제로 바뀌었나)는 이 전이가 무로그라 **영구 판정 불가**였다(09-02 판독 §5 G2).
+  await expect
+    .poll(async () => (await logExtras(page)).filter((e) => e.startsWith('mic_interrupt_ui:')),
+      { timeout: 5000, message: '문구 전환이 무로그다 — 실기기 판정 ⓑ가 로그로는 영구 판정 불가로 남는다' })
+    .toEqual(['mic_interrupt_ui:muted=1,blackout=1,hold=0']);
 
   // aria-label도 같은 배열에서 나온다 — 한쪽만 고치면 스크린리더는 계속 거짓을 읽는다.
   const aria = await overlay.getAttribute('aria-label');
@@ -477,4 +534,193 @@ test('ⓖ 정상 세션 회귀 — muted가 없으면 종전 그대로다(위양
   expect(after.filter((e) => e.startsWith('clip_unreliable_summary:')),
     'muted가 없는데 신규 결산이 나갔다').toHaveLength(0);
   expectNoRecoveryPath(after, 'ⓖ');
+});
+
+/** 🔴 v0.51.1 ⓓ — **2026-09-02 실기기 1차의 형상 그 자체**(`sess_1788316707658` #1·#2).
+ *
+ *  ## 기존 ⓕ가 green인 이유 — 이 케이스와의 차이
+ *  ⓕ는 mute → **커밋(22.2)** → unmute 순서다. 걸친 클립(클립2)이 unmute **전에** 닫혀 `unreliable`
+ *  증가분이 unmute 시점에 이미 장부에 있다 → 즉시 판정 `lost=1`. (그 순간 클립3이 muted 상태로 열려
+ *  `sawMuted`인데도 **즉시** 말하는 게 맞다 — 유예 조건은 「Δ0 **그리고** 열린 muted 클립」 둘 다다.
+ *  「열린 muted 클립이면 무조건 유예」로 짜면 ⓕ·ⓗ가 red다. 훅 헤더가 SSOT.)
+ *  이 케이스는 mute → unmute → **그 뒤** 커밋이다. unmute 시점 Δ=0이고 걸친 클립이 아직 열려 있다.
+ *  즉시 판정이면 `lost=0`으로 끝나고, 나중에 `clip_unreliable:muted`가 남아도 아무도 안 듣는다 —
+ *  실기기가 정확히 이랬다(unmute +11.3s·+8.0s 뒤 닫힘 · `mic_interrupt_notice` 0건 · TTS 0건).
+ *
+ *  ## 🔑 시간축이 오라클이다
+ *  `__setFakeTrackMuted()`는 상태만 만든다. 이번 결함은 **순서**였으므로 unmute와 커밋 사이에 텀을
+ *  두고, 그 텀 안에서 「아직 말하지 않았고 유예 줄만 있다」를 **중간 단언**한다. 반증(즉시 판정으로
+ *  되돌림)은 이 중간 단언에서 먼저 red가 난다(`skipped,lost=0,…`). */
+test('ⓘ 걸친 클립이 unmute **뒤에** 닫힌다 — 판정은 클립 해소 뒤 1회, 고지도 그때 1회', async ({ page }) => {
+  await bootMini(page);
+  await waitForTtsIdle(page);
+  await fireStt(page, '11.1', 900);
+  await waitForTtsIdle(page);
+
+  // 클립2(측정항목02)가 열려 있다. 그 안에서 뺏겼다가 돌려준다 — 그리고 **닫지 않는다**.
+  expect(await setMuted(page, true), '전제: mute 진입').toBe(true);
+  await page.waitForTimeout(400);
+  expect(await setMuted(page, false), '전제: unmute 회복 — 클립2는 아직 열려 있다').toBe(true);
+
+  // 🔴 실측의 +8~11초를 축약한 텀. 이 안에서는 「판정을 미뤘다」만 남아야 한다.
+  await page.waitForTimeout(1200);
+  const mid = await logExtras(page);
+  expect(mid.filter((e) => e.startsWith('mic_interrupt_notice:')),
+    'unmute 시점에 판정을 끝내 버렸다 — 걸친 클립이 닫힐 때 증거가 올라와도 아무도 안 듣는다(실기기 1차 ⓓ)')
+    .toEqual(['mic_interrupt_notice:deferred']);
+  expect((await ttsLog(page)).filter((t) => t.includes('마이크가 잠시 멈춰')),
+    '증거가 장부에 오르기 전에 말했다 — 무엇을 근거로?').toHaveLength(0);
+
+  // 이제 걸친 클립을 닫는다(커밋) → `clip_unreliable:muted` → 그 **직후** 판정.
+  await fireStt(page, '22.2', 1500);
+  await waitForTtsIdle(page);
+  await expect
+    .poll(async () => (await ttsLog(page)).filter((t) => t.includes('마이크가 잠시 멈춰')).length,
+      { timeout: 8000, message: '🔴 걸친 클립이 unreliable로 닫혔는데 회복 고지가 없다 — 실기기 1차 ⓓ 실패 형상 그대로다' })
+    .toBe(1);
+
+  const evs = await logExtras(page);
+  expect(evs.filter((e) => e === 'clip_unreliable:muted'), '전제: 걸친 클립이 unreliable로 섰어야 한다').toHaveLength(1);
+  expect(evs.filter((e) => e.startsWith('mic_interrupt_notice:')),
+    '판독 불변식: unmute 시점 1줄(deferred) + 유예 종결 1줄(판정) — 그 외 줄이 있거나 빠졌다')
+    .toEqual(['mic_interrupt_notice:deferred', 'mic_interrupt_notice:lost=1,unrel=1,fail=0']);
+  expectNoRecoveryPath(evs, 'ⓘ');
+});
+
+/** G1(v0.51.1) — 「판정이 돌았는데 0」과 「판정이 안 돌았다」를 로그로 가른다.
+ *  🔑 「클립 없는 인터럽트」를 만드는 법: 일시정지는 못 쓴다(dispose가 트랙 리스너를 떼서
+ *  `__setFakeTrackMuted`가 아무 데도 안 닿는다). 1행 × 3항목을 다 채워 **행이 끝난 상태**를 쓴다 —
+ *  마지막 클립의 post-roll(0.5s)이 지나면 슬롯은 finalized라 `mute` 리스너가 래치하지 않는다. */
+test('ⓙ 클립 없는 인터럽트 — 즉시 판정 `skipped` 1줄, 발화 0 (대기 중 전화 = 무발화 유지)', async ({ page }) => {
+  await bootMini(page);
+  await waitForTtsIdle(page);
+  await fireStt(page, '11.1', 900);
+  await waitForTtsIdle(page);
+  await fireStt(page, '22.2', 900);
+  await waitForTtsIdle(page);
+  await fireStt(page, '33.3', 900);
+  await waitForTtsIdle(page);
+  // 행이 끝났다. 마지막 클립의 post-roll이 지나 슬롯이 닫히도록 기다린다.
+  await page.waitForTimeout(1000);
+  const before = await logExtras(page);
+  expect(before.filter((e) => e.startsWith('clip_started:')),
+    '전제: 행 완료 뒤 새 클립이 열리면 이 케이스는 「클립 없는 인터럽트」를 재는 게 아니다').toHaveLength(3);
+  expect(before.filter((e) => e === 'clip_duration'),
+    '전제: 세 클립이 전부 닫혀(finalized) 있어야 mute가 어느 슬롯에도 래치되지 않는다').toHaveLength(3);
+
+  expect(await setMuted(page, true), '전제: mute 진입').toBe(true);
+  await page.waitForTimeout(300);
+  expect(await setMuted(page, false), '전제: unmute 회복').toBe(true);
+
+  await expect
+    .poll(async () => (await logExtras(page)).filter((e) => e.startsWith('mic_interrupt_notice:')),
+      { timeout: 5000, message: 'lost=0으로 끝난 판정이 줄을 안 남겼다 — 「판정 0」과 「판정 미실행」을 못 가른다(G1)' })
+    .toEqual(['mic_interrupt_notice:skipped,lost=0,unrel=0,fail=0']);
+  await page.waitForTimeout(500);
+  expect((await ttsLog(page)).filter((t) => t.includes('마이크가 잠시 멈춰')),
+    '아무 클립도 안 걸쳤는데 말했다 — 현장에서 무의미한 발화는 그 자체가 방해다').toHaveLength(0);
+
+  const evs = await logExtras(page);
+  expect(evs.filter((e) => e === 'clip_unreliable:muted'), '클립이 없는데 unreliable이 섰다').toHaveLength(0);
+  // G2 — 절전도 홀드도 아닌 전이 2건(진입·회복).
+  expect(evs.filter((e) => e.startsWith('mic_interrupt_ui:')), '전이 계측이 전이당 1건이 아니다')
+    .toEqual(['mic_interrupt_ui:muted=1,blackout=0,hold=0', 'mic_interrupt_ui:muted=0,blackout=0,hold=0']);
+  expectNoRecoveryPath(evs, 'ⓙ');
+});
+
+/** 유예가 영영 안 풀리는 경로 — 걸친 클립이 닫히지 않은 채 세션이 끝난다. 🔴 폐기하지 않으면
+ *  pending과 기준선이 다음 세션으로 새고, `clipHealth.reset()` 뒤 기준선이 낡아 진짜 손실에서
+ *  Δ≤0 → 침묵이 재발한다. 폐기는 로그 1줄로 드러나야 한다. */
+test('ⓚ 유예 중 세션 종료 — 판정을 폐기하고 로그 1줄, 발화 0', async ({ page }) => {
+  await bootMini(page);
+  await waitForTtsIdle(page);
+  await fireStt(page, '11.1', 900);
+  await waitForTtsIdle(page);
+
+  expect(await setMuted(page, true), '전제: mute 진입').toBe(true);
+  await page.waitForTimeout(300);
+  expect(await setMuted(page, false), '전제: unmute 회복 — 클립2는 열린 채다').toBe(true);
+  await expect
+    .poll(async () => (await logExtras(page)).filter((e) => e.startsWith('mic_interrupt_notice:')),
+      { timeout: 5000, message: '전제: 유예가 걸려 있어야 한다' })
+    .toEqual(['mic_interrupt_notice:deferred']);
+
+  // 걸친 클립(클립2)을 닫지 않은 채 세션을 끝낸다.
+  await page.locator('button[title="입력 종료"]').click();
+  await page.locator('button[title="종료 확인"]').click();
+  await expect
+    .poll(async () => (await logExtras(page)).filter((e) => e.startsWith('mic_interrupt_notice:')),
+      { timeout: 15_000, message: '🔴 유예가 세션을 넘어 살아남았다 — 다음 세션의 기준선이 낡아 진짜 손실에서 침묵한다' })
+    .toEqual(['mic_interrupt_notice:deferred', 'mic_interrupt_notice:dropped:session_end']);
+
+  const after = await logExtras(page);
+  expect(after.some((e) => e.startsWith('clip_summary:')), '전제: 세션 결산이 나갔어야 한다(종료 완료)').toBe(true);
+  expect((await ttsLog(page)).filter((t) => t.includes('마이크가 잠시 멈춰')),
+    '증거 없이 말했다 — 폐기는 침묵이어야 한다').toHaveLength(0);
+  expectNoRecoveryPath(after, 'ⓚ');
+});
+
+/** 🔴 「구간당 1회」의 정의를 못 박는다 — **유예 중 새 muted 구간이 오면?**
+ *  pending과 첫 구간의 기준선을 **유지**한다(유예 = 기준선 고정 — 구간 사이 증거는 장부 신호가 그 자리에서
+ *  소비하므로 다시 찍어도 결과는 같다. 규칙을 하나로 둔다). unmute마다 `deferred` 1줄(판독 불변식), 클립이
+ *  닫히는 순간 판정 1회. 두 구간에 걸친 클립 하나 = 고지 **1회**. 새 구간이 유예를 깨뜨리면(판정·skipped) red. */
+test('ⓛ 유예 중 새 muted 구간 — 두 구간에 걸친 클립 하나 = 고지 1회', async ({ page }) => {
+  await bootMini(page);
+  await waitForTtsIdle(page);
+  await fireStt(page, '11.1', 900);
+  await waitForTtsIdle(page);
+
+  expect(await setMuted(page, true), '전제: 구간 1 진입').toBe(true);
+  await page.waitForTimeout(300);
+  expect(await setMuted(page, false), '전제: 구간 1 회복').toBe(true);
+  await page.waitForTimeout(300);
+  expect(await setMuted(page, true), '전제: 구간 2 진입(유예 중)').toBe(true);
+  await page.waitForTimeout(300);
+  expect(await setMuted(page, false), '전제: 구간 2 회복').toBe(true);
+
+  await expect
+    .poll(async () => (await logExtras(page)).filter((e) => e.startsWith('mic_interrupt_notice:')),
+      { timeout: 5000, message: '유예 중 새 구간이 유예를 깨뜨렸거나(판정·skipped) unmute당 1줄 불변식이 깨졌다' })
+    .toEqual(['mic_interrupt_notice:deferred', 'mic_interrupt_notice:deferred']);
+  expect((await ttsLog(page)).filter((t) => t.includes('마이크가 잠시 멈춰')),
+    '클립이 닫히기 전에 말했다').toHaveLength(0);
+
+  await fireStt(page, '22.2', 1500);
+  await waitForTtsIdle(page);
+  await expect
+    .poll(async () => (await ttsLog(page)).filter((t) => t.includes('마이크가 잠시 멈춰')).length,
+      { timeout: 8000, message: '두 구간에 걸친 클립이 닫혔는데 고지가 없다' })
+    .toBe(1);
+
+  const evs = await logExtras(page);
+  expect(evs.filter((e) => e.startsWith('mic_interrupt:on:')), '전제: 구간이 둘이어야 한다').toHaveLength(2);
+  expect(evs.filter((e) => e === 'clip_unreliable:muted'), '전제: 걸친 클립은 하나다').toHaveLength(1);
+  expect(evs.filter((e) => e.startsWith('mic_interrupt_notice:')),
+    '두 구간 = 고지 2회로 나갔거나, 유예가 두 벌 생겼다 — 구간당 1회는 「최대 1회」이고 클립 하나면 1회다')
+    .toEqual(['mic_interrupt_notice:deferred', 'mic_interrupt_notice:deferred', 'mic_interrupt_notice:lost=1,unrel=1,fail=0']);
+  expectNoRecoveryPath(evs, 'ⓛ');
+});
+
+/** G2(v0.51.1) — 홀드 문구가 떠 있는 동안의 전이는 `hold=1`로 남는다(ⓓ가 `blackout=1`, ⓙ가 둘 다 0). */
+test('ⓜ G2 — 홀드 문구가 떠 있는 동안 mute → 전이 로그 hold=1', async ({ page }) => {
+  await bootMini(page);
+  await waitForTtsIdle(page);
+
+  const surface = page.locator('[data-testid="hero-hold-surface"]');
+  await surface.hover();
+  await page.mouse.down();
+  await expect(page.locator('[data-testid="hero-hold-cue"]'), '전제: 홀드 문구가 떠 있어야 한다').toBeVisible();
+
+  expect(await setMuted(page, true), '전제: 홀드 중 mute').toBe(true);
+  await page.waitForTimeout(200);
+  // 2초 임계 전에 놓는다 — 절전 진입 없이 홀드만 끝낸다.
+  await page.mouse.up();
+  await expect(page.locator('[data-testid="hero-hold-cue"]'), '전제: 홀드가 끝나 문구가 내려가야 한다').toBeHidden();
+  expect(await setMuted(page, false), '전제: 홀드 종료 뒤 unmute').toBe(true);
+
+  await expect
+    .poll(async () => (await logExtras(page)).filter((e) => e.startsWith('mic_interrupt_ui:')),
+      { timeout: 5000, message: '홀드 문구가 떠 있었는데 hold=0이다 — 실기기 ⓑ의 홀드 축을 로그로 못 닫는다' })
+    .toEqual(['mic_interrupt_ui:muted=1,blackout=0,hold=1', 'mic_interrupt_ui:muted=0,blackout=0,hold=0']);
+  expectNoRecoveryPath(await logExtras(page), 'ⓜ');
 });

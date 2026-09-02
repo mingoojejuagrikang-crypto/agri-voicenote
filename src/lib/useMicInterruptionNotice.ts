@@ -24,13 +24,51 @@
  * ## 하는 일 셋
  *  ① muted 전이를 스토어에 반영 → 절전 화면·홀드 문구가 **실상태를 말한다**(문구 SSOT는 각 컴포넌트).
  *  ② muted가 `MIC_INTERRUPT_BLACKOUT_RELEASE_MS` 넘게 이어지면 **절전 화면을 자동 해제**한다.
- *  ③ 회복(unmute) 직후, **그 구간에 실제로 증거를 잃었을 때만** 한 문장 말한다.
+ *  ③ 회복(unmute) 뒤, **그 구간에 실제로 증거를 잃었을 때만** 한 문장 말한다.
  *     🔴 「잃었다」는 `unreliable`(파일은 남았는데 못 믿는다) **+ `mutedFailed`**(파일조차
  *     안 남았다) 둘 다다 — 실측 사고는 **후자뿐**이었고, 그래서 v0.51 초판은 침묵했다.
+ *
+ * ## 🔴 v0.51.1 ⓓ — 판정 「시점」은 걸친 클립이 해소된 **뒤**다 (2026-09-02 실기기 1차 · 민구 결정 (a))
+ * 정식 v0.51.0의 unmute 핸들러는 **즉시** 증가분을 봤다. 그런데 걸친 클립의 증거
+ * (`recordUnreliable()`·`recordFailure(mutedSpan)`)는 **클립이 닫힐 때**(`useValueCommit`) 장부에
+ * 오른다. 실측(`sess_1788316707658`) 2건 모두 클립이 unmute **+11.3s · +8.0s 뒤** 닫혔다:
+ * ```
+ * 11:53:32.941 clip_started                                        ← 클립 열림(14행 횡경)
+ * 11:53:35.331 mic_track_evt:mute · mic_interrupt:on:evt
+ * 11:53:40.401 mic_track_evt:unmute · mic_interrupt:off:evt:ms=5070  ← 여기서 판정 → lost=0 → 침묵
+ * 11:53:51.653 clip_unreliable:muted                                ← 증거는 여기. 판정은 이미 끝났다
+ * ```
+ * 값을 말하려고 듣는 도중에 인터럽트가 오는 형상 = **이 앱의 기본 형상**이라, 즉시 판정은 항상 이렇게
+ * 된다. 민구 결정 (a): **unreliable이면 무조건 고지** — 회복 후 발화가 담겼든 아니든, 절전 여부와 무관.
+ *
+ * **규칙(둘 다여야 유예다):** unmute 시점에 ⓐ 증가분이 0이고 **그리고** ⓑ 가장 최근 클립 슬롯이
+ * muted 구간에 걸쳤으면(`hasMutedClipOpen`) 판정을 **유예**하고, 그 클립의 증거가 장부에 오르는
+ * 순간(`clipHealth.onMutedEvidence`)에 판정한다.
+ *  · ⓐ가 아니면(이미 잃은 게 있다) **즉시** 말한다. 🔴 「열린 muted 클립이 있으면 무조건 유예」로
+ *    짜면 안 된다 — mute 중 커밋이 일어나면 걸친 클립은 unmute **전에** 닫히고, **다음 클립이 muted
+ *    상태로 열려 있다**(오라클 ⓕ·ⓗ의 형상). 그때 유예하면 이미 확정된 손실을 다음 커밋까지
+ *    (영영일 수도) 안 말한다.
+ *  · ⓑ가 아니면 종전 즉시 판정 그대로다(클립 없는 인터럽트 = 대기 중 전화 = 무발화 유지 · G1 `skipped`).
+ *
+ * **구간당 1회 · 유예 중 새 구간:** `pendingVerdict`는 원샷이고 진입 기준선은 **첫 구간 것을 유지**한다
+ * (유예 = 「기준선 고정」 한 규칙. 구간 사이에 닫힌 증거는 `onMutedEvidence`가 그 자리에서 소비하므로
+ * 다시 찍어도 값은 같다 — 규칙을 둘로 두면 판독이 두 갈래가 된다). 두 구간에 걸친
+ * 클립 하나 = 고지 **1회**다. 클립이 muted **도중에** 해소되면 말하지 않고 pending을 유지한다(그 순간
+ * 오디오 출력이 죽어 있다 — ⓕ·ⓗ 계약) → 다음 unmute가 증가분>0을 보고 즉시 판정해 소비한다.
+ * 절전 자동 해제 타이머(②)는 종전대로 구간마다 무장한다 — 유예와 무관하다.
+ *
+ * **폐기:** 유예가 영영 안 풀리는 경로(클립이 안 닫힌 채 세션 종료·언마운트)는
+ * `mic_interrupt_notice:dropped:<reason>` 1줄을 남기고 버린다. 다음 세션으로 새면 `clipHealth.reset()`
+ * 뒤 기준선이 낡아 진짜 손실에서 Δ≤0 → 침묵이 재발하므로 **세션 경계에서 반드시** 버린다
+ * (`dropPendingVerdict('session_end')` — 호출 위치 계약은 핸들 주석).
+ *
+ * **판독 불변식(로그):** `mic_interrupt:off` 1건당 unmute 시점에 `mic_interrupt_notice:` **정확히 1줄**
+ * (`lost=…` 판정 · `skipped,lost=…` G1 · `deferred`), 유예는 뒤에 **정확히 1줄**로 종결된다
+ * (`lost=…` 판정 · `dropped:<reason>`). 기존 `lost=` 접두 판독은 그대로다.
  */
 import { useEffect, useRef } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
-import { subscribeMicMuted } from './micInterruption';
+import { isMicMuted, subscribeMicMuted } from './micInterruption';
 import { MIC_INTERRUPT_RECOVERED_TTS } from './voicePrompts';
 import type { ClipHealth } from './clipHealth';
 import type { logger } from './logger';
@@ -49,22 +87,46 @@ type LogCell = (entry: Omit<Parameters<typeof logger.log>[0], 'sessionId'>) => v
  *  즉 실제 사고 구간은 3초를 한참 넘고, 3초는 「알림음」과 「전화」를 가르는 자리다.
  *  🔴 다만 이건 **실측 1건에서 고른 값**이지 최적화된 값이 아니다. 다음 회차가
  *  `mic_interrupt:off:*:ms=<N>` 분포를 보고 조정할 수 있게 **매직넘버로 묻지 않는다**
- *  (민구 지시 2026-09-01). */
+ *  (민구 지시 2026-09-01). 09-02 실기기 1차(표본 n=3 전부 ≥5초 · <3초 표본 0)에서 **유지**로 판정. */
 export const MIC_INTERRUPT_BLACKOUT_RELEASE_MS = 3000;
 
 export interface MicInterruptionNoticeDeps {
   /** 구간 중 증거를 실제로 잃었는지 판정할 장부. 세션 결산과 **같은 장부**여야 한다 —
-   *  사본을 만들면 「고지는 나갔는데 결산엔 없다」가 생긴다. */
+   *  사본을 만들면 「고지는 나갔는데 결산엔 없다」가 생긴다.
+   *  🔴 v0.51.1 — `onMutedEvidence` 구독도 이 장부에 건다. 마운트 동안 **같은 인스턴스**여야 한다
+   *  (호출부는 `useRef`로 고정한다 — 바꿔 끼우면 구독이 옛 장부에 남아 유예가 영영 안 풀린다). */
   clipHealth: ClipHealth;
+  /** 🔴 v0.51.1 ⓓ — unmute 시점에 「가장 최근 클립 슬롯이 muted 구간에 걸쳤는가」(관찰 전용 —
+   *  `AudioRecorder.activeClipSawMuted`). 증가분이 0일 때 판정을 유예할지 가른다. 레코더가 없으면 false
+   *  (= 클립 없는 인터럽트 → 즉시 판정). */
+  hasMutedClipOpen: () => boolean;
   say: (text: string, interrupt?: boolean) => Promise<boolean>;
   logCell: LogCell;
 }
 
-export function useMicInterruptionNotice({ clipHealth, say, logCell }: MicInterruptionNoticeDeps): void {
+/** 본체(`useVoiceSession`)가 세션 경계에서 부르는 손잡이. identity는 마운트 동안 고정이다
+ *  (`stop`이 `useCallback`에 잡는다). */
+export interface MicInterruptionNoticeHandle {
+  /** 유예 중인 회복 판정을 폐기한다(있을 때만 `mic_interrupt_notice:dropped:session_end` 1줄).
+   *  🔴 레코더 `dispose()` **뒤**에 불러라 — muted 상태로 세션을 끝내면 dispose의 detach가 unmute
+   *  콜백을 만들고, 그 순간 활성 슬롯의 `sawMuted`가 아직 살아 있어 새 유예가 생길 수 있다. */
+  dropPendingVerdict: (reason: 'session_end') => void;
+}
+
+type PendingDropReason = 'session_end' | 'unmount';
+
+export function useMicInterruptionNotice(
+  { clipHealth, hasMutedClipOpen, say, logCell }: MicInterruptionNoticeDeps,
+): MicInterruptionNoticeHandle {
   // 최신 참조를 ref로 잡아 effect deps를 비운다 — 구독은 **마운트당 한 번**이어야 한다.
   // deps에 함수를 넣으면 호출부의 인라인 화살표마다 재구독되고, 그때 타이머가 조용히 유실된다.
-  const depsRef = useRef({ clipHealth, say, logCell });
-  depsRef.current = { clipHealth, say, logCell };
+  const depsRef = useRef({ clipHealth, hasMutedClipOpen, say, logCell });
+  depsRef.current = { clipHealth, hasMutedClipOpen, say, logCell };
+  // effect 안의 폐기 함수를 밖으로 내는 통로. 핸들 자체는 ref로 identity를 고정한다.
+  const dropRef = useRef<((reason: PendingDropReason) => void) | null>(null);
+  const handleRef = useRef<MicInterruptionNoticeHandle>({
+    dropPendingVerdict: (reason) => { dropRef.current?.(reason); },
+  });
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -80,60 +142,37 @@ export function useMicInterruptionNotice({ clipHealth, say, logCell }: MicInterr
      *   · `mutedFailed` — muted 구간에 걸쳤고 **파일조차 안 남았다**(`failed`의 부분집합)
      *  사용자에게는 둘 다 「그동안의 음성 기록은 확인이 필요하다」로 같다. 회계에서 칸을 나눈
      *  이유(`recordUnreliable` 주석)와 **고지에서 합치는 이유는 다른 축**이다 —
-     *  전자는 「복구가 필요한가」, 후자는 「사용자에게 말할 것이 있는가」다. */
+     *  전자는 「복구가 필요한가」, 후자는 「사용자에게 말할 것이 있는가」다.
+     *
+     *  🔴 v0.51.1 ⓓ — 유예 중(`pendingVerdict`)에는 새 구간이 와도 **다시 찍지 않는다**(헤더 규칙). */
     let unreliableAtEnter = 0;
     let mutedFailedAtEnter = 0;
+    /** 🔴 v0.51.1 ⓓ — 회복 판정이 「걸친 클립 해소」를 기다리는 중인가(원샷). */
+    let pendingVerdict = false;
 
     const clearTimer = () => {
       if (timer !== null) { clearTimeout(timer); timer = null; }
     };
 
-    const onMuted = (muted: boolean) => {
+    /** 회복 판정 **1회** — 증가분을 계산해 로그 1줄을 남기고, 잃었으면 한 문장 말한다.
+     *  원샷은 호출자가 보장한다(`pendingVerdict`를 먼저 내리고 부른다). */
+    const verdict = () => {
       const { clipHealth: health, say: speak, logCell: log } = depsRef.current;
-      useSessionStore.getState().setMicInterrupted(muted);
-
-      if (muted) {
-        const enter = health.summary();
-        unreliableAtEnter = enter.unreliable;
-        mutedFailedAtEnter = enter.mutedFailed;
-        clearTimer();
-        // 🔴 **구간당 정확히 한 번만 발화한다.** 타이머를 재무장하지 않으므로, 사용자가 화면을
-        //   다시 끄고 같은 인터럽트가 계속돼도 **다시 켜지 않는다.** 켜고/꺼지고를 반복하는 것이
-        //   이 기능의 최악 형상이다(민구 지시 2026-09-01).
-        timer = setTimeout(() => {
-          timer = null;
-          const st = useSessionStore.getState();
-          // 🔑 **안 보이는 화면은 켜지 않는다.** 앱이 백그라운드면(전화 화면이 위에 있다) 절전을
-          //   풀어도 사용자에게 도달하지 않고 배터리만 쓴다. 복귀 시점의 판정은
-          //   `onForegroundReturn`의 `mic_track:muted` 경로가 이미 남긴다.
-          if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-            log({ type: 'clip', extra: 'mic_muted_blackout:skipped=hidden' });
-            return;
-          }
-          if (!st.blackout) {
-            // 절전 중이 아니면 열 화면이 없다 — 문구 전환(①)이 이미 사실을 말하고 있다.
-            log({ type: 'clip', extra: 'mic_muted_blackout:skipped=no_blackout' });
-            return;
-          }
-          st.setBlackout(false);
-          // 다음 회차가 **오탐률을 잴 수 있어야 한다**(민구 지시): 이 이벤트 수 대비
-          // `mic_interrupt:off:*:ms=` 분포가 곧 「켤 만했나」의 답이다.
-          log({ type: 'clip', extra: 'mic_muted_blackout:released' });
-        }, MIC_INTERRUPT_BLACKOUT_RELEASE_MS);
-        return;
-      }
-
-      // ── 회복(unmute) ──
-      clearTimer();
       const exit = health.summary();
       const unrel = exit.unreliable - unreliableAtEnter;
       const fail = exit.mutedFailed - mutedFailedAtEnter;
       const lost = unrel + fail;
       unreliableAtEnter = 0;
       mutedFailedAtEnter = 0;
-      // 🔴 **증거를 잃었을 때만 말한다.** 아무 클립도 안 걸친 인터럽트(대기 중 전화)는 사용자가
-      //   알 필요가 없다 — 현장에서 무의미한 발화는 그 자체가 방해다(고지 피로).
-      if (lost <= 0) return;
+      if (lost <= 0) {
+        // 🔴 **증거를 잃었을 때만 말한다.** 아무 클립도 안 걸친 인터럽트(대기 중 전화)는 사용자가
+        //   알 필요가 없다 — 현장에서 무의미한 발화는 그 자체가 방해다(고지 피로).
+        // G1(v0.51.1) — 그래도 **줄은 남긴다.** 종전엔 여기서 조용히 끝나 「판정이 돌았는데 0」과
+        //   「판정이 안 돌았다」를 로그로 못 갈랐다(09-02 판독 §5 G1). 값은 계산값 그대로다 —
+        //   음수면 기준선이 세션 경계를 넘었다는 뜻이라 그 자체가 정보다. `lost=` 토큰은 그대로.
+        log({ type: 'clip', extra: `mic_interrupt_notice:skipped,lost=${lost},unrel=${unrel},fail=${fail}` });
+        return;
+      }
       // 🔑 **내역을 함께 남긴다**(v0.51 r2 [P1-2]): 실기기 판정에서 민구가 고지를 들었을 때,
       //   다음 회차가 「실패 경로로 잡혔나 unreliable로 잡혔나」를 이 한 줄로 갈라야 한다.
       //   `lost=` 접두는 그대로라 기존 판독이 안 깨진다.
@@ -143,7 +182,102 @@ export function useMicInterruptionNotice({ clipHealth, say, logCell }: MicInterr
       void speak(MIC_INTERRUPT_RECOVERED_TTS, false);
     };
 
-    const unsubscribe = subscribeMicMuted(onMuted);
-    return () => { unsubscribe(); clearTimer(); };
+    const onMuted = (muted: boolean) => {
+      const { clipHealth: health, hasMutedClipOpen: mutedClipOpen, logCell: log } = depsRef.current;
+      const st = useSessionStore.getState();
+      st.setMicInterrupted(muted);
+      // G2(v0.51.1) — 문구 전환의 순간 사용자가 보고 있던 화면. 종전엔 이 전이가 무로그라 실기기
+      //   판정 ⓑ(절전 화면 문구가 실제로 바뀌었나)를 로그로는 영구히 못 닫았다(09-02 판독 §5 G2).
+      //   전이당 1줄이라 링버퍼 부담 = 인터럽트 수 × 2.
+      log({
+        type: 'clip',
+        extra: `mic_interrupt_ui:muted=${muted ? 1 : 0},blackout=${st.blackout ? 1 : 0},hold=${st.heroHolding ? 1 : 0}`,
+      });
+
+      if (muted) {
+        // 유예 중이면 기준선을 **유지**한다(헤더 「유예 중 새 구간」 — 유예 = 기준선 고정). 구간 사이에
+        //   닫힌 증거는 이미 `onMutedEvidence`가 소비했으므로 다시 찍어도 값은 같다 — 규칙을 하나로 둔다.
+        if (!pendingVerdict) {
+          const enter = health.summary();
+          unreliableAtEnter = enter.unreliable;
+          mutedFailedAtEnter = enter.mutedFailed;
+        }
+        clearTimer();
+        // 🔴 **구간당 정확히 한 번만 발화한다.** 타이머를 재무장하지 않으므로, 사용자가 화면을
+        //   다시 끄고 같은 인터럽트가 계속돼도 **다시 켜지 않는다.** 켜고/꺼지고를 반복하는 것이
+        //   이 기능의 최악 형상이다(민구 지시 2026-09-01).
+        timer = setTimeout(() => {
+          timer = null;
+          const now = useSessionStore.getState();
+          // 🔑 **안 보이는 화면은 켜지 않는다.** 앱이 백그라운드면(전화 화면이 위에 있다) 절전을
+          //   풀어도 사용자에게 도달하지 않고 배터리만 쓴다. 복귀 시점의 판정은
+          //   `onForegroundReturn`의 `mic_track:muted` 경로가 이미 남긴다.
+          if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+            log({ type: 'clip', extra: 'mic_muted_blackout:skipped=hidden' });
+            return;
+          }
+          if (!now.blackout) {
+            // 절전 중이 아니면 열 화면이 없다 — 문구 전환(①)이 이미 사실을 말하고 있다.
+            log({ type: 'clip', extra: 'mic_muted_blackout:skipped=no_blackout' });
+            return;
+          }
+          now.setBlackout(false);
+          // 다음 회차가 **오탐률을 잴 수 있어야 한다**(민구 지시): 이 이벤트 수 대비
+          // `mic_interrupt:off:*:ms=` 분포가 곧 「켤 만했나」의 답이다.
+          log({ type: 'clip', extra: 'mic_muted_blackout:released' });
+        }, MIC_INTERRUPT_BLACKOUT_RELEASE_MS);
+        return;
+      }
+
+      // ── 회복(unmute) ──
+      clearTimer();
+      // 🔴 v0.51.1 ⓓ — 유예 조건은 **둘 다**다(헤더 규칙): 아직 잃은 게 0이고 && 걸친 클립이 열려 있다.
+      //   잃은 게 이미 있으면 지금 말한다 — 그 뒤에 열린 muted 클립이 하나 더 닫혀도 이 구간의 고지는
+      //   끝났다(구간당 1회). 걸친 클립이 없으면 종전 즉시 판정(G1 `skipped`)이다.
+      const now = health.summary();
+      const lostNow = (now.unreliable - unreliableAtEnter) + (now.mutedFailed - mutedFailedAtEnter);
+      if (lostNow <= 0 && mutedClipOpen()) {
+        pendingVerdict = true;
+        // 판독 불변식(헤더): unmute 시점에 정확히 1줄 — 유예도 「판정이 안 돌았다」와 갈라야 한다.
+        log({ type: 'clip', extra: 'mic_interrupt_notice:deferred' });
+        return;
+      }
+      pendingVerdict = false;
+      verdict();
+    };
+
+    /** 🔴 v0.51.1 ⓓ — 걸친 클립의 증거가 장부에 오른 순간(`recordUnreliable`·`recordFailure(mutedSpan)`
+     *  직후). 유예 중이 아니면 무시(즉시 판정으로 이미 소비된 구간의 후속 클립 — 구간당 1회). */
+    const onMutedEvidence = () => {
+      if (!pendingVerdict) return;
+      // 🔴 muted 도중에는 말하지 않는다(그 순간 오디오 출력이 죽어 있다 — 헤더 ③·ⓕ·ⓗ 계약).
+      //   pending은 그대로 두고, 이 구간의 unmute가 증가분>0을 보고 즉시 판정해 소비한다.
+      if (isMicMuted()) return;
+      pendingVerdict = false;
+      verdict();
+    };
+
+    /** 유예 폐기(헤더 「폐기」). 유예가 없으면 아무것도 남기지 않는다. */
+    const drop = (reason: PendingDropReason) => {
+      if (!pendingVerdict) return;
+      pendingVerdict = false;
+      unreliableAtEnter = 0;
+      mutedFailedAtEnter = 0;
+      depsRef.current.logCell({ type: 'clip', extra: `mic_interrupt_notice:dropped:${reason}` });
+    };
+    dropRef.current = drop;
+
+    const unsubscribeMuted = subscribeMicMuted(onMuted);
+    // 🔴 마운트 시점의 장부에 건다 — 호출부가 `useRef`로 고정한 인스턴스다(deps 주석).
+    const unsubscribeEvidence = depsRef.current.clipHealth.onMutedEvidence(onMutedEvidence);
+    return () => {
+      unsubscribeMuted();
+      unsubscribeEvidence();
+      clearTimer();
+      drop('unmount');
+      dropRef.current = null;
+    };
   }, []);
+
+  return handleRef.current;
 }

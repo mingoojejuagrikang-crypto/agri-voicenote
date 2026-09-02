@@ -1704,7 +1704,14 @@ export function useVoiceSession() {
 
   // v0.51 [CLIP-MUTED-SPAN-1] — 마이크 인터럽트 고지(절전 화면 문구·자동 해제·회복 후 1문장)의
   // **유일한 배선 지점**. 복구는 하지 않는다 — 위 자동 재연결 effect의 소유권을 건드리지 않는다.
-  useMicInterruptionNotice({ clipHealth: clipHealthRef.current, say, logCell });
+  // v0.51.1 ⓓ — 회복 판정을 「걸친 클립 해소 뒤」로 유예하기 위해 관찰 getter 1개를 더 넘기고,
+  //   세션 경계에서 유예를 폐기할 손잡이를 받는다(`stop()`의 dispose 뒤 한 줄).
+  const micInterruptionNotice = useMicInterruptionNotice({
+    clipHealth: clipHealthRef.current,
+    hasMutedClipOpen: () => recorderRef.current?.activeClipSawMuted() === true,
+    say,
+    logCell,
+  });
 
   // v0.38.0 #5 — micLost 한 번의 연속 구간마다 자동 복구는 정확히 1회뿐이다. 실패 상태가 계속
   // 유지돼도 attempted ref가 effect 재실행을 차단하며, 성공/세션 리셋으로 micLost가 false가 된 뒤에만
@@ -2812,6 +2819,12 @@ export function useVoiceSession() {
     useSessionStore.getState().setClipWarning(clipWarnings.length > 0 ? clipWarnings.join(' ') : null);
     recorderRef.current?.dispose();
     recorderRef.current = null;
+    // 🔴 v0.51.1 [CLIP-MUTED-SPAN-1] ⓓ — 유예 중인 회복 판정이 있으면 **여기서** 폐기한다(로그 1줄).
+    //   다음 세션으로 새면 start()의 `clipHealth.reset()` 뒤 기준선이 낡아 진짜 손실에서 Δ≤0 → 침묵이
+    //   재발한다. 🔑 dispose **뒤**여야 한다 — muted 상태로 세션을 끝내면 dispose의 detach가 unmute
+    //   콜백을 만들고, 그 순간 활성 슬롯의 `sawMuted`가 아직 살아 있어 새 유예가 생길 수 있다.
+    //   (위 `flushSaves` 중에 걸친 클립이 정상 해소되면 그 경로가 먼저 판정을 내고 유예는 이미 없다.)
+    micInterruptionNotice.dropPendingVerdict('session_end');
     // v0.10: await로 변경 — audioClips 키가 IDB session에 확실히 저장된 후 종료
     // v0.35.0 R3-FIX-2(리뷰 라운드3, Codex High·데이터무결성) — 반환값을 **더 이상 무시하지 않는다**.
     //   persistSession은 IDB 쓰기 실패 시 false를 돌려주는데(그 자체는 이미 session_persist_failed로

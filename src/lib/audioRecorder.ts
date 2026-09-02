@@ -403,6 +403,21 @@ export class AudioRecorder {
     return this.active?.recorder.state === 'recording' && !this.active.finalized;
   }
 
+  /** 🔴 v0.51.1 [CLIP-MUTED-SPAN-1] ⓓ — **가장 최근 클립 슬롯이 muted 구간에 걸쳤는가**(관찰 전용).
+   *
+   *  회복 고지(`useMicInterruptionNotice`)가 unmute 시점에 「판정을 지금 할지, 걸친 클립이 닫혀
+   *  장부에 오를 때까지 미룰지」를 이걸로 가른다. 복구·래치와 무관하고 `isStreamLost()` 판정도
+   *  건드리지 않는다(`muted`는 여전히 「살아 있음」이다).
+   *
+   *  🔑 **finalized 슬롯도 포함한다** — `active`는 `stopClipRaw`가 비우지 않고 다음 `startClip`/
+   *  `dispose`까지 남는다. 일부러다: `onstop`(finalized) 뒤 `saveAudioClip`→`recordUnreliable()`
+   *  까지의 창에 unmute가 오면, `!finalized`로 거를 경우 「열린 클립 없음 → 즉시 판정 lost=0 → 침묵」
+   *  이 재발한다. 대가: 직전 구간에서 이미 계수된 슬롯이 다음 `startClip` 전까지 남아 있으면
+   *  헛유예가 한 번 생기고, 그건 세션 종료 시 `mic_interrupt_notice:dropped:*` 1줄로 드러난다(무해). */
+  activeClipSawMuted(): boolean {
+    return this.active?.sawMuted === true;
+  }
+
   /** v0.43.0 #4 — **마이크 캡처를 끄고 켠다(장치는 놓지 않는다).** 백그라운드 진입/복귀 전용.
    *
    *  ⛔ **`track.stop()` 절대 금지**([IOS-5]). iOS는 재획득에 사용자 제스처를 요구하므로 복귀

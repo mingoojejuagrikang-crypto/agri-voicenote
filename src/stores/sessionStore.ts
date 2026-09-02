@@ -138,6 +138,13 @@ interface SessionState {
    *  흘려주고, 그 경로가 곧 유일한 진실이다(두 곳에서 쓰면 화면이 사실과 갈린다).
    *  🔑 `blackout`과 같이 **메모리 전용**이다 — 영속되면 재시작 후에도 유령 경고가 남는다. */
   micInterrupted: boolean;
+  /** v0.51.1 [CLIP-MUTED-SPAN-1] G2 — **히어로 홀드 문구(`HeroHoldToBlackout`)가 지금 떠 있는가.**
+   *  관찰 전용이다. 작성자는 그 컴포넌트 하나(`useEffect([holding])` 미러), 소비자는
+   *  `useMicInterruptionNotice`의 `mic_interrupt_ui:…,hold=` 계측 하나다 — 실기기 판정 ⓑ(문구가
+   *  실제로 바뀌었나)를 로그로 닫으려면 전이 순간 그 문구가 보이고 있었는지가 필요하다.
+   *  `blackout`과 같이 **메모리 전용**이고 `resetAll`에서 건드리지 않는다(포인터 상태는 세션 상태가
+   *  아니다 — 컴포넌트 cleanup이 false로 되돌린다). */
+  heroHolding: boolean;
   /** 🔴 v0.46.1 WP-1c(민구 지시 08-07) — 세션 시작 **준비 진행 상태**. `null`=미표시.
    *
    *  민구 원문(2차, 종전 3→2→1 카운트다운을 대체): *"마이크 입/출력 권한을 허락하고 **3초뒤 화면
@@ -229,6 +236,8 @@ interface SessionState {
   setBlackout: (b: boolean) => void;
   /** v0.51 [CLIP-MUTED-SPAN-1] — 트랙 muted 구독의 단일 작성자만 호출한다(위 필드 주석). */
   setMicInterrupted: (v: boolean) => void;
+  /** v0.51.1 G2 — `HeroHoldToBlackout`만 호출한다(위 필드 주석). */
+  setHeroHolding: (v: boolean) => void;
   setStartProgress: (p: { step: number; total: number; label: string; warn?: string } | null) => void;
   /** v0.37.0 리뷰#2 — 열린 오버레이 닫기 요청(탭 전환 직전). nonce를 1 증가시킨다. */
   requestOverlayClose: () => void;
@@ -277,6 +286,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   uiModalOpen: null,
   blackout: false,
   micInterrupted: false,
+  heroHolding: false,
   startProgress: null,
   persistError: null,
   clipWarning: null,
@@ -313,6 +323,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setUiModalOpen: (uiModalOpen) => set({ uiModalOpen }),
   setBlackout: (blackout) => set({ blackout }),
   setMicInterrupted: (micInterrupted) => set({ micInterrupted }),
+  setHeroHolding: (heroHolding) => set({ heroHolding }),
   setStartProgress: (startProgress) => set({ startProgress }),
   requestOverlayClose: () => set((s) => ({ overlayCloseSeq: s.overlayCloseSeq + 1 })),
   setPersistError: (persistError) => set({ persistError }),

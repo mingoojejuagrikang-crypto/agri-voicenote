@@ -2651,7 +2651,8 @@ TTS 구간(`:2522-2523`)에 오버레이가 열리면 **모달 뒤에서 STT 인
 - **계약(재발 방지):** [ENGINEERING-GUARDRAILS.md](./ENGINEERING-GUARDRAILS.md)의
   `[CLIP-MUTED-VERDICT-1]`. 🔴 **ID가 다르다** — 이 항목은 **사건**이고 저쪽은 **계약**이다
   (초판이 같은 ID를 써서 `check-docs.mjs` 중복 검사가 red였다 · r2에서 분리).
-- **회귀:** `tests/v051-mic-muted-span.spec.ts` **9건**(r2에서 ⓗ + `[node] ⓪-게이트` 추가 · `--workers=1` 39.7s).
+- **회귀:** `tests/v051-mic-muted-span.spec.ts` **15건**(r2에서 ⓗ + `[node] ⓪-게이트` 추가 · `--workers=1` 39.7s →
+  v0.51.1에서 ⓘ~ⓜ + `[node] ⓪ 장부 신호` 추가 · 15건 `--workers=1` 1.1분).
   **반증 9종 실측 red 확인** — 초판 6종(시작 판정 제거 → 2건이 1건 · 이벤트 래치 제거 → 0건 ·
   종전 회계 복원 → 종료 화면 침묵 · muted를 failed로 계수 → `mic_lost:clip_muted` 관측 =
   금지사항 위반이 즉시 드러남 · 문구 분기 제거 · 자동 해제 제거) + r2 3종(고지 판정을
@@ -2663,7 +2664,8 @@ TTS 구간(`:2522-2523`)에 오버레이가 열리면 **모달 뒤에서 STT 인
 - **⚠️ e2e가 재는 것과 못 재는 것:** `window.__setFakeTrackMuted()`는 **표면**(readyState는 live,
   muted만 true)을 만들 뿐 **iOS가 언제 그것을 만드는지는 재현할 수 없다**
   (`v050-clip-silent-latch` 헤더의 같은 한계).
-- **현재 상태:** 🟡 **MONITORING** — 데스크톱 회귀·반증 완료. **실기기 판정 대기**:
+- **현재 상태:** 🟡 **MONITORING** — (아래 단락은 v0.51.0 시점 기술이다 · 09-02 실기기 1차 판정은 🔎, 그 처방은 🩹 블록)
+  데스크톱 회귀·반증 완료. **실기기 판정 대기**:
   세션 중 전화/Siri로 인터럽트를 만들어 ⓐ `clip_unreliable:muted`가 남는가
   ⓑ 절전 화면 문구가 실제로 바뀌는가 ⓒ 3초 뒤 화면이 열리는가
   ⓓ **회복 후 고지가 들리는가 — 특히 클립이 `clip_too_small`/`clip_empty`로만 죽은
@@ -2693,3 +2695,27 @@ TTS 구간(`:2522-2523`)에 오버레이가 열리면 **모달 뒤에서 STT 인
     인터럽트 원인(민구 답): **전화·알림 배너**(둘 다).
     설계 수준 후보: 판정을 걸친 클립의 해소 시점으로 **유예**(원샷 플래그를 `recordUnreliable`/`recordFailure(mutedSpan)` 직후 소비).
   정본(teamops): `deliverables/2026-09-02-device-read/read-fable-xhigh.md` §2(판정표·ⓓ 판별표·ms 분포) · §5(계측 공백 G1~G7) · §7(Q1~Q7).
+- 🩹 **처방 v0.51.1 (2026-09-02 · 브랜치 `fix/axis-d-notice-defer` · 미배포):** ⓓ 판정 **시점**을 「걸친 클립 해소 뒤」로 옮겼다.
+  · **규칙(둘 다여야 유예):** unmute 시점에 ⓐ 장부 증가분이 0이고 **그리고** ⓑ 가장 최근 클립 슬롯이 muted 구간에 걸쳤으면
+    (`AudioRecorder.activeClipSawMuted()` · finalized 슬롯 포함 — `onstop`→`recordUnreliable()` 사이 창에서 unmute가 와도 침묵하지
+    않게) 판정을 **유예**하고, 걸친 클립의 증거가 장부에 오르는 순간(`ClipHealth.onMutedEvidence` — `recordUnreliable()`·
+    `recordFailure(mutedSpan=true)` 증가 직후 · `useValueCommit` 무변경)에 판정한다. ⓐ가 아니면(이미 잃은 게 있다) **즉시** 말한다
+    — 🔴 「열린 muted 클립이면 무조건 유예」로 짜면 ⓕ·ⓗ가 red다(mute 중 커밋 → 걸친 클립은 unmute 전에 닫히고 **다음 클립이 muted로
+    열려 있다**). ⓑ가 아니면(클립 없는 인터럽트) 종전 즉시 판정.
+  · **구간당 1회:** `pendingVerdict` 원샷 · 유예 중 새 muted 구간이 와도 pending과 기준선 유지(유예 = 기준선 고정) · muted **도중**
+    해소는 말하지 않고 다음 unmute가 소비 · 두 구간에 걸친 클립 하나 = 고지 1회(ⓛ). 가드레일 ①②·`streak`·회계 3칸·`mutedFailed`
+    의미·`clip_summary` 바이트 전부 불변.
+  · **폐기:** 클립이 안 닫힌 채 세션 종료·언마운트 → `mic_interrupt_notice:dropped:<session_end|unmount>` 1줄(ⓚ). 🔴 `stop()`의
+    `dispose()` **뒤**에 폐기한다 — muted 상태로 끝내면 detach가 unmute 콜백을 만들어 새 유예가 생길 수 있다. 다음 세션으로 새면
+    `reset()` 뒤 기준선이 낡아 침묵이 재발한다.
+  · **계측 G1·G2:** `lost<=0` 판정도 `mic_interrupt_notice:skipped,lost=0,unrel=0,fail=0` 1줄(ⓙ) · `setMicInterrupted` 전이마다
+    `mic_interrupt_ui:muted=<0|1>,blackout=<0|1>,hold=<0|1>`(ⓓ·ⓙ·ⓜ — `hold`는 `sessionStore.heroHolding`, 작성자는
+    `HeroHoldToBlackout`의 `useEffect([holding])` 미러). 유예 시 `mic_interrupt_notice:deferred` 1줄.
+    **판독 불변식:** `mic_interrupt:off` 1건당 unmute 시점 `mic_interrupt_notice:` 정확히 1줄(판정·skipped·deferred), 유예는 뒤에
+    정확히 1줄로 종결(판정·dropped). `lost=` 접두 판독 불변.
+  · **회귀:** ⓘ(걸친 클립이 unmute 뒤에 닫힘 — 실기기 형상) · ⓙ(클립 없음 → skipped) · ⓚ(유예 중 종료 → dropped) · ⓛ(유예 중
+    새 구간 → 1회) · ⓜ(G2 hold=1) · `[node] ⓪ 장부 신호`. **반증 2종 red 실측:** 유예 제거(즉시 판정 복원) → ⓘ·ⓚ·ⓛ red(나머지 12
+    green) · 장부 신호 제거 → ⓘ·ⓛ + `[node]` red.
+  · **실기기 2차 판정 조건(다음 프리뷰 · 🔴 절전 켜고):** 값 청취 중 전화·알림 → ⓑ 절전 문구 전환(`mic_interrupt_ui:…,blackout=1`)
+    ⓒ 3초 자동 점등(`mic_muted_blackout:released`) ⓓ **클립 닫힌 뒤** `mic_interrupt_notice:lost=…` + 회복 TTS 청취. 판정 전까지
+    이 항목은 **MONITORING**이다(AGENTS.md 계약 ④).

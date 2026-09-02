@@ -110,6 +110,22 @@ export interface ClipHealth {
    *     래치가 영영 안 걸린다.
    *  👉 판정 보류는 **아무 쪽으로도 세지 않는 것**으로만 성립한다. */
   recordUnreliable(): void;
+  /** 🔴 v0.51.1 [CLIP-MUTED-SPAN-1] ⓓ — **muted 증거가 장부에 오르는 순간**을 구독한다.
+   *  `recordUnreliable()`·`recordFailure(mutedSpan=true)`의 증가 **직후**에 동기로 불린다.
+   *  `recordSaved()`·`recordFailure(false)`에는 울리지 않는다.
+   *
+   *  ## 왜 장부가 신호를 내나 — 회복 고지의 「판정 시점」 결함(2026-09-02 실기기 1차)
+   *  unmute 핸들러가 **즉시** 증가분을 봤는데, 걸친 클립의 증거는 **클립이 닫힐 때**(unmute
+   *  +8~11초 뒤 · `useValueCommit`) 장부에 올랐다 → `lost=0` → 침묵. 고지는 「걸친 클립이
+   *  해소되는 자리」에서 판정해야 하고, 그 자리는 정확히 이 두 메서드의 증가 직후다.
+   *  콜사이트(`useValueCommit`)에 콜백 줄을 두면 muted 증거 경로가 늘 때마다 한 줄씩 빠뜨릴 수
+   *  있다(위 `recordFailure` 주석의 드리프트 논리 그대로) — 장부 **안**에서 울리면 경로가 늘어도
+   *  구조적으로 못 빠뜨린다. 유일한 구독자는 `useMicInterruptionNotice`다.
+   *
+   *  🔴 **`reset()`은 구독을 지우지 않는다.** 구독자는 마운트당 1회 구독하고 세션은 그 안에서
+   *  여러 번 돈다 — 세션 경계에서 끊으면 두 번째 세션부터 고지가 죽는다.
+   *  @returns 해제 함수 */
+  onMutedEvidence(cb: () => void): () => void;
   /** 세션 결산(누적). */
   summary(): ClipHealthSummary;
   /** 세션 경계 초기화 — 연속 카운터·누적 결산·고지 1회 플래그를 모두 비운다. */
@@ -123,12 +139,23 @@ export function createClipHealth(threshold: number = CLIP_FAIL_LATCH_THRESHOLD):
   let unreliable = 0;
   let mutedFailed = 0;
   let alerted = false;
+  // v0.51.1 ⓓ — muted 증거 구독자(인터페이스 `onMutedEvidence` 주석이 SSOT). `reset()`과 무관하다.
+  const evidenceListeners = new Set<() => void>();
+  const notifyMutedEvidence = () => {
+    for (const cb of Array.from(evidenceListeners)) {
+      try { cb(); } catch { /* 구독자 하나가 실패해도 장부는 정상이다 */ }
+    }
+  };
   return {
     recordFailure(mutedSpan = false) {
       streak += 1;
       failed += 1;
       // 🔴 회계 3칸은 위 두 줄이 전부다 — 아래는 **고지용 표지**이지 넷째 회계 칸이 아니다.
-      if (mutedSpan) mutedFailed += 1;
+      if (mutedSpan) {
+        mutedFailed += 1;
+        // v0.51.1 ⓓ — 증가 **직후** 알린다(구독자가 여기서 `summary()`를 읽는다).
+        notifyMutedEvidence();
+      }
       return streak >= threshold;
     },
     alertOnce() {
@@ -143,6 +170,12 @@ export function createClipHealth(threshold: number = CLIP_FAIL_LATCH_THRESHOLD):
     recordUnreliable() {
       // 🔴 `streak`는 의도적으로 손대지 않는다(인터페이스 주석이 근거의 SSOT).
       unreliable += 1;
+      // v0.51.1 ⓓ — 증가 **직후** 알린다(위 `recordFailure`와 같은 자리).
+      notifyMutedEvidence();
+    },
+    onMutedEvidence(cb) {
+      evidenceListeners.add(cb);
+      return () => { evidenceListeners.delete(cb); };
     },
     summary() {
       return { saved, failed, unreliable, mutedFailed };
