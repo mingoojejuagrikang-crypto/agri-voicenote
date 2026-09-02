@@ -317,3 +317,33 @@ test('r2 P2-3 — 정수(개수) 컬럼 「1」은 묻지 않고 그대로 진�
   expect(await cellValue(page, 1, 'c20')).toBe('1');
   expect(await eventsWithPrefix(page, 'stt_confusion_hint')).toEqual([]);
 });
+
+test('r2 P2-1 — 세 행에서 「1.7」→「첫째」: 두 번 묻고 세 번째는 프로필 컬럼 증거(seen[1]≥3)로 묻지 않는다(리뷰 R-C 반전)', async ({ page }) => {
+  await setupAndStart(page);
+  for (const row of [1, 2, 3]) {
+    await fireStt(page, '49.5', 500);
+    await waitForActiveChip(page, '당도');
+    await fireStt(page, '1.7', 600);
+    await waitForTtsIdle(page);
+    if (row < 3) {
+      // 1행: 프로필 seen[1]=0 → 전역 규칙으로 묻는다 · 커밋(+1) · 「첫째」(+1) = 2. 2행: 2 < kSeen → 묻는다 · +1 · +1 = 4.
+      expect((await ttsLog(page)).filter((t) => t.startsWith('1.7인가요')), `${row}행 질문`).toHaveLength(row);
+      await fireStt(page, '첫째', 800);
+      await waitForTtsIdle(page);
+      await waitForActiveChip(page, '횡경');
+    }
+  }
+  // 3행: 프로필 컬럼 증거 seen[1]=4 ≥ kSeen · 지지수 0 → 규칙 미생성 → 질문 없음 · 후보가 없으니 hint도 없다(상한 asked=0이 아니다).
+  const log = await ttsLog(page);
+  expect(log.filter((t) => t.startsWith('1.7인가요'))).toHaveLength(2);
+  expect(log.filter((t) => t === '1.7')).toHaveLength(1); // 3행은 그냥 echo
+  const hints = (await eventsWithPrefix(page, 'stt_confusion_hint')).map((h) => h.extra);
+  expect(hints).toEqual([
+    'stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=1,chosen=heard',
+    'stt_confusion_hint:heard=1.7,cands=8.7,rule=L1P0:1>8,asked=1,chosen=heard',
+  ]);
+  const profiles = await sttProfiles(page);
+  expect(profiles).toHaveLength(1);
+  expect(profiles[0].negatives).toBe(2);
+  expect(profiles[0].table.byColumn['당도'].ctx.L1P0.seen['1']).toBeGreaterThanOrEqual(4);
+});
