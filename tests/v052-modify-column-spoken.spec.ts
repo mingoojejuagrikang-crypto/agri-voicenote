@@ -38,6 +38,8 @@
  */
 
 import { test, expect, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { boot, PHONE_402, PREV_ROUND, SETTINGS as AZ_SETTINGS } from './fixtures/activeZones';
 import { fireStt, ttsLog, waitForTtsIdle } from './fixtures/stt';
 import { matchModifyColumn } from '../src/lib/voiceCommands';
@@ -499,4 +501,21 @@ test('ⓝ 후보 4개 — 묻지 않고, 어느 칸도 지우지 않고, 그 국
   expect(said, '🔴 고를 수 없는 열이 생기므로 묻지 않는다').toEqual([REVIEW_WAIT_COMMANDS_TTS]);
   expect(said.some((t) => t.includes('인가요')), '확인 질문이 나가지 않았다').toBe(false);
   expect(await rowValues(page, 1), '네 칸 전부 보존된다').toEqual({ m1: '11.1', m2: '22.2', m3: '33.3', m4: '44.4' });
+});
+
+/**
+ * 🟡 P2-4(콜드 리뷰 R1 §5) — **게이트 자기단언.** v0.52의 신규 2스펙이 `test:e2e:gate` 목록에
+ * 없어서 이번 회차가 만든 오라클이 **`predeploy`에서 한 번도 돌지 않았다**(`voiceFinalResolver.spec.ts`
+ * ⓪-게이트와 같은 꼴 — r2 P2-2가 세운 관례).
+ * ⚠️ 등재는 **버전·릴리스 문구가 아니라 테스트 목록**이다(공통 브리핑 §4의 금지 범위 밖으로 판정).
+ *   되돌리려면 `package.json`의 그 두 이름을 지우면 되고, 그러면 이 단언이 red로 알려 준다.
+ */
+test('[node] ⓪-게이트 v0.52 신규 2스펙이 릴리스 게이트 목록에 등재돼 있다 (P2-4)', () => {
+  const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8')) as {
+    scripts: Record<string, string>;
+  };
+  const listed = (pkg.scripts['test:e2e:gate'] ?? '').split(/\s+/).filter((x) => x.startsWith('tests/'));
+  for (const spec of ['tests/v052-modify-column-spoken.spec.ts', 'tests/v052-def003-voice-modify-durable.spec.ts']) {
+    expect(listed, `${spec}가 게이트 목록에 없다 — predeploy에서 돌지 않는다`).toContain(spec);
+  }
 });
