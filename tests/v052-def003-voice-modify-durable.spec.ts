@@ -94,6 +94,14 @@ async function failAll(page: Page, v: boolean) {
   }, v);
 }
 
+/** 🔴 v0.52 P2-1 — **쓰지 않고 성공을 돌려주는** 주입. `failAll`과 달리 `persistSession`이 `true`를
+ *  돌리므로 **되읽기 감지기만** 이 실패를 볼 수 있다(그 감지기의 단독 판별력을 재는 유일한 형상). */
+async function swallowAll(page: Page, v: boolean) {
+  await page.evaluate((f) => {
+    (window as unknown as { __survey011SwallowSessionPut?: boolean }).__survey011SwallowSessionPut = f;
+  }, v);
+}
+
 interface PersistedRow { i: number; c: boolean; v: Record<string, string>; clips: Record<string, string> }
 
 /** IDB에 실제로 내구화된 것 — **시트로 올라갈 것**을 잰다(화면 상태가 아니다). */
@@ -389,4 +397,77 @@ test('⑧ 경합 — durable 판정 중 다른 셀 커밋이 끼어들어도 가
   expect((await ttsLog(page)).some((t) => t === FAIL_TTS), '실패 고지도 없어야 한다').toBe(false);
   await expect.poll(async () => (await row1Of(page))?.v.m1, { timeout: 8000 }).toBe('41.4');
   expect((await row1Of(page))?.v.m2, '끼어든 커밋도 함께 내구화된다').toBe('42.3');
+});
+
+/**
+ * 🟡 P2-1(콜드 리뷰 R1 §5) — **durable 감지 2점 중 「IDB 되읽기」의 단독 판별력.**
+ *
+ * `settleModifyDurable`은 두 가지를 본다: ⓐ `persistSession`의 반환값 ⓑ IDB 되읽기. 리뷰의 반증
+ * M4(되읽기 무력화)·M5(반환값 무력화)가 **둘 다 green**이었다 — `__survey011FailSessionPut` 형상
+ * 에서는 두 감지기가 **함께** 실패해 서로의 백업이 되기 때문이다. 그래서 다음 회차에 누가 되읽기를
+ * 「중복」이라 판단해 지워도 스위트가 조용하다.
+ *
+ * 🔑 이 스펙이 그 사각을 없앤다: `__survey011SwallowSessionPut`은 put을 **하지 않고 성공을 돌려주므로**
+ *   ⓐ는 `true`다. 즉 여기서 배너가 서면 그것은 **오직 ⓑ 때문**이다. 빌더 주석이 인용한 형상
+ *   (*"`persistSession`은 실을 것이 없거나 단조 가드에 걸리면 쓰지 않고 `true`"* — `usePersistSession`의
+ *   `mySeq < persistAppliedSeqRef` 분기는 실재한다)의 최소 재현이다.
+ * ⚠️ 반대 방향(ⓐ 단독)은 **구성 불가**다: `persistSession`이 `false`를 돌려주는 유일한 길은
+ *   `saveSession`이 던지는 것이고 그러면 IDB에도 안 실려 ⓑ가 언제나 함께 잡는다. 즉 ⓐ는 독립
+ *   감지기가 아니라 **겹방어**다 — 오라클을 지어내지 않고 그 사실을 여기 적어 둔다.
+ */
+test('⑨ 되읽기 단독 — persist가 성공을 돌려줘도 IDB에 안 실렸으면 배너가 선다(P2-1)', async ({ page }) => {
+  await bootDef003(page);
+  await fireStt(page, '삼십오 점 일', 1200);
+  await waitForTtsIdle(page);
+  await waitForPersistedValue(page, 1, 'm1', '35.1');
+
+  await swallowAll(page, true);
+  const before = (await ttsLog(page)).length;
+  await fireStt(page, '수정 사십일 점 사', 2200);
+  await waitForTtsIdle(page);
+
+  // ⓐ(반환값)는 성공이다 — 그래도 실패로 판정돼야 한다.
+  await expect(banner(page), '🔴 되읽기만으로 durable 실패를 잡는다').toBeVisible();
+  expect((await ttsLog(page)).slice(before), '실패 고지도 나간다').toContain(FAIL_TTS);
+  expect((await row1Of(page))?.v.m1, 'IDB에는 옛 값이 남아 있다').toBe('35.1');
+  // 확인음·에코 계약은 실패 경로에서도 불변(①과 같은 축).
+  expect((await ttsLog(page)).slice(before), '에코는 durable 앞이라 그대로 나간다').toContain(ECHO_MODIFY);
+
+  // 회수 — 주입을 끄고 [다시 저장]을 누르면 정상 회복한다(고지가 막다른 길이 아니다).
+  await swallowAll(page, false);
+  await page.locator('[data-testid="cell-persist-retry-btn"]').click();
+  await expect(banner(page)).toHaveCount(0, { timeout: 10_000 });
+  expect((await row1Of(page))?.v.m1).toBe('41.4');
+});
+
+/**
+ * 🟡 P1-2 처방의 되읽기 가드 — **「값이 안 실렸으면 배너를 남긴다」.**
+ * ⑦이 「실렸으면 내린다」를 잠갔다. 그 반대편이 없으면 처방이 「무조건 내린다」로 퇴화해도 green이라
+ * (실측: 되읽기 조건을 무조건 참으로 바꾼 반증 M-P2b가 14 passed였다), DEF-003이 닫은 거짓 성공이
+ * 배너 축에서 그대로 되살아난다.
+ */
+test('⑩ 알람 분기 재시도가 «실제로는 안 실렸으면» 배너를 내리지 않는다', async ({ page }) => {
+  await bootTrend(page);
+  await fireStt(page, '100.0', 1200);
+  await waitForTtsIdle(page);
+  await waitForPersistedValue(page, 1, 'm1', '100');
+
+  await failAll(page, true);
+  await fireStt(page, '수정 백이십 점 오', 2200);
+  await waitForTtsIdle(page);
+  await expect(banner(page), '전제 — 배너가 섰다').toBeVisible();
+
+  // 🔑 실패 주입을 «삼킴»으로 바꾼다: 재시도의 `persistSession`은 true를 돌려주지만 IDB는 옛 값이다.
+  await failAll(page, false);
+  await swallowAll(page, true);
+  await page.locator('[data-testid="cell-persist-retry-btn"]').click();
+  await page.waitForTimeout(2500);
+  await expect(banner(page), '🔴 안 실린 값에 대고 실패 표시를 내리지 않는다').toBeVisible();
+  expect((await row1Of(page))?.v.m1, 'IDB는 여전히 옛 값이다').toBe('100');
+
+  // 그리고 이 배너는 여전히 살아 있는 재시도 경로다 — 주입을 끄면 회수된다(막다른 길이 아니다).
+  await swallowAll(page, false);
+  await page.locator('[data-testid="cell-persist-retry-btn"]').click();
+  await expect(banner(page)).toHaveCount(0, { timeout: 10_000 });
+  expect((await row1Of(page))?.v.m1).toBe('120.5');
 });
