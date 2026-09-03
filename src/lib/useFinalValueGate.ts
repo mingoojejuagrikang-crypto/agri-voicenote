@@ -38,7 +38,7 @@ import { cellWaitPrompt, formatNameForTts, reviewWaitAbsorbTts } from './voicePr
 import { noteSttAttempt } from './sttCorrectionTracker';
 import { resolveSttConfusion } from './sttConfusionRuntime';
 import { closeConfusionForRespoken, runConfusionAnswerGate } from './finalValueGateConfusion';
-import { absorbAtEnd } from './finalValueGateAbsorb';
+import { absorbAtEnd, absorbCellWait } from './finalValueGateAbsorb';
 import type { Column } from '../types';
 import type { logger } from './logger';
 import type { AwaitingField, FinalCtx } from './useVoiceSession';
@@ -192,20 +192,7 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
     //   없으면 `setRowValue`가 확정·저장된 값을 무조건 덮는다(커밋 지점에 셀 단위 게이트 없음).
     //   문구는 행 검토("N행은 완료된 행입니다")와 **다르다** — 여기서 행을 말하면 사용자는
     //   행이 끝난 줄 안다. 정정 진입로('수정')를 한 마디로 가르친다(H-2 — 길이 압력).
-    if (awaiting.kind === 'cellWait') {
-      useSessionStore.getState().setRecognized('');
-      useSessionStore.getState().setReaskReason(null); // Y6 — 위 atEnd 흡수와 같은 계약.
-      logCell({
-        type: 'command', parsed: 'cell_wait_absorb',
-        extra: `cell_wait_absorb:${awaiting.colId}`, text,
-        row: awaiting.row, colId: awaiting.colId,
-      });
-      // ⚠️ 문구는 `cellWaitPrompt`(#9 SSOT — voicePrompts.ts)를 쓴다. 이 흡수 안내가 그 문장의
-      //   **의미상 원본**이지만, 여기 리터럴을 남겨 두면 「선언은 하나인데 사본이 있는」
-      //   [PAST-2] 형태가 된다. ([ENV-12] E1 — 선언은 handleFinal 안에서 voicePrompts로 올랐다.)
-      await say(cellWaitPrompt(awaiting.name));
-      return true;
-    }
+    if (awaiting.kind === 'cellWait') { await absorbCellWait(awaiting, text, { logCell, say }); return true; }
 
     // v0.51.1 R6 — 혼동 확인 질문의 답변 해석(컬럼명·응답어·단음절 가드보다 **앞** — 근거·계약은 그 파일 헤더).
     //   r2 P1-1 ⓐ — 소수 문맥이 열려 있으면 건너뛴다(조각 「일」은 .1이지 순번이 아니다 · 정본 ⓑ와 독립 반증용 겹방어).
@@ -230,12 +217,9 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
     const allColumns = getSessionColumns();
     const currentCol = allColumns.find((c) => c.id === awaiting.colId);
     if (currentCol && currentCol.type !== 'text' && currentCol.type !== 'options') {
-      // 🔴 v0.52(콜드 리뷰 §4 처방) — **축약형도 컬럼명이다.** 09-02 이후 앱은 `종경(mm)`을
-      //   「종경」이라고 가르치므로 사용자는 그 이름을 그대로 말한다. 축약형을 모르면 그 발화가
-      //   여기서 안 걸리고 아래 일반 파싱으로 새 들어가, 로그에 `stt_rejected_col_name`이 아니라
-      //   `parse_failed`로 세어진다(같은 사건이 두 이름을 갖는다 — 판독이 갈린다).
-      //   ⚠️ 거절 자체는 종전과 같다(숫자 컬럼에서 컬럼명은 어차피 파싱 실패다). 바뀌는 것은
-      //     **어느 사유로** 거절되는가이고, 그게 곧 「사용자가 이름을 불렀다」의 관측 축이다.
+      // 🔴 v0.52(콜드 리뷰 §4 처방) — **축약형도 컬럼명이다.** 09-02 이후 앱이 그 이름을 가르치므로
+      //   사용자가 그대로 말한다. 거절 자체는 종전과 같고 **사유**가 바뀐다(`parse_failed` →
+      //   `stt_rejected_col_name`) — 그게 「사용자가 이름을 불렀다」의 관측 축이다.
       const colNames = allColumns.flatMap((c) => [c.name.trim(), formatNameForTts(c.name)]);
       if (colNames.includes(text.trim())) {
         logCell({ type: 'stt_rejected_col_name', text, row: awaiting.row, colId: awaiting.colId });
