@@ -320,9 +320,13 @@ const MODIFY_COL_PARTICLES = ['으로', '로', '을', '를', '은', '는', '이'
  *     어느 쪽이든 **셀을 지우지 않는 것이 계약이다.**
  *   - **숫자값 추출(extractModifyValue)과 상호배타** — 호출자는 컬럼명 매치를 먼저 확인한다.
  *  reviewWait/atEnd/cellWait 밖에서는 호출하지 않는다(일반 수정 의미론 불변). */
+/** 🔑 **후보는 «인덱스»다.** 이름으로 돌려주면 시트 중복 헤더(동명 컬럼 2개)에서 두 후보가 같은
+ *  문자열이 되어 서로를 가리킬 수 없다 — 확인 질문의 「첫 번째/두 번째」가 성립하지 않는다.
+ *  인덱스는 `colNames`(= `voiceColsList()`) 순서, 곧 **시트 열 순서**다(민구 09-03: 「첫 번째」의 정의).
+ *  `spoken`은 정규화된 발화 이름 — 질문 문구가 그대로 쓴다. */
 export type ModifyColumnMatch =
-  | { kind: 'match'; name: string }
-  | { kind: 'ambiguous'; names: string[] }
+  | { kind: 'match'; name: string; index: number }
+  | { kind: 'ambiguous'; names: string[]; indices: number[]; spoken: string }
   | null;
 
 export function matchModifyColumn(text: string, colNames: string[]): ModifyColumnMatch {
@@ -333,32 +337,34 @@ export function matchModifyColumn(text: string, colNames: string[]): ModifyColum
   if (!rest) return null;
   const target = rest;
   const cands = colNames
-    .map((name) => ({
-      name,
+    .map((name, index) => ({
+      name, index,
       raw: name.replace(/\s+/g, ''),
       spoken: formatNameForTts(name).replace(/\s+/g, ''),
     }))
     .filter((c) => c.raw);
-  const verdict = (names: string[]): ModifyColumnMatch =>
-    names.length === 1 ? { kind: 'match', name: names[0] } : { kind: 'ambiguous', names };
+  const verdict = (hits: { name: string; index: number }[]): ModifyColumnMatch =>
+    hits.length === 1
+      ? { kind: 'match', name: hits[0].name, index: hits[0].index }
+      : { kind: 'ambiguous', names: hits.map((h) => h.name), indices: hits.map((h) => h.index), spoken: target };
 
   // ① 완전 일치 — raw·spoken 합집합(한 컬럼이 두 키로 걸려도 한 번만 센다).
   const exact = cands.filter((c) => c.raw === target || c.spoken === target);
-  if (exact.length > 0) return verdict(exact.map((c) => c.name));
+  if (exact.length > 0) return verdict(exact);
 
   // ② 이름 + 허용 조사. 가장 긴 키가 이긴다(접두 섀도잉 방지). 같은 길이가 둘이면 모호다.
   let bestLen = 0;
-  let bestNames: string[] = [];
+  let best: { name: string; index: number }[] = [];
   for (const c of cands) {
     for (const key of [c.raw, c.spoken]) {
       if (!key || !target.startsWith(key)) continue;
       if (!MODIFY_COL_PARTICLES.includes(target.slice(key.length))) continue;
-      if (key.length > bestLen) { bestLen = key.length; bestNames = [c.name]; }
-      else if (key.length === bestLen) bestNames.push(c.name);
+      if (key.length > bestLen) { bestLen = key.length; best = [c]; }
+      else if (key.length === bestLen) best.push(c);
       break; // 이 컬럼은 이미 셌다
     }
   }
-  if (bestNames.length > 0) return verdict(bestNames);
+  if (best.length > 0) return verdict(best);
   return null;
 }
 
@@ -416,7 +422,9 @@ export function resolveModifyTarget(input: {
   /** 검토 대기 3종에서 왔다는 표지(비파괴 착지 조건). 그 밖이면 `undefined`. */
   guardKind?: ModifyGuardKind;
   /** 축약형이 같은 열이 둘 이상이라 지목하지 않았다 — 판독용(동작은 미매칭과 같다). */
-  ambiguous?: string[];
+  /** 축약형이 같은 열이 둘 이상이라 지목하지 않았다 — 확인 질문의 원료(후보는 **colId**,
+   *  순서는 시트 열 순서)이자 판독용 로그. */
+  ambiguous?: { spoken: string; names: string[]; colIds: string[] };
 } {
   const { kind, row, colId, voiceCols, utterance } = input;
   let modifyVal = input.modifyVal;
@@ -430,17 +438,16 @@ export function resolveModifyTarget(input: {
   //   컬럼명 지목("수정 종경")은 reviewWait과 같은 규칙을 그대로 물려받는다.
   const land = kind === 'cellWait' ? 'cell' as const : 'review' as const;
   if (named?.kind === 'match') {
-    const idx = voiceCols.findIndex((c) => c.name === named.name);
-    if (idx >= 0) {
-      modifyVal = null; // 컬럼명 지목 — 값 후보('종경' 등 비숫자 잔여)로 오적용 금지
-      return { modifyVal, reviewTarget: { row, idx, land, single: true }, guardKind };
-    }
+    modifyVal = null; // 컬럼명 지목 — 값 후보('종경' 등 비숫자 잔여)로 오적용 금지
+    return { modifyVal, reviewTarget: { row, idx: named.index, land, single: true }, guardKind };
   }
   // 모호 — 지목하지 않는다. 🔴 **값 후보는 그대로 남긴다.** 여기서 null로 지우면 bare 「수정」과
   //   구별이 사라져 호출부가 **캐스케이드 재기록**(= 소거)으로 간다 — 민구가 🔴로 금지한 그 결과다.
   //   남겨 두면 `parseValueForCol`이 실패하고 `guardKind`가 서 있으므로 호출부가 **비파괴 착지**로
   //   보낸다(미매칭과 완전히 같은 경로 — 사용자에게도 같은 사건이다).
-  const ambiguous = named?.kind === 'ambiguous' ? named.names : undefined;
+  const ambiguous = named?.kind === 'ambiguous'
+    ? { spoken: named.spoken, names: named.names, colIds: named.indices.map((i) => voiceCols[i].id) }
+    : undefined;
   if (kind === 'reviewWait' || kind === 'cellWait') {
     return { modifyVal, reviewTarget: { row, idx: idxOfAwaiting, land }, guardKind, ...(ambiguous ? { ambiguous } : {}) };
   }

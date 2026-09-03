@@ -146,7 +146,20 @@ export type AwaitingField =
   | (AwaitingBase & { kind: 'confusionConfirm'; previousValue: string; heard: string; cands: string[]; rules: string[]; fractionWhole?: string; resumeReview?: number; resumeCell?: ResumeCell })
   | (AwaitingBase & { kind: 'atEnd' })
   | (AwaitingBase & { kind: 'reviewWait' })
-  | (AwaitingBase & { kind: 'cellWait'; previousValue: string });
+  | (AwaitingBase & { kind: 'cellWait'; previousValue: string })
+  // 🔴 v0.52 민구 결정(09-03) — 「수정 <축약이름>」이 **둘 이상의 열**을 가리킬 때의 확인 질문 대기.
+  //   `row`·`colId`·`name`은 **질문 전 국면의 좌표**다(복귀용). 후보(`cands`)는 colId이고 **순서가
+  //   계약이다** — `voiceColsList()` 순서 = 시트 열 순서 = 「첫 번째」의 정의(민구 못박음).
+  //   답이든 아니든 `originKind`(+cellWait의 `previousValue`)로 **그 국면을 그대로 재구성**해 되돌린다.
+  //   🔴 R6 `confusionConfirm`과 **다른 상태**다: 저건 값 의미론(「둘째」가 값 커밋을 탄다)이고
+  //     이건 「어느 칸을 다시 부를지」다. 재사용하는 것은 어휘와 형상뿐이다(modifyColumnConfirm.ts 헤더).
+  | (AwaitingBase & {
+      kind: 'modifyColumnConfirm';
+      spoken: string;
+      cands: string[];
+      originKind: 'reviewWait' | 'atEnd' | 'cellWait';
+      previousValue?: string;
+    });
 
 /**
  * 🔴 [ENV-12] E단계(2026-08-15) — `handleFinal` 파이프라인의 **구획 간 전달 상자**.
@@ -2035,6 +2048,8 @@ export function useVoiceSession() {
     proceedAfterCommit,
     relistenInContext,
     demoteConfusionConfirm,
+    // v0.52 — 「수정 <축약이름>」 모호 확인 질문의 답변 종단(고른 열 한 칸만 재기록 대기로 연다).
+    enterModifyMode,
     listEmptyRows,
     buildEndReachedTts,
     voiceColsList,

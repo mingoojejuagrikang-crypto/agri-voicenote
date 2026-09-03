@@ -38,6 +38,7 @@ import { useSessionStore } from '../stores/sessionStore';
 import { extractModifyValue } from './koreanNum';
 import { cancelTts } from './speech';
 import { isExactCommandUtterance, isVoiceUiCommand, resolveModifyTarget, type ModifyGuardKind, type ModifyReviewTarget, type VoiceUiCommandSignal } from './voiceCommands';
+import { armModifyColumnConfirm } from './modifyColumnConfirm';
 import { resolveFinal } from './voiceFinalResolver';
 import { cellWaitPrompt, formatNameForTts, relistenPrompt, REVIEW_WAIT_COMMANDS_TTS } from './voicePrompts';
 import type { Column } from '../types';
@@ -249,16 +250,14 @@ export function useFinalCommands(deps: FinalCommandsDeps) {
         utterance,
         modifyVal: extractModifyValue(utterance),
       });
-      // 🔴 v0.52 — 모호(축약형이 같은 열 2개 이상)는 지목하지 않는다. 동작은 미매칭과 같고
-      //   (둘 다 비파괴 착지 — `enterModifyMode`의 `guardKind` 분기), 로그만 가른다: 판독에서
-      //   「그 이름의 열이 없다」와 「그 이름이 두 칸을 가리킨다」는 전혀 다른 사실이다.
-      if (plan.ambiguous) {
-        logCell({
-          type: 'command', parsed: 'modify_target_ambiguous',
-          extra: `modify_target_ambiguous:${plan.ambiguous.length}`, text: utterance,
-          row: a.row, colId: a.colId,
-        });
-      }
+      // 🔴 v0.52 민구 결정(09-03 Q1「C」) — 모호(축약형이 같은 열 2개 이상)면 **묻는다.**
+      //   「첫 번째 수확량인가요, 두 번째 수확량인가요?」 — 순서만으로 가른다(괄호 미독 유지).
+      //   후보가 순번 어휘(셋)보다 많으면 `armModifyColumnConfirm`이 false를 돌려주고, 아래
+      //   종전 경로가 **비파괴 착지**로 받는다(고를 수 없는 열을 만들지 않는다 — 그 파일 헤더).
+      if (plan.ambiguous && plan.guardKind && await armModifyColumnConfirm(
+        { kind: plan.guardKind, row: a.row, colId: a.colId, name: a.name, ...(a.kind === 'cellWait' ? { previousValue: a.previousValue } : {}) },
+        plan.ambiguous.spoken, plan.ambiguous.colIds, { logCell, say, awaitingFieldRef },
+      )) return;
       await enterModifyMode(plan.modifyVal || undefined, pendingCmd, plan.reviewTarget, plan.guardKind);
     }
 

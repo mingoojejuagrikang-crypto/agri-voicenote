@@ -21,7 +21,11 @@
  */
 import { VOICE_COMMANDS, isVoiceUiCommand, preservesAnomalyAlert, type VoiceCommand } from './voiceCommands';
 
-export type AwaitingKind = 'value' | 'modify' | 'trendConfirm' | 'confusionConfirm' | 'atEnd' | 'reviewWait' | 'cellWait';
+// 🔴 v0.52 — `modifyColumnConfirm`(「수정 <축약이름>」 모호 확인 질문)은 **결정표에 분기를 만들지
+//   않는다**: 명령이면 종전대로 dispatch(질문은 접힌다 — `confusionConfirm`의 「그 밖의 명령」과 같은
+//   판단), 명령이 아니면 아래 마지막 줄의 `value`로 떨어져 **값 게이트의 전용 가드**가 답변을 해석한다.
+//   흡수 3종처럼 여기서 act를 새로 만들면, 답변 낱말이 아닌 발화가 흡수로 끝나 원상 복귀가 사라진다.
+export type AwaitingKind = 'value' | 'modify' | 'trendConfirm' | 'confusionConfirm' | 'modifyColumnConfirm' | 'atEnd' | 'reviewWait' | 'cellWait';
 
 export type FinalAction =
   | { act: 'pausedResume' }

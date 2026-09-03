@@ -39,7 +39,9 @@ import { noteSttAttempt } from './sttCorrectionTracker';
 import { resolveSttConfusion } from './sttConfusionRuntime';
 import { closeConfusionForRespoken, runConfusionAnswerGate } from './finalValueGateConfusion';
 import { absorbAtEnd, absorbCellWait } from './finalValueGateAbsorb';
+import { runModifyColumnAnswerGate } from './modifyColumnConfirm';
 import type { Column } from '../types';
+import type { ModifyReviewTarget } from './voiceCommands';
 import type { logger } from './logger';
 import type { AwaitingField, FinalCtx } from './useVoiceSession';
 
@@ -65,6 +67,8 @@ export interface FinalValueGateDeps {
   proceedAfterCommit: (awaiting: AwaitingField | null, opts?: { echoValue?: string }) => Promise<void>;
   relistenInContext: (a: AwaitingField) => Promise<void>;
   demoteConfusionConfirm: (a: Extract<AwaitingField, { kind: 'confusionConfirm' }>) => Extract<AwaitingField, { kind: 'modify' }>;
+  /** v0.52 — 모호 확인 질문의 「첫 번째/두 번째」 종단(고른 열 **한 칸만** 재기록 대기로 연다). []-고정. */
+  enterModifyMode: (v?: string, p?: null, t?: ModifyReviewTarget) => Promise<void>;
   ctrlRef: { current: { isTtsMuted: () => boolean } | null };
   lastInterimRef: { current: { text: string; at: number; confidence?: number } | null };
   lastConfidenceRef: { current: number };
@@ -193,6 +197,13 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
     //   문구는 행 검토("N행은 완료된 행입니다")와 **다르다** — 여기서 행을 말하면 사용자는
     //   행이 끝난 줄 안다. 정정 진입로('수정')를 한 마디로 가르친다(H-2 — 길이 압력).
     if (awaiting.kind === 'cellWait') { await absorbCellWait(awaiting, text, { logCell, say }); return true; }
+
+    // 🔴 v0.52 — 「수정 <축약이름>」 모호 확인 질문의 답변(민구 09-03). 흡수 3종 **바로 뒤**다: 이 국면은
+    //   그 셋 중 하나에서 왔고, 답이 아니면 그 국면으로 되돌려 종전 흡수와 같아진다(modifyColumnConfirm.ts).
+    if (awaiting.kind === 'modifyColumnConfirm') {
+      await runModifyColumnAnswerGate(awaiting, text, depsRef.current);
+      return true;
+    }
 
     // v0.51.1 R6 — 혼동 확인 질문의 답변 해석(컬럼명·응답어·단음절 가드보다 **앞** — 근거·계약은 그 파일 헤더).
     //   r2 P1-1 ⓐ — 소수 문맥이 열려 있으면 건너뛴다(조각 「일」은 .1이지 순번이 아니다 · 정본 ⓑ와 독립 반증용 겹방어).
