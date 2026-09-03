@@ -143,6 +143,27 @@ export interface CommandSpec {
    */
   preservesAlert?: boolean;
   /**
+   * 🔴 v0.52 P1-1 — **`awaiting`이 「값을 기다리는 칸」일 때만 뜻이 서는 명령.**
+   *
+   * 이 넷은 dispatch switch에서 **`awaiting`을 인자로 받는다**(`cmdModify(a, text)`·`cmdCancel(a)`·
+   * `cmdKeep(a)`·`cmdConfirm(a)`) — 대상이 「그 칸의 값」이라는 뜻이다. `awaiting`이 칸이 아니라
+   * **질문**인 국면(`modifyColumnConfirm`)에서 그대로 dispatch하면 없는 대상의 좌표를 추측한다.
+   * 실측(09-03 프로브 P1A · 2행 검토 대기에서 「수정 수확량」으로 질문을 세운 뒤):
+   *   · 「수정」     → **1행** m2가 지워지고 그 행이 `completedRows`에서 빠졌다(다른 행 · 미완료 강등)
+   *   · 「수정 41.4」→ **1행** m2가 41.4로 **덮어써졌다**(리뷰 6낱말 표에 없던 축 — 소거보다 나쁘다)
+   *   · 「유지」     → 답하지 않은 행이 완주·전진했다(「조사나무 2 완료. 조사나무 3.」)
+   *   · 「확인」·「취소」→ 파괴는 없으나 질문을 켜 둔 채 「{항목} 말씀해 주세요」라는 **실행 불가능한
+   *     지시**를 낸다(r7 #4·Y5가 「꼬리는 국면이 정한다」로 닫은 그 형태).
+   *
+   * 👉 `resolveFinal`이 이 플래그를 보고 질문 국면에서는 **답변 게이트**로 보낸다. 설계 의도와도
+   *    같다 — `sttConfusionRuntime.RELISTEN`이 이미 `'수정'`을 「그게 아니다」 어휘로 등재했고
+   *    `modifyColumnConfirm.parseModifyColumnAnswer`가 그 표를 취소 판정에 쓴다.
+   * ⚠️ 판정을 resolver의 id 리터럴로 두지 않는 근거는 `preservesAlert`와 같다(fix49b #15):
+   *    선언과 계약이 붙어 있어야 명령이 늘 때 이 축이 함께 검토된다. 오라클은
+   *    `tests/voiceFinalResolver.spec.ts`의 **13종 전수표**다.
+   */
+  cellScoped?: boolean;
+  /**
    * 🔴 v0.51 P2-2 (민구 요청 08-31) — **같은 동작을 손으로 하는 방법.**
    *
    * 민구 원문의 문제: *"말로 되는 건지 손으로 해야 하는 건지 화면만 봐서는 모른다."*
@@ -203,6 +224,11 @@ export function preservesAnomalyAlert(cmd: VoiceCommand): boolean {
   return cmd != null && (VOICE_COMMANDS.find((c) => c.id === cmd)?.preservesAlert ?? false);
 }
 
+/** 이 명령이 「`awaiting` 칸의 값」을 대상으로 하는가 — 질문 국면에서는 명령이 아니라 **답**이다. */
+export function isCellScopedCommand(cmd: VoiceCommand): boolean {
+  return cmd != null && (VOICE_COMMANDS.find((c) => c.id === cmd)?.cellScoped ?? false);
+}
+
 /** v0.51.1 R5 — 발화가 그 명령의 `word`와 **정확히 일치**하는가(`minConfidenceExact` 분기 판정).
  *  정규화는 `detectCommand`(koreanNum.ts)와 같다: 공백·`.`·`,`만 지운다 — 「수정.」은 정확 일치,
  *  「수정해줘」·「178.1 수정」은 modify지만 정확 일치가 아니다(종전 floor). */
@@ -213,7 +239,7 @@ export function isExactCommandUtterance(raw: string, cmd: VoiceCommand): boolean
 }
 
 export const VOICE_COMMANDS: CommandSpec[] = [
-  { id: 'modify',  word: '수정',     display: '수정',     desc: '직전에 입력한 값을 고칩니다',      primary: true, minConfidence: 0.55, minConfidenceExact: 0.4 },
+  { id: 'modify',  word: '수정',     display: '수정',     desc: '직전에 입력한 값을 고칩니다',      primary: true, minConfidence: 0.55, minConfidenceExact: 0.4, cellScoped: true },
   // 🔴 v0.49 F-1 (민구 결정 2026-08-12) — **어휘 재배정**. 결정 계보를 지우지 말 것:
   //   · v0.33.0 백로그 A(민구 결정 1·3): '이전'=prevRow / '다음'=nextRow, 즉 **둘 다 행 이동**이었다.
   //     ('이전'은 버튼과 동일한 단순 행 이동 — v0.4.5 I3의 재입력 모드는 그때 폐지됐다.)
@@ -232,13 +258,13 @@ export const VOICE_COMMANDS: CommandSpec[] = [
   { id: 'nextField', word: '다음',   display: '다음',     desc: '값 입력 없이 바로 뒤 항목으로 건너뜁니다', preservesAlert: true },
   { id: 'prevRow', word: '이전행',   display: '이전행',   desc: '이전 행으로 이동합니다 (완료된 행은 값을 읽어주고 대기)', touch: '‹' },
   { id: 'nextRow', word: '다음행',   display: '다음행',   desc: '다음 행으로 넘어갑니다 (입력 중이던 행은 빈 행으로 남아 데이터 탭에서 채울 수 있어요)', primary: true, touch: '›' },
-  { id: 'cancel',  word: '취소',     display: '취소',     desc: '현재 인식된 값을 지웁니다' },
-  { id: 'keep',    word: '유지',     display: '유지',     desc: '현재 항목의 값을 그대로 두고 다음으로 넘어갑니다' },
+  { id: 'cancel',  word: '취소',     display: '취소',     desc: '현재 인식된 값을 지웁니다', cellScoped: true },
+  { id: 'keep',    word: '유지',     display: '유지',     desc: '현재 항목의 값을 그대로 두고 다음으로 넘어갑니다', cellScoped: true },
   // v0.7.0 B4: 추세 검증 알림의 확인 응답("확인해주세요" → "확인"). 알림 상태 밖에서는 짧은
   // 재안내만 한다(useVoiceSession). prefix 불변식 검증: 기존 단어(수정·이전·다음·취소·유지·
   // 일시정지·재시작·종료) 어느 것과도 서로 prefix 관계가 아니다. (v0.49 F-1: 최장 일치 체계로
   // 바뀐 뒤에도 '확인'은 접두 쌍 2개 어디에도 끼지 않는다 — 위 헤더 주석의 계수와 일치.)
-  { id: 'confirm', word: '확인',     display: '확인',     desc: '추세 알림에서 방금 입력한 값을 그대로 확정합니다', touch: '✓' },
+  { id: 'confirm', word: '확인',     display: '확인',     desc: '추세 알림에서 방금 입력한 값을 그대로 확정합니다', touch: '✓', cellScoped: true },
   { id: 'pause',   word: '일시정지', display: '일시정지', desc: '입력을 잠시 멈춥니다',            primary: true, touch: '⏸' },
   { id: 'resume',  word: '재시작',   display: '재시작',   desc: '멈춘 입력을 다시 시작합니다',      primary: true, touch: '⏸' },
   { id: 'end',     word: '종료',     display: '종료',     desc: '입력을 끝내고 저장합니다',        primary: true, touch: '종료', touchNote: '말로는 1단계까지 — 확정은 ✓ 버튼' },

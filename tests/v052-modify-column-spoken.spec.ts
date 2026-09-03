@@ -145,16 +145,15 @@ const PAREN3 = [...AUTO, COL('m1', '횡경(mm)'), COL('m2', '종경(mm)'), COL('
 /** ⓓ 전용 — 축약형이 같은 두 열(콜드 리뷰 §3 P2의 형상). */
 const DUP = [...AUTO, COL('m1', '수확량(1차)'), COL('m2', '수확량(2차)')];
 
-const bootWith = (page: Page, columns: unknown[], label: string) => boot(page, PHONE_402, {
+const bootWith = (page: Page, columns: unknown[], label: string, totalRows = 2) => boot(page, PHONE_402, {
   settings: {
     ...AZ_SETTINGS,
-    state: { ...AZ_SETTINGS.state, columns, totalRows: 2, sessionAutoLabel: label },
+    state: { ...AZ_SETTINGS.state, columns, totalRows, sessionAutoLabel: label },
   } as unknown as typeof AZ_SETTINGS,
   headers: [...AUTO, ...(columns as { name: string }[]).slice(AUTO.length)].map((c) => (c as { name: string }).name),
-  sheetRows: [
-    [PREV_ROUND, '이원창', '1', ...Array((columns as unknown[]).length - AUTO.length).fill('100.0')],
-    [PREV_ROUND, '이원창', '2', ...Array((columns as unknown[]).length - AUTO.length).fill('100.0')],
-  ],
+  sheetRows: Array.from({ length: totalRows }, (_, i) => (
+    [PREV_ROUND, '이원창', String(i + 1), ...Array((columns as unknown[]).length - AUTO.length).fill('100.0')]
+  )),
 });
 
 /** 라이브 세션 store의 행 값 — 「지워졌는가」를 IDB 지연 없이 직접 잰다(프로브와 같은 방식). */
@@ -209,6 +208,16 @@ test('ⓑ 한 칸만 — 가운데 열을 지목해도 뒤 칸은 지워지지 �
   expect(v.m2, '지목된 가운데 칸만 비워진다').toBe('');
   // 🔴 여기가 이번 처방의 판별력이다 — 종전 `clearEnd = vc.length`면 이 칸도 비었다.
   expect(v.m3, '🔴 뒤 칸은 지워지지 않는다(종전엔 행 끝까지 지웠다)').toBe('33.3');
+
+  // 한 칸 재기록 뒤의 **착지**도 잰다. `advance()`는 targetIdx부터 전진하는데 뒤 칸이 이미
+  //   채워져 있으므로 **건너뛰어야** 한다 — 다시 열면 사용자가 바꾸겠다고 한 적 없는 칸을
+  //   재질문하게 된다(`single`이 만든 새 상황이라 종전 오라클이 덮지 않는다).
+  await fireStt(page, '99.9', 1500);
+  await waitForTtsIdle(page);
+  const after = await rowValues(page, 1);
+  expect(after.m2, '재발화가 그 칸의 값이 된다').toBe('99.9');
+  expect(after.m3, '뒤 칸은 끝까지 불변').toBe('33.3');
+  expect(await activeChipName(page), '이미 채워진 뒤 칸을 다시 열지 않는다').not.toBe('과중(g)');
 });
 
 test('ⓒ 미매칭 — 없는 이름을 불러도 어느 셀도 지워지지 않고 대기 문구로 되돌아온다', async ({ page }) => {
@@ -351,4 +360,78 @@ test('ⓕ 끝 도달(atEnd)의 미매칭도 마지막 칸을 지우지 않는다
     (await ttsLog(page)).slice(logBefore).length,
     '무음으로 삼키지 않는다 — 끝 도달 안내를 다시 말한다',
   ).toBeGreaterThan(0);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴🔴 P1-1(콜드 리뷰 R1 §2) — **질문 중에 들어온 명령**. 종전엔 이 국면에 분기가 없어 명령이
+//   그대로 dispatch됐고, 칸을 대상으로 하는 명령 넷이 **없는 대상의 좌표를 추측**했다.
+//   형상은 리뷰 프로브 Q5 그대로다(2행 검토 대기에서 질문을 세운다 — 파괴가 **1행**에 떨어진다).
+//   ⚠️ 판정표 축(명령 13종 전수)은 `tests/voiceFinalResolver.spec.ts`가 잠근다. 여기는 **화면·데이터**다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** ⚠️ 3행 세션이므로 `조사나무` 연번도 3까지여야 한다 — `to:2`면 `computeTotalRows`가 2로 잘려
+ *  2행 완주가 곧 **끝 도달**이 되고 「이전행」이 1행에 떨어진다(즉 «다른 행» 축이 사라진다). */
+const AUTO3 = AUTO.map((c) => (c.id === 'c0' ? { ...c, auto: { kind: 'seq', from: 1, to: 3 } } : c));
+const DUP3 = [...AUTO3, COL('m1', '수확량(1차)'), COL('m2', '수확량(2차)')];
+
+/** 1·2행을 완주하고 「이전행」으로 **2행 검토 대기**에 선 뒤, 모호 확인 질문을 세운다. */
+async function armAmbiguousOnRow2(page: Page, label: string) {
+  await bootWith(page, DUP3, label, 3);
+  for (const v of ['11.1', '12.2', '21.1', '22.2']) await fireStt(page, v, 900);
+  await waitForTtsIdle(page);
+  await fireStt(page, '이전행', 1800);
+  await waitForTtsIdle(page);
+  await fireStt(page, '수정 수확량', 2000);
+  await waitForTtsIdle(page);
+  expect((await ttsLog(page)).at(-1), '전제 — 질문이 서 있다').toBe('첫 번째 수확량인가요, 두 번째 수확량인가요?');
+}
+
+/** 세션 store의 완료 행 부기 — 「수정」이 남의 행을 **미완료로 되돌리던** 축(실측 [1,2]→[2]). */
+const completedRows = (page: Page) => page.evaluate(async () => {
+  const { useSessionStore } = await import('/src/stores/sessionStore.ts');
+  const s = useSessionStore.getState();
+  return { completed: [...(s.completedRows ?? [])], activeRow: s.activeRow };
+});
+
+for (const [tag, utter, was] of [
+  ['ⓙ', '수정', '1행 m2를 지우고 1행을 미완료로 되돌렸다'],
+  ['ⓚ', '수정 사십일 점 사', '1행 m2를 41.4로 **덮어썼다**(리뷰 6낱말 표에 없던 축 — 소거보다 나쁘다)'],
+  ['ⓛ', '유지', '답하지 않은 2행을 완주·전진시켰다(「조사나무 2 완료. 조사나무 3.」)'],
+  ['ⓙ2', '확인', '질문을 켜 둔 채 「수확량 말씀해 주세요」라는 실행 불가능한 지시를 냈다'],
+  ['ⓙ3', '취소', '같은 형태 — 질문이 남은 채 값 요구 문구가 나갔다'],
+] as const) {
+  test(`${tag} 질문 중 「${utter}」 — 어느 셀도 지워지지 않고 행도 전진하지 않는다 (종전: ${was})`, async ({ page }) => {
+    await armAmbiguousOnRow2(page, `v052-mc-q-${tag}`);
+    const beforeTts = (await ttsLog(page)).length;
+
+    await fireStt(page, utter, 2200);
+    await waitForTtsIdle(page);
+
+    // 🔴 계약 ① 어느 셀도 지워지지 않는다 — **다른 행**까지 포함해서 전수로 센다.
+    expect(await rowValues(page, 1), '🔴 다른 행(1행)은 바이트 불변이다').toEqual({ m1: '11.1', m2: '12.2' });
+    expect(await rowValues(page, 2), '🔴 대상 행(2행)도 답하기 전이라 불변이다').toEqual({ m1: '21.1', m2: '22.2' });
+    // 🔴 계약 ② 부기와 커서도 그대로다 — 「유지」는 답하지도 않은 행을 완주시켰다.
+    expect(await completedRows(page), '완료 부기·활성 행 불변').toEqual({ completed: [1, 2], activeRow: 2 });
+    // 계약 ③ 질문 전 국면(2행 검토 대기)의 **기존 문구**로 되돌아온다(새 문구를 만들지 않는다).
+    expect((await ttsLog(page)).slice(beforeTts), '질문 전 국면의 대기 문구로 복귀').toEqual([REVIEW_WAIT_COMMANDS_TTS]);
+
+    // 복귀가 실제로 살아 있다 — 다시 물을 수 있고 답이 그 칸을 연다(상태가 굳지 않았다).
+    await fireStt(page, '수정 수확량', 2000);
+    await waitForTtsIdle(page);
+    await fireStt(page, '두 번째', 2000);
+    await waitForTtsIdle(page);
+    expect(await activeChipName(page)).toBe('수확량(2차)');
+    expect((await rowValues(page, 2)).m2, '고른 한 칸만 재기록 대기로 비워진다').toBe('');
+    expect((await rowValues(page, 1)).m2, '🔴 끝까지 다른 행은 불변이다').toBe('12.2');
+  });
+}
+
+test('ⓜ 대조군 — 질문 중에도 칸을 대상으로 하지 않는 명령은 종전대로 듣는다(우회가 명령을 죽이지 않았다)', async ({ page }) => {
+  await armAmbiguousOnRow2(page, 'v052-mc-q-m');
+  // 「다음행」 = 행 이동. 질문은 접히고 종전 동작 그대로다(P1-1 우회는 `cellScoped` 넷 전용).
+  await fireStt(page, '다음행', 2000);
+  await waitForTtsIdle(page);
+  expect((await completedRows(page)).activeRow, '행 이동은 살아 있다').toBe(3);
+  expect(await rowValues(page, 1), '이동도 셀을 건드리지 않는다').toEqual({ m1: '11.1', m2: '12.2' });
+  expect(await rowValues(page, 2)).toEqual({ m1: '21.1', m2: '22.2' });
 });

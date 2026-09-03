@@ -486,10 +486,12 @@ export function useFinalCommands(deps: FinalCommandsDeps) {
     }
 
     // 명령으로 끝나지 않았다 = 값 경로로 폴스루(종전 dispatch switch의 폴스루와 같은 의미).
-    // 🔴 되받기 — 강등(trendConfirm → modify)이 일어났으면 그 값을 값 경로가 봐야 한다. 구획을
-    //   가르기 전에는 같은 함수의 지역변수라 자동이었다. **오늘 이 경로로 강등값이 새는 일은
-    //   없다**(trendDemoted는 cmd가 있을 때만 서고 dispatch가 모든 non-null cmd를 return시킨다).
-    //   그래도 되쓴다 — 등가성을 「dispatch switch 목록이 완전하다」는 **우연**에 맡기지 않는다.
+    // 🔴 v0.52 P1-1 — **여기 도달하는 `cmd`가 생겼다**: 모호 확인 질문의 `cellScoped` 명령 넷을
+    //   `resolveFinal`이 `value`로 보낸다(근거는 그 플래그 주석). epoch bump·`command` 로그는
+    //   남기고, 답변 처리는 그 뒤 `modify_column_*`으로 따로 남는다.
+    // 🔴 되받기 — 강등(trendConfirm → modify) 값을 값 경로가 봐야 한다. **강등값이 새지는 않는다**
+    //   (`trendDemoted`는 trendConfirm 국면에서만 서고 그 국면의 non-null cmd는 전부 dispatch로
+    //   return한다). 그래도 되쓴다 — 등가성을 dispatch switch 목록의 완전성에 맡기지 않는다.
     ctx.awaiting = awaiting;
     return false;
   }, []);
