@@ -311,3 +311,82 @@ test('⑥ 이상치 알람 분기도 정산한다 — 알람과 배너는 서로
   await expect(banner(page)).toContainText('측정항목01 120.5');
   expect((await row1Of(page))?.v.m1, 'IDB에는 옛 값이 남는다').toBe('100');
 });
+
+/**
+ * 🔴🔴 P1-2 (콜드 리뷰 R1 §2) — **알람 분기의 실패 배너가 [다시 저장]으로 회수된다.**
+ *
+ * ⑥은 「알람과 배너가 둘 다 선다」까지만 쟀다. 그 다음이 깨져 있었다:
+ * [다시 저장] = `commitManualValue` 재실행인데 값이 이상치라 진입 즉시 `evaluateTrend`가 다시
+ * 걸려 **hold 갈래**로 가고, 그 갈래는 공유 코어(`persistCellValue`)를 쓰지 않아 배너를 내리는
+ * `clearIfMatches`에 **구조적으로 도달할 수 없었다.** 실측(수정 전):
+ *
+ * ```
+ * [재시도 후]  idb m1=120.5   ← 값은 실렸다
+ *             배너=1 (10초 폴링해도 안 내려감) · 알람=1
+ *             [확인] 버튼 클릭 → cell-persist-error-banner(aria-modal)가 intercepts pointer events
+ *             음성 「확인」 → "알림은 터치로만 응답할 수 있습니다"
+ * ```
+ * 👉 값은 저장됐는데 **그 셀에 갇힌다.** 배너가 알람 버튼을 덮고, 음성은 거부되고, 배너를 내릴
+ *    유일한 경로(같은 셀 durable 성공)는 이 갈래에서 도달 불가다. 알람이 **없는** 같은 실패는
+ *    정상 회수된다(②) — 알람 분기 전용 결함이었다.
+ * ⚠️ 「확인」을 **터치 버튼으로** 누르는 것이 계약이다(음성은 manualHold가 거부한다). 그래서 이
+ *    스펙의 클릭 성공 자체가 「배너가 더는 알람을 가리지 않는다」의 오라클이다.
+ */
+test('⑦ 알람 분기의 [다시 저장]이 배너를 회수한다 — 값이 실렸으면 실패 표시가 남지 않는다', async ({ page }) => {
+  await bootTrend(page);
+  await fireStt(page, '100.0', 1200);
+  await waitForTtsIdle(page);
+  await waitForPersistedValue(page, 1, 'm1', '100');
+
+  await failAll(page, true);
+  await fireStt(page, '수정 백이십 점 오', 2200);
+  await waitForTtsIdle(page);
+  await expect(banner(page), '전제 — 알람 분기의 durable 실패가 배너를 세웠다').toBeVisible();
+  await expect(page.locator('[data-testid="anomaly-alert"]'), '전제 — 알람도 서 있다').toBeVisible();
+  expect((await row1Of(page))?.v.m1, '전제 — IDB에는 아직 옛 값이다').toBe('100');
+
+  // [다시 저장] — 위반값이라 hold 갈래로 간다. 값이 IDB에 실렸으면 배너는 내려가야 한다.
+  await failAll(page, false);
+  await page.locator('[data-testid="cell-persist-retry-btn"]').click();
+  await expect(banner(page), '🔴 durable 성공이 배너를 내린다').toHaveCount(0, { timeout: 10_000 });
+  expect((await row1Of(page))?.v.m1, '재시도가 이상치 값을 실제로 내구화한다').toBe('120.5');
+
+  // 알람은 아직 사용자의 답을 기다린다 — 「저장 실패」와 「값이 이상하다」는 **서로 다른 사실**이라
+  //   하나가 해소돼도 다른 하나는 남는다(⑥의 계약과 같은 축의 반대 반쪽).
+  await expect(page.locator('[data-testid="anomaly-alert"]'), '재시도가 알람을 삼키지 않는다').toBeVisible();
+  // 🔴 이 클릭이 곧 「배너가 알람 버튼을 더는 가리지 않는다」의 단언이다(종전엔 intercept로 타임아웃).
+  await page.locator('[data-testid="anomaly-confirm-btn"]').click();
+  await waitForTtsIdle(page);
+  await expect(page.locator('[data-testid="anomaly-alert"]'), '[확인]이 알람을 해소한다').toHaveCount(0);
+
+  // 해소 뒤 흐름이 원래 대기 칸으로 돌아온다(보류 태그도 걷힌다 — 후보가 확정으로 승격됐다).
+  await fireStt(page, '사십이 점 삼', 1800);
+  await waitForTtsIdle(page);
+  await expect.poll(async () => (await row1Of(page))?.v.m2, { timeout: 8000 }).toBe('42.3');
+  expect((await row1Of(page))?.v.m1, '확정된 이상치 값은 그대로다').toBe('120.5');
+});
+
+test('⑧ 경합 — durable 판정 중 다른 셀 커밋이 끼어들어도 가짜 배너가 서지 않는다', async ({ page }) => {
+  // 🔴 `settleModifyDurable`은 persist 결과 **뒤에** IDB를 되읽어 값을 확인한다. 그 사이 다른
+  //   fire-and-forget persist가 「내 값이 없는 스냅샷」을 끼워 넣으면 정상 경로에 **가짜 배너**가
+  //   선다 — 수정이 결함보다 나빠지는 지점이다(Y1 헤더가 경계한 그 형태). 실제로 재본다.
+  await bootDef003(page);
+  await voiceM1AndLand(page);
+
+  // 이 커밋의 IDB write를 1.5초 늦춘다(운영 경로 무영향 seam — db.ts).
+  await page.evaluate(() => {
+    (window as unknown as { __survey011DelaySessionPutMs?: number }).__survey011DelaySessionPutMs = 1500;
+  });
+  // 수정 발사 → durable 대기 중에 m2 값 발화가 끼어들어 **두 번째 persist**를 시작시킨다.
+  await fireStt(page, '수정 사십일 점 사', 300);
+  await fireStt(page, '사십이 점 삼', 3500);
+  await page.evaluate(() => {
+    (window as unknown as { __survey011DelaySessionPutMs?: number }).__survey011DelaySessionPutMs = 0;
+  });
+  await waitForTtsIdle(page);
+
+  await expect(banner(page), '🔴 경합은 실패가 아니다 — 가짜 배너가 서면 안 된다').toHaveCount(0);
+  expect((await ttsLog(page)).some((t) => t === FAIL_TTS), '실패 고지도 없어야 한다').toBe(false);
+  await expect.poll(async () => (await row1Of(page))?.v.m1, { timeout: 8000 }).toBe('41.4');
+  expect((await row1Of(page))?.v.m2, '끼어든 커밋도 함께 내구화된다').toBe('42.3');
+});

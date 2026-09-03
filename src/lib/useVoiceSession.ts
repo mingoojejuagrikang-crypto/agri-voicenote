@@ -3794,7 +3794,35 @@ export function useVoiceSession() {
         clearAnomalyAlert('persist_rollback');
         const current = useDataStore.getState().sessions.find((s) => s.id === sessionIdRef.current);
         if (current) useDataStore.getState().upsertSession(withoutPendingCandidate({ ...current, pendingValidation }));
+        return;
       }
+      // 🔴🔴 v0.52 P1-2(콜드 리뷰 R1 §2) — **이 갈래도 「그 셀의 durable 성공」이다.**
+      //   셀 실패 배너를 내리는 것은 `useCellPersistError.clearIfMatches` 하나뿐이고, 그 호출자는
+      //   `persistCellValue`의 성공 뒤(:3564) **한 곳**이었다(`cellPersistError.ts`가 그 계약을
+      //   *"해소는 같은 셀의 durable 성공뿐"* 으로 명문화한다). 그런데 배너의 [다시 저장]은
+      //   `commitManualValue` 재실행이고(VoiceScreen), 값이 이상치면 진입 즉시 `evaluateTrend`가
+      //   다시 걸려 **이 hold 갈래**로 온다 — 이 갈래는 공유 코어를 쓰지 않고 `persistSession`으로
+      //   세션을 통째로 조립하므로 `clearIfMatches`에 **구조적으로 도달할 수 없었다.**
+      //   실측(09-03 프로브 · 알람 없는 같은 실패는 정상 회수되는 대조군이 있다):
+      //     · 재시도 뒤 `idb m1=120.5` — **값은 실렸다.** 그런데 배너는 10초를 폴링해도 남는다.
+      //     · 그 배너는 `aria-modal` `alertdialog`라 **알람의 [확인] 버튼을 가린다**(클릭이
+      //       intercept된다 — Playwright 로그로 확인). 음성 「확인」은 manualHold라
+      //       「알림은 터치로만 응답할 수 있습니다」로 거부된다.
+      //     👉 값은 저장됐는데 사용자는 그 셀에 **갇힌다.** DEF-003이 만든 신호가 거짓으로 굳는
+      //        자리다(PRINCIPLES §1 — 실패 표시는 재시도가 성공하면 내려가야 한다).
+      //   🔑 **반환값만으로 내리지 않는다**(Y1 · `settleModifyDurable`과 같은 근거): `persistSession`은
+      //     실을 것이 없거나 단조 가드에 걸리면 **쓰지 않고 `true`** 를 돌리고, dataStore도 근거가
+      //     못 된다 — 이 갈래는 put **앞**에서 `pendingValidationPersisting`으로 이미 게시한다.
+      //     그래서 IDB를 되읽어 「재시작 후에도 남을 값」을 확인한 뒤에만 내린다. 되읽기가
+      //     실패하거나 값이 안 실렸으면 **배너를 남긴다**(고지가 거짓이 되지 않는 쪽).
+      //   ⚠️ ✓(`useSessionCommitMarks`)는 **붙이지 않는다** — 이건 확정값이 아니라 보류 후보다
+      //     (W4의 「성공 입력」 정의 · P5b 「보류 후보는 확정처럼 보이지 않는다」). 배너만 내린다.
+      try {
+        const savedHold = await loadSession(sessionIdRef.current);
+        if ((savedHold?.rows.find((r) => r.index === row)?.values[colId] ?? '') === value) {
+          useCellPersistError.getState().clearIfMatches(row, colId);
+        }
+      } catch { /* 되읽기 실패 = 내구성 미확인 → 배너를 그대로 둔다 */ }
       return;
     }
 
