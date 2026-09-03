@@ -37,7 +37,7 @@ import { useCallback, useRef } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
 import { extractModifyValue } from './koreanNum';
 import { cancelTts } from './speech';
-import { extractModifyColumn, isExactCommandUtterance, isVoiceUiCommand, type VoiceUiCommandSignal } from './voiceCommands';
+import { isExactCommandUtterance, isVoiceUiCommand, resolveModifyTarget, type VoiceUiCommandSignal } from './voiceCommands';
 import { resolveFinal } from './voiceFinalResolver';
 import { cellWaitPrompt, formatNameForTts, relistenPrompt, REVIEW_WAIT_COMMANDS_TTS } from './voicePrompts';
 import type { Column } from '../types';
@@ -240,27 +240,15 @@ export function useFinalCommands(deps: FinalCommandsDeps) {
       // ("수정 종경" → '종경'), 완료 행 대기에서는 컬럼명 매치를 먼저 확인해야 한다(숫자 발화는
       // 컬럼명과 매치될 수 없어 "수정 30.7" 직접값 경로는 그대로 성립). reviewWait/atEnd 한정 —
       // 일반 수정 의미론(직전 필드·값 추출)은 불변. 직접값 적용 후엔 검토 대기 복귀(enterModifyMode).
-      let modifyVal = extractModifyValue(utterance);
-      let reviewTarget: { row: number; idx: number; land?: 'review' | 'cell' } | undefined;
-      if (a.kind === 'reviewWait' || a.kind === 'atEnd' || a.kind === 'cellWait') {
-        const vcRw = voiceColsList();
-        let idx = Math.max(0, vcRw.findIndex((c) => c.id === a.colId));
-        const named = extractModifyColumn(utterance, vcRw.map((c) => c.name));
-        const namedIdx = named ? vcRw.findIndex((c) => c.name === named) : -1;
-        // 🔴 v0.49 fix49 — 셀 검토 대기(cellWait)의 '수정'은 **그 셀**이 타깃이다. 기본 규칙
-        //   (`curIdx - 1` = 직전 컬럼)에 맡기면 엉뚱한 셀을 열고, 0번 항목에서는 `targetIdx < 0`
-        //   분기로 떨어져 값을 지운 뒤 재질문하며 직접값까지 버린다(실측 — _ASK-fix49 Q2).
-        //   컬럼명 지목("수정 종경")은 reviewWait과 같은 규칙을 그대로 물려받는다.
-        const land = a.kind === 'cellWait' ? 'cell' as const : 'review' as const;
-        if (namedIdx >= 0) {
-          idx = namedIdx;
-          modifyVal = null; // 컬럼명 지목 — 값 후보('종경' 등 비숫자 잔여)로 오적용 금지
-          reviewTarget = { row: a.row, idx, land };
-        } else if (a.kind === 'reviewWait' || a.kind === 'cellWait') {
-          reviewTarget = { row: a.row, idx, land };
-        }
-      }
-      await enterModifyMode(modifyVal || undefined, pendingCmd, reviewTarget);
+      // 🔴 GL-006 §5 — 그 결정 본체는 `voiceCommands.resolveModifyTarget`(순수)이 소유한다.
+      //   이 파일이 정확히 500줄이라 여기에 한 줄도 더할 수 없었다(형제 선례: finalValueGate*.ts).
+      const plan = resolveModifyTarget({
+        kind: a.kind, row: a.row, colId: a.colId,
+        voiceCols: voiceColsList(),
+        utterance,
+        modifyVal: extractModifyValue(utterance),
+      });
+      await enterModifyMode(plan.modifyVal || undefined, pendingCmd, plan.reviewTarget);
     }
 
     /** '취소' — 인식값을 지우고 같은 필드 재질문. [CLIP-VAL-1]① (cancel sibling): '수정'→'취소'

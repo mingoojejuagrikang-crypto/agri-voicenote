@@ -334,3 +334,53 @@ export function extractModifyColumn(text: string, colNames: string[]): string | 
   }
   return best;
 }
+
+/** 「수정」의 **타깃 해석** — `useFinalCommands`의 `cmdModify`에서 그대로 옮긴 순수 함수다.
+ *
+ *  왜 옮겼나: `useFinalCommands.ts`가 **정확히 500줄**(GL-006 §5 상한)이라 이 블록에 한 줄도
+ *  더할 수 없었다. 형제 선례(`finalValueGateAbsorb.ts`·`finalValueGateConfusion.ts`)와 같은
+ *  처방이고, 순수 결정이라 훅 밖으로 나가는 것이 오히려 제자리다 —
+ *  `extractModifyColumn`(같은 파일)이 이 결정의 핵심 부품이다.
+ *
+ *  ⚠️ **값 추출은 호출자가 한다.** `extractModifyValue`는 `koreanNum.ts`에 있고 그 파일이 이
+ *  파일을 import하므로(명령 표가 SSOT), 여기서 되짚으면 **순환**이다. 그래서 결과만 받는다.
+ *
+ *  규칙(이동 전과 바이트 동일):
+ *   - 검토 대기 3종(`reviewWait`·`atEnd`·`cellWait`) **밖에서는 아무것도 하지 않는다** —
+ *     일반 수정 의미론(직전 필드·값 추출)은 불변이다.
+ *   - 컬럼명 지목이 성공하면 그 컬럼이 타깃이고 값 후보는 **버린다**(`'종경'` 같은 비숫자
+ *     잔여가 값으로 오적용되면 안 된다).
+ *   - 지목이 없으면 `reviewWait`/`cellWait`은 포인터 컬럼을 타깃으로 예약하고, `atEnd`는
+ *     예약을 만들지 않는다(센티넬이 이미 가리킨다).
+ */
+export interface ModifyReviewTarget { row: number; idx: number; land?: 'review' | 'cell' }
+
+export function resolveModifyTarget(input: {
+  kind: string;
+  row: number;
+  colId: string;
+  /** 음성 컬럼 목록(순서 = 인덱스 축). */
+  voiceCols: readonly { id: string; name: string }[];
+  utterance: string;
+  /** `extractModifyValue(utterance)`의 결과 — 위 ⚠️ 참조. */
+  modifyVal: string | null;
+}): { modifyVal: string | null; reviewTarget?: ModifyReviewTarget } {
+  const { kind, row, colId, voiceCols, utterance } = input;
+  let modifyVal = input.modifyVal;
+  if (kind !== 'reviewWait' && kind !== 'atEnd' && kind !== 'cellWait') return { modifyVal };
+  let idx = Math.max(0, voiceCols.findIndex((c) => c.id === colId));
+  const named = extractModifyColumn(utterance, voiceCols.map((c) => c.name));
+  const namedIdx = named ? voiceCols.findIndex((c) => c.name === named) : -1;
+  // 🔴 v0.49 fix49 — 셀 검토 대기(cellWait)의 '수정'은 **그 셀**이 타깃이다. 기본 규칙
+  //   (`curIdx - 1` = 직전 컬럼)에 맡기면 엉뚱한 셀을 열고, 0번 항목에서는 `targetIdx < 0`
+  //   분기로 떨어져 값을 지운 뒤 재질문하며 직접값까지 버린다(실측 — _ASK-fix49 Q2).
+  //   컬럼명 지목("수정 종경")은 reviewWait과 같은 규칙을 그대로 물려받는다.
+  const land = kind === 'cellWait' ? 'cell' as const : 'review' as const;
+  if (namedIdx >= 0) {
+    idx = namedIdx;
+    modifyVal = null; // 컬럼명 지목 — 값 후보('종경' 등 비숫자 잔여)로 오적용 금지
+    return { modifyVal, reviewTarget: { row, idx, land } };
+  }
+  if (kind === 'reviewWait' || kind === 'cellWait') return { modifyVal, reviewTarget: { row, idx, land } };
+  return { modifyVal };
+}
