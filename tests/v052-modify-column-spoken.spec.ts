@@ -41,7 +41,8 @@ import { test, expect, type Page } from '@playwright/test';
 import { boot, PHONE_402, PREV_ROUND, SETTINGS as AZ_SETTINGS } from './fixtures/activeZones';
 import { fireStt, ttsLog, waitForTtsIdle } from './fixtures/stt';
 import { matchModifyColumn } from '../src/lib/voiceCommands';
-import { REVIEW_WAIT_COMMANDS_TTS } from '../src/lib/voicePrompts';
+import { parseModifyColumnAnswer } from '../src/lib/modifyColumnConfirm';
+import { MODIFY_COLUMN_MAX_CANDS, REVIEW_WAIT_COMMANDS_TTS } from '../src/lib/voicePrompts';
 
 test.setTimeout(120_000);
 
@@ -434,4 +435,68 @@ test('ⓜ 대조군 — 질문 중에도 칸을 대상으로 하지 않는 명�
   expect((await completedRows(page)).activeRow, '행 이동은 살아 있다').toBe(3);
   expect(await rowValues(page, 1), '이동도 셀을 건드리지 않는다').toEqual({ m1: '11.1', m2: '12.2' });
   expect(await rowValues(page, 2)).toEqual({ m1: '21.1', m2: '22.2' });
+});
+
+/**
+ * 🟡 P2-3(콜드 리뷰 R1 §5) — **「긍정어를 순번으로 받지 않는다」에 오라클이 없었다.**
+ *
+ * 빌더가 🔴로 못박은 계약: *"긍정어를 첫 번째로 읽으면 **엉뚱한 열이 열리고 그 칸이 비워진다** —
+ * 데이터 파괴다."* 그래서 v0.52가 R6의 `KEEP` 하나를 `FIRST_ORDINAL` + `AFFIRM`으로 **갈랐다.**
+ * 그런데 리뷰의 반증 M11(`FIRST_ORDINAL`에 `네|예|확인|유지|그대로`를 도로 합침)이 **29 passed**였다 —
+ * 스펙 ⓘ가 「아니오」와 값 발화만 재고 긍정어를 재지 않았기 때문이다.
+ *
+ * 🔑 순수 함수라 서버 없이 잠근다. 여기가 red가 되는 것이 곧 「그 분리를 되돌리면 데이터가 파괴된다」다.
+ */
+test.describe('parseModifyColumnAnswer — 답변 어휘 전수(P2-3)', () => {
+  test('순번은 순번이다 — n을 넘는 순번은 답이 아니다', () => {
+    expect(parseModifyColumnAnswer('첫 번째', 2)).toEqual({ kind: 'pick', index: 0 });
+    expect(parseModifyColumnAnswer('두 번째', 2)).toEqual({ kind: 'pick', index: 1 });
+    expect(parseModifyColumnAnswer('세 번째', 3)).toEqual({ kind: 'pick', index: 2 });
+    expect(parseModifyColumnAnswer('세 번째', 2), '후보가 둘이면 「셋째」는 답이 아니다').toBeNull();
+  });
+
+  test('🔴 긍정어는 순번이 아니다 — 하나라도 pick으로 새면 엉뚱한 열이 열리고 그 칸이 비워진다', () => {
+    for (const w of ['네', '예', '응', '어', '넵', '맞아', '맞아요', '맞습니다', '그래', '그래요', '확인', '유지', '그대로']) {
+      expect(parseModifyColumnAnswer(w, 2), `「${w}」는 답이 아니다(원상 복귀)`).toBeNull();
+    }
+  });
+
+  test('취소 어휘(RELISTEN)는 지목 취소다 — 「수정」·「다시」가 같은 행에 있다', () => {
+    for (const w of ['아니오', '아니요', '아니', '틀려요', '틀렸습니다', '다시', '수정', '둘다아니']) {
+      expect(parseModifyColumnAnswer(w, 2), `「${w}」는 취소다`).toEqual({ kind: 'cancel' });
+    }
+  });
+
+  test('그 밖(값 발화·빈 문자열·열 이름)은 답이 아니다', () => {
+    for (const w of ['77.7', '칠십칠 점 칠', '', '   ', '수확량', '다음행']) {
+      expect(parseModifyColumnAnswer(w, 2), `「${w}」는 답이 아니다`).toBeNull();
+    }
+  });
+
+  test('구두점·공백 정규화는 R6와 같다 — 「첫 번째.」도 답이다', () => {
+    expect(parseModifyColumnAnswer('첫 번째.', 2)).toEqual({ kind: 'pick', index: 0 });
+    expect(parseModifyColumnAnswer(' 수정 , ', 2)).toEqual({ kind: 'cancel' });
+  });
+});
+
+/**
+ * 🟡 P2-3 후반 — **「후보가 순번 어휘보다 많으면 묻지 않는다」**(리뷰 M12가 29 passed였던 축).
+ * 후보를 셋으로 잘라 물으면 **고를 수 없는 열이 생긴다.** 그래서 4개 이상은 질문 자체를 만들지 않고
+ * 미매칭과 **같은 비파괴 착지**로 보낸다(`armModifyColumnConfirm`이 `false`를 돌려준다).
+ */
+test('ⓝ 후보 4개 — 묻지 않고, 어느 칸도 지우지 않고, 그 국면의 대기 문구로 되돌아온다', async ({ page }) => {
+  expect(MODIFY_COLUMN_MAX_CANDS, '전제 — 순번 어휘는 셋이다').toBe(3);
+  const DUP4 = [...AUTO, COL('m1', '수확량(1차)'), COL('m2', '수확량(2차)'),
+    COL('m3', '수확량(3차)'), COL('m4', '수확량(4차)')];
+  await bootWith(page, DUP4, 'v052-mc-n');
+  await completeRowThenReview(page, ['11.1', '22.2', '33.3', '44.4']);
+  const before = (await ttsLog(page)).length;
+
+  await fireStt(page, '수정 수확량', 2200);
+  await waitForTtsIdle(page);
+
+  const said = (await ttsLog(page)).slice(before);
+  expect(said, '🔴 고를 수 없는 열이 생기므로 묻지 않는다').toEqual([REVIEW_WAIT_COMMANDS_TTS]);
+  expect(said.some((t) => t.includes('인가요')), '확인 질문이 나가지 않았다').toBe(false);
+  expect(await rowValues(page, 1), '네 칸 전부 보존된다').toEqual({ m1: '11.1', m2: '22.2', m3: '33.3', m4: '44.4' });
 });
