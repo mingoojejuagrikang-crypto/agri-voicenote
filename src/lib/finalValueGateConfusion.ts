@@ -15,8 +15,8 @@ import type { Column } from '../types';
 import type { AwaitingField, FinalCtx } from './useVoiceSession';
 
 type ConfusionAwaiting = Extract<AwaitingField, { kind: 'confusionConfirm' }>;
-/** 값 게이트 블록 E에 도달한 kind(atEnd/reviewWait/cellWait는 흡수 가드가 앞에서 return — 게이트 헤더의 내로잉 증명). */
-type ValueAwaiting = Exclude<AwaitingField, { kind: 'atEnd' | 'reviewWait' | 'cellWait' }>;
+/** 값 게이트 블록 E에 도달한 kind(흡수 가드 3종 + v0.52 모호 확인 질문 가드가 앞에서 return — 게이트 헤더의 내로잉 증명). */
+type ValueAwaiting = Exclude<AwaitingField, { kind: 'atEnd' | 'reviewWait' | 'cellWait' | 'modifyColumnConfirm' }>;
 
 export interface ConfusionAnswerGateDeps {
   logCell: SttLogFn;

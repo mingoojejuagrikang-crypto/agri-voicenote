@@ -15,13 +15,22 @@
  *     **단 화면 표시만 바꾸는 UI 명령은 알림을 해제하지 않는다**(v0.38.0 리뷰#1) — 같은 동작의
  *     화면 버튼은 알림을 유지하는데 음성만 해제하면 음성/터치가 어긋나고, 무엇보다 사용자가
  *     이상치를 **확인하지 않은 채** 다음으로 넘어갈 수 있다(데이터 무결성).
- *  4. 명령 디스패치.
- *  5. atEnd/reviewWait/cellWait 센티넬은 일반 값 발화를 흡수(안내만).
- *  6. 값 경로.
+ *  4. modifyColumnConfirm(v0.52 P1-1): 칸을 대상으로 하는 명령 넷(cellScoped)은 명령이 아니라
+ *     **답**이다 — 값 게이트의 답변 가드로 보낸다. 나머지 명령은 5로 간다.
+ *  5. 명령 디스패치.
+ *  6. atEnd/reviewWait/cellWait 센티넬은 일반 값 발화를 흡수(안내만).
+ *  7. 값 경로.
  */
-import { VOICE_COMMANDS, isVoiceUiCommand, preservesAnomalyAlert, type VoiceCommand } from './voiceCommands';
+import {
+  VOICE_COMMANDS, isCellScopedCommand, isVoiceUiCommand, preservesAnomalyAlert, type VoiceCommand,
+} from './voiceCommands';
 
-export type AwaitingKind = 'value' | 'modify' | 'trendConfirm' | 'confusionConfirm' | 'atEnd' | 'reviewWait' | 'cellWait';
+// 🔴 v0.52 P1-1(콜드 리뷰 R1 §2) — `modifyColumnConfirm`(「수정 <축약이름>」 모호 확인 질문)은
+//   종전 **분기가 없었다**: 「명령이면 종전대로 dispatch」였는데, 그 「종전대로」가 **대상이 없는
+//   좌표 추측**이었다. 그래서 질문 국면 전용 분기를 둔다 — 근거·실측은 `CommandSpec.cellScoped`.
+//   흡수 3종처럼 여기서 act를 **새로** 만들지는 않는다: 답변 낱말이 아닌 발화는 `value`로 떨어져
+//   **값 게이트의 전용 가드**(`runModifyColumnAnswerGate`)가 원상 복귀까지 책임진다.
+export type AwaitingKind = 'value' | 'modify' | 'trendConfirm' | 'confusionConfirm' | 'modifyColumnConfirm' | 'atEnd' | 'reviewWait' | 'cellWait';
 
 export type FinalAction =
   | { act: 'pausedResume' }
@@ -92,6 +101,15 @@ export function resolveFinal(input: {
     if (isVoiceUiCommand(cmd)) return { act: 'dispatch', cmd, trendDemoted: false };
     if (cmd && preservesAnomalyAlert(cmd)) return { act: 'dispatch', cmd, trendDemoted: false };
     if (cmd) return { act: 'dispatch', cmd, trendDemoted: false, confusionDismissed: true };
+    return { act: 'value', trendCorrection: false };
+  }
+
+  // 🔴 v0.52 P1-1 — 「수정 <축약이름>」 모호 확인 질문 대기. 이 국면의 `awaiting`은 **칸이 아니라
+  //   질문**이라, 칸의 값을 대상으로 하는 명령 넷(`cellScoped`)은 **명령이 아니라 답**으로 받는다:
+  //   값 게이트의 전용 가드가 「수정/다시/아니오」=지목 취소, 그 밖=답 아님으로 갈라 **어느 쪽이든
+  //   질문 전 국면으로 되돌린다**(셀 불변). 나머지 아홉(UI·항목/행 이동·세션)은 칸을 대상으로 하지
+  //   않으므로 종전대로 dispatch하고 질문은 접힌다 — `confusionConfirm`의 「그 밖의 명령」과 같은 판단.
+  if (awaitingKind === 'modifyColumnConfirm' && isCellScopedCommand(cmd)) {
     return { act: 'value', trendCorrection: false };
   }
 

@@ -7,12 +7,12 @@ import { recountSynced } from './sessionSync';
 import { parseKoreanNumber, detectCommand } from './koreanNum';
 // [ENV-12] v0.43.0 #3 — 값 파싱 시도는 순수 모듈이 소유한다(부수효과 없음). 이 파일은 호출만.
 import { parseValueForCol } from './valueParseAttempt';
-import { VOICE_COMMANDS, type VoiceCommand, type VoiceUiCommandSignal } from './voiceCommands';
-import { decimalReaskPrompt, formatNameForTts, NO_VOICE_COLUMNS_MESSAGE, REASK_TTS } from './voicePrompts';
+import { VOICE_COMMANDS, type ModifyGuardKind, type ModifyReviewTarget, type VoiceCommand, type VoiceUiCommandSignal } from './voiceCommands';
+import { cellWaitPrompt, decimalReaskPrompt, formatNameForTts, NO_VOICE_COLUMNS_MESSAGE, REASK_TTS, REVIEW_WAIT_COMMANDS_TTS } from './voicePrompts';
 import { SpeechController, speak, cancelTts, isSpeechSupported, formatForTts, warmupTts, setActiveController, setPreferredVoiceName, setBargeInEnabled, refreshVoices, resumeTtsEngine } from './speech';
 import { computeTotalRows, buildCyclingValues, nestedAutoValue, isUserInputColumn } from './autoValue';
 import type { Column, Session, SessionRow, SessionTarget } from '../types';
-import { saveSession } from './db';
+import { loadSession, saveSession } from './db';
 import { playBeep, unlockAudioPlayback } from './beep';
 import { useModifyPhase } from './modifyPhase';
 import { useSessionCommitMarks } from '../components/voice/useVoiceCommitMark';
@@ -146,7 +146,20 @@ export type AwaitingField =
   | (AwaitingBase & { kind: 'confusionConfirm'; previousValue: string; heard: string; cands: string[]; rules: string[]; fractionWhole?: string; resumeReview?: number; resumeCell?: ResumeCell })
   | (AwaitingBase & { kind: 'atEnd' })
   | (AwaitingBase & { kind: 'reviewWait' })
-  | (AwaitingBase & { kind: 'cellWait'; previousValue: string });
+  | (AwaitingBase & { kind: 'cellWait'; previousValue: string })
+  // 🔴 v0.52 민구 결정(09-03) — 「수정 <축약이름>」이 **둘 이상의 열**을 가리킬 때의 확인 질문 대기.
+  //   `row`·`colId`·`name`은 **질문 전 국면의 좌표**다(복귀용). 후보(`cands`)는 colId이고 **순서가
+  //   계약이다** — `voiceColsList()` 순서 = 시트 열 순서 = 「첫 번째」의 정의(민구 못박음).
+  //   답이든 아니든 `originKind`(+cellWait의 `previousValue`)로 **그 국면을 그대로 재구성**해 되돌린다.
+  //   🔴 R6 `confusionConfirm`과 **다른 상태**다: 저건 값 의미론(「둘째」가 값 커밋을 탄다)이고
+  //     이건 「어느 칸을 다시 부를지」다. 재사용하는 것은 어휘와 형상뿐이다(modifyColumnConfirm.ts 헤더).
+  | (AwaitingBase & {
+      kind: 'modifyColumnConfirm';
+      spoken: string;
+      cands: string[];
+      originKind: 'reviewWait' | 'atEnd' | 'cellWait';
+      previousValue?: string;
+    });
 
 /**
  * 🔴 [ENV-12] E단계(2026-08-15) — `handleFinal` 파이프라인의 **구획 간 전달 상자**.
@@ -1229,7 +1242,10 @@ export function useVoiceSession() {
     //   들어온 경우. 종전엔 이 상태에서 타깃이 `curIdx - 1`(직전 컬럼)로 잡혀 **엉뚱한 셀**을
     //   열거나(0번 항목이면 `targetIdx < 0` 분기로 떨어져 값을 지우고 재질문), 직접값
     //   "수정 41.4"가 **통째로 유실**됐다(실측 — _ASK-fix49 Q2, Larry 승인).
-    reviewTarget?: { row: number; idx: number; land?: 'review' | 'cell' },
+    reviewTarget?: ModifyReviewTarget,
+    // 🔴 v0.52 민구 결정(09-03) — 검토 대기 3종에서 온 「수정 <텍스트>」라는 표지. 그 텍스트가
+    //   컬럼 지목에도 값 파싱에도 실패하면 **캐스케이드 소거로 떨어뜨리지 않는다**(아래 비파괴 착지).
+    guardKind?: ModifyGuardKind,
   ) => {
     const sess = useSessionStore.getState();
     const vc = voiceColsList();
@@ -1289,6 +1305,17 @@ export function useVoiceSession() {
         // (2) 이미 persistSession으로 dataStore에 들어간 경우 — archive 후 동일하게 재연결
         const existing = useDataStore.getState().sessions.find((s) => s.id === sessionIdRef.current);
         const existingRow = existing?.rows.find((r) => r.index === targetRow);
+        // 🔴🔴 v0.52 DEF-003(08-25 실배포 A-1 · 재현 확증 2026-09-03) — **저장 결과를 받는다.**
+        //   아래 두 갈래는 종전 **둘 다 fire-and-forget**이었다(`void saveSession(...).catch(() => {})`
+        //   · `void persistSession()`). 그래서 IDB가 실패해도 이 경로는 그것을 알 방법이 없었고,
+        //   화음·에코·✓가 그대로 나가 **사용자가 알아차릴 신호가 0**이었다(데이터 유실 + 거짓 성공).
+        //   형제 경로는 이미 닫혀 있다 — 수동/키패드는 `persistCellValue`(C-FIX2·Y1), 음성 재청취는
+        //   `correctionBackupRef`가 서서 `finalizeRowCompletion`이 durable을 받고(r3 #1), 음성 완주는
+        //   `proceedAfterCommit` 진입부가 받는다. **직접값 「수정 <값>」 한 갈래만** 남아 있었다.
+        //   ⚠️ 아래 `void finalizeRowCompletion(targetRow)`는 이 실패를 잡지 못한다 — 그 자리 주석대로
+        //     모든 도달 상태에서 no-op(`isRowVoiceComplete` 가드 / `wasComplete && !hadBackup`)이다.
+        //   오라클: tests/v052-def003-voice-modify-durable.spec.ts
+        let modifyPersist: Promise<boolean>;
         if (existing && existingRow?.audioClips?.[target.id]) {
           archiveCellClip(targetRow, target.id);
           const { [target.id]: _removed, ...restClips } = existingRow.audioClips;
@@ -1312,7 +1339,9 @@ export function useVoiceSession() {
             syncedRows: recountSynced(nextRows),
           };
           useDataStore.getState().upsertSession(updatedSession);
-          void saveSession(updatedSession).catch(() => {});
+          // v0.52 DEF-003 — 종전 `void saveSession(updatedSession).catch(() => {})`. 예외를 삼키는
+          //   대신 durable 판정으로 바꾼다(발사 시점·순서·인자는 한 글자도 안 바뀐다).
+          modifyPersist = saveSession(updatedSession).then(() => true, () => false);
         } else {
           // If the cell had no clip pointer to hang the update on, make sure the new value is
           // (re)persisted. persistSession preserves sheetRow/syncState and demotes synced→dirty
@@ -1323,8 +1352,52 @@ export function useVoiceSession() {
           //   대기로 들어가므로, 알람/다음 필드 대기 중 reload가 오면 값이 유실됐다(행이 아직
           //   IDB에 없던 경우 행 통째 미영속 — 실측). 값이 서는 모든 커밋은 persist를 동반한다.
           //   오라클: tests/v0470-r2-p1-direct-modify-trend.spec.ts 「P1-persist」.
-          void persistSession();
+          // v0.52 DEF-003 — 종전 `void persistSession()`. 결과를 버리지 않고 받는다(발사는 그대로).
+          modifyPersist = persistSession();
         }
+        /** 🔴 v0.52 DEF-003 — **성공 표식은 durable을 따른다.** 닫는 것은 둘뿐이다(민구 계약):
+         *  ⓐ 실패가 셀 배너로 화면에 남고(PRINCIPLES §1 재시도 경로) ⓑ 값이 실제로 IDB에 실린다.
+         *
+         *  🔴 **확인음·에코는 이 게이트 «앞»에서 이미 나갔다.** 그것을 durable 뒤로 미루는 것은
+         *    민구 확인음 계약 위반이다(WP-E: 값이 서는 모든 커밋에 확인음, 순서는 확인음 → 인식값).
+         *    여기서 durable을 따르는 것은 **✓·착지·배너** 셋이다. 에코 TTS가 이미 한 박자를
+         *    먹으므로 정상 경로에서 이 await가 추가로 무는 시간은 사실상 0이다.
+         *  🔑 **반환값만 보면 안 된다**(Y1 헤더와 같은 근거). `persistSession`은 실을 것이 없거나
+         *    단조 가드(`mySeq < persistAppliedSeqRef`)에 걸리면 **쓰지 않고 `true`** 를 돌린다.
+         *    `saveSession` 갈래는 `upsertSession`을 write **앞**에서 하므로 dataStore도 근거가
+         *    아니다. 그래서 같은 레코드를 IDB에서 되읽어 «재시작 후에도 남을 값»을 판정한다.
+         *    (`composeRowValues`는 사용자 입력 컬럼을 라이브 store에서 그대로 가져오므로 이
+         *     비교는 포맷 흔들림 없이 `parsed`와 바이트 일치한다.)
+         *  ⚠️ 로그는 기존 `cell_persist_failed:` 이벤트의 **메시지 슬롯**만 쓴다 — 접두·필드 구성이
+         *    바이트 불변이라 SOP-003 소비자와 기존 오라클이 그대로 읽는다(Y1이 세운 관례). */
+        const settleModifyDurable = async (): Promise<boolean> => {
+          let durable = await modifyPersist;
+          if (durable) {
+            try {
+              const saved = await loadSession(sessionIdRef.current);
+              durable = (saved?.rows.find((r) => r.index === targetRow)?.values[target.id] ?? '') === parsed;
+              if (!durable) {
+                logCell({ type: 'error', extra: 'cell_persist_failed:row_unlanded', row: targetRow, colId: target.id });
+              }
+            } catch (err) {
+              durable = false;
+              logCell({
+                type: 'error', extra: `cell_persist_failed:read_failed:${String((err as Error)?.message ?? err)}`,
+                row: targetRow, colId: target.id,
+              });
+            }
+          } else {
+            logCell({ type: 'error', extra: 'cell_persist_failed:session_not_durable', row: targetRow, colId: target.id });
+          }
+          if (!durable) {
+            notifyCellPersistFailed(targetRow, target.id, parsed);
+            return false;
+          }
+          // v0.47.0 W4 — ✓는 durable 확정 **뒤**에 붙인다(`persistCellValue`와 같은 순서: add 전용
+          //   집합이라 실패 시 회수가 필요 없는 순서로 두는 것이 그 계약의 유지 조건이다).
+          useSessionCommitMarks.getState().add(targetRow, target.id);
+          return true;
+        };
         // #3 error-vs-intent: log the direct-modify commit with previousValue → parsed.
         // extra:'direct_modify' marks the inline-value path (no re-record), distinct from the
         // cascade path's value event which carries previousValue via awaiting.previousValue.
@@ -1345,7 +1418,11 @@ export function useVoiceSession() {
         }, logCell);
         sess.setRecognized(parsed);
         sess.pushValueBurst(target.name, parsed, target.id); // I-3: 중앙 버스트 + 칩 V(UI③)
-        useSessionCommitMarks.getState().add(targetRow, target.id); // W4 — 직접 수정도 성공 커밋
+        // 🔴 v0.52 DEF-003 — 종전 이 자리에 `useSessionCommitMarks.getState().add(targetRow, target.id)`
+        //   (W4 — 직접 수정도 성공 커밋)가 **무조건** 있었다. ✓는 「저장됐다」는 표식이므로
+        //   durable 확정 뒤로 옮겼다 — 정본은 위 `settleModifyDurable`이고 아래 두 종단(알람 분기 ·
+        //   정상 착지)이 각각 그것을 부른다. 중앙 버스트는 여기 그대로 둔다: 그건 확인음·에코와
+        //   짝을 이루는 **「들었다」의 즉시 되비침**이지 내구성 표식이 아니다.
 
         // ── 🔴 v0.47.0-r2 P1(FB-A · 민구 실기기 08-09) — **직접 수정도 추세 평가를 받는다** ──
         //   종전엔 이 경로만 evaluateTrend를 부르지 않았다: 일반 커밋 경로와 수동 커밋 경로만
@@ -1487,6 +1564,22 @@ export function useVoiceSession() {
           }
           // F5(low, claude) — lastTts는 갱신하지 않는다: alertText가 triad(화면==TTS==로그) SSOT라
           //   2차 발화까지 반영하면 화면의 "마지막 안내"와 로그 text=가 어긋난다(의도된 선택).
+          // 🔴 v0.52 DEF-003 — **알람 분기도 커밋이다.** 여기서 정산하지 않으면 「이상치인데 저장도
+          //   안 된 값」이 무신호로 남는다. 알람 TTS가 끝난 뒤에 두는 이유: durable을 알람 앞에
+          //   놓으면 위반 고지가 IDB 왕복만큼 늦고, 알람은 「값이 이상하다」·배너는 「저장되지
+          //   않았다」로 **서로 다른 사실**이라 하나가 다른 하나를 대신할 수 없다(둘 다 선다).
+          //   ⚠️ 🔴 v0.52 P2-2(콜드 리뷰 R1 §5) — **여기 있던 서술을 정정한다.** 종전엔
+          //     *"실패면 여기서 ✓가 붙지 않는다 … 저장되지 않은 값에 「채워졌다」 표식을 먼저 주지
+          //     않는 쪽을 택했다"* 라고 적혀 있었는데, **화면 관측이 그와 다르다**(리뷰 프로브 Q1:
+          //     `markBefore=1 markAfter=1`). `useSessionCommitMarks`는 **add 전용 집합**이고 렌더
+          //     게이트가 `hasValue && has(key)`인데, 「수정 <값>」의 대상 셀은 정의상 **직전 커밋에서
+          //     이미 그 키를 받은 셀**이고 화면엔 새 값이 서 있다 — `add`를 건너뛰어도 ✓는 그대로 보인다.
+          //   👉 그래서 `add`를 여기(durable 뒤)로 옮긴 것이 실제로 사는 자리는 **✓가 아직 없는 셀**
+          //     (예: 비었던 칸에 값이 서는 커밋)이고, 그 도달 경로는 직접 수정에는 없다.
+          //     즉 이 줄의 실패 축은 **현재 e2e로 관측 불가**다 — 사용자 고지는 배너·실패 TTS가 진다.
+          //     ✓ 자체를 실패 시 회수하려면 `useSessionCommitMarks`에 remove가 필요한데, 그건 그 집합의
+          //     「add 전용」 계약을 바꾸는 별개 결정이라 여기서 하지 않는다(민구 확정 사항).
+          await settleModifyDurable();
           return;
         }
 
@@ -1519,6 +1612,15 @@ export function useVoiceSession() {
         // v0.51.1 B3(제보③) — 열 이름과 값 사이 **쉼표(짧은 휴지)**. 이름 꼬리와 값이 붙어 읽히던 것의 두 번째
         //   방어선(첫째는 `formatNameForTts`의 꼬리 제거). 재청취 에코(useCommitLanding)와 같은 꼴.
         await say(`수정 ${formatNameForTts(target.name)}, ${formatForTts(parsed)}`);
+        // 🔴 v0.52 DEF-003 — **착지는 durable을 따른다.** 아래 세 착지(셀 검토 복귀 · 행 검토 복귀 ·
+        //   원위치 재안내)는 전부 「저장됐다」를 전제로 갱신값을 재낭독하거나 다음 안내로 나간다 —
+        //   실패를 통과시키면 그 낭독이 곧 두 번째 성공 고지가 된다(C-FIX2가 수동 커밋에서 세운
+        //   「실패면 영수증·에코·진행 전부 억제」와 같은 계약, 여기서는 에코만 이미 나간 뒤다).
+        //   🔑 **대기 상태(`awaitingFieldRef`)는 건드리지 않고 그대로 둔다.** 이 경로는 커밋
+        //     종단과 달리 애초에 그것을 비우지 않으므로, 재안내만 생략하면 다음 발화가 원래
+        //     기다리던 칸으로 그대로 간다(v0.49 r7 #1이 커밋 종단에서 복원으로 얻은 것을 여기서는
+        //     **손대지 않는 것으로** 얻는다). 배너의 [다시 저장]은 그와 별개로 항상 열려 있다.
+        if (!(await settleModifyDurable())) return;
         // v0.33.0 — 검토 대기 출신 직접 수정: 값 수신 재안내 대신 검토 대기로 복귀
         // (수정 반영값 재낭독 + 대기 — bare 값 덮어쓰기 금지 계약 유지).
         // 🔴 v0.49 fix49 — 셀 검토 대기 출신은 **셀 단위**로 복귀한다. 아래 일반 복귀
@@ -1538,6 +1640,33 @@ export function useVoiceSession() {
         sess.setActiveRow(curRow);
         sess.setActiveCol(curIdx);
         if (vc[curIdx]) await announceField(vc[curIdx]);
+        return;
+      }
+      // 🔴🔴 v0.52 민구 결정(09-03) — **어느 셀도 지워지지 않는다.** 값도 아니고 컬럼 지목도 아닌
+      //   「수정 <텍스트>」가 검토 대기 3종에서 들어왔다. 종전엔 그대로 아래 **캐스케이드 재기록**으로
+      //   떨어져 `targetIdx`부터 행 끝까지를 소거했다 — 실측 귀결이 「종경 한 칸을 고치려다 횡경까지
+      //   지워지고 「수정. 횡경.」이 들린다」였다(콜드 리뷰 §4 P1②).
+      //   여기 오는 것은 둘이다: ⓐ 지목 실패(그 이름의 열이 없다) ⓑ 모호(축약형이 같은 열이 2개 이상).
+      //   🔑 **새 문구를 만들지 않는다** — 그 국면의 **기존 대기 문구**를 다시 말하고 상태를 그대로 둔다
+      //     (`cmdConfirm`이 kind별 꼬리를 고르는 패턴과 같은 SSOT를 쓴다). 대기 상태(`awaitingFieldRef`)는
+      //     이 함수가 애초에 건드리지 않으므로, 말만 하고 돌아가면 사용자는 종전 국면 그대로다.
+      //   🟡 가정(NON-BLOCKING) — 「그런 항목이 없습니다」 류의 **사유 머리 문장은 붙이지 않았다**.
+      //     새 TTS 문구는 이 레포에서 계약이라 민구 확인 없이 만들지 않는다. 붙이기로 하면 한 줄이다.
+      //   ⚠️ bare 「수정」(`preExtractedValue` 없음)은 여기 오지 않는다 — 그건 사용자가 실제로 재기록을
+      //     요청한 것이라 캐스케이드가 정답이다.
+      if (guardKind) {
+        logCell({
+          type: 'command', parsed: 'modify_target_unmatched',
+          extra: `modify_target_unmatched:${guardKind}`, text: preExtractedValue,
+          row: targetRow, colId: target.id,
+        });
+        const msg = guardKind === 'cellWait'
+          ? cellWaitPrompt(target.name)
+          : guardKind === 'reviewWait'
+            ? REVIEW_WAIT_COMMANDS_TTS
+            : buildEndReachedTts(listEmptyRows(computeTotalRows(getSessionColumns()), vc));
+        useSessionStore.getState().setLastTts(msg);
+        await say(msg);
         return;
       }
     }
@@ -1591,7 +1720,11 @@ export function useVoiceSession() {
     //   적 없는 뒤 칸의 확정값까지 지웠다(중단되면 그대로 유실).
     //   같은 상태의 직접값 경로("수정 41.4", :1249 분기)는 이미 **그 셀만** 고친다 — 한 상태에서
     //   같은 명령의 두 형태가 파괴성으로 갈리면 안 된다. 여기서 대칭을 맞춘다.
-    const clearEnd = reviewTarget?.land === 'cell' ? targetIdx + 1 : vc.length;
+    //   🔴 v0.52 민구 결정(09-03) — **「한 칸만 지목한다」.** 컬럼명 지목(`single`)도 같은 범위다:
+    //     지목은 「이 열을 고치겠다」이지 「여기부터 행 끝까지 다시 부르겠다」가 아니다. 종전엔
+    //     reviewWait 지목이 `vc.length`까지 지워, 실 시트 표본 7열의 「수정 과중」이 다섯 칸을
+    //     소거했다(프로덕션 시트는 종경이 마지막 열이라 우연히 한 칸이었다).
+    const clearEnd = (reviewTarget?.land === 'cell' || reviewTarget?.single) ? targetIdx + 1 : vc.length;
     for (let i = targetIdx; i < clearEnd; i++) {
       sess.setRowValue(targetRow, vc[i].id, '');
       // Clip preservation (was: delete pending clips). Archive the prior attempt under an attempt
@@ -1627,7 +1760,7 @@ export function useVoiceSession() {
     // v0.47.0-r2 P1 — evaluateTrend·getAnomalyAlertData·armClipForCell 추가. 세 콜백 모두 이
     //   useCallback보다 **위**에서 정의돼야 한다(dep 배열은 렌더 중 평가된다 — TDZ). 추세 헬퍼
     //   3종을 이 함수 위로 옮긴 선행 커밋이 그 전제를 만든다.
-  }, [announceField, armClipForCell, enterCellWait, enterReviewWait, evaluateTrend, finalizeRowCompletion, getAnomalyAlertData, persistSession, say]);
+  }, [announceField, armClipForCell, enterCellWait, enterReviewWait, evaluateTrend, finalizeRowCompletion, getAnomalyAlertData, notifyCellPersistFailed, persistSession, say]);
 
   // ── 🔴 v0.49 F-1 (민구 결정 2026-08-12): 「이전」/「다음」 = **입력 항목 한 칸 이동** ─────────
   // [ENV-12] Stage 3 서브 훅 #4 — 항목 한 칸 이동(gotoAdjacentField)은 useFieldNav가 소유한다
@@ -1923,6 +2056,8 @@ export function useVoiceSession() {
     proceedAfterCommit,
     relistenInContext,
     demoteConfusionConfirm,
+    // v0.52 — 「수정 <축약이름>」 모호 확인 질문의 답변 종단(고른 열 한 칸만 재기록 대기로 연다).
+    enterModifyMode,
     listEmptyRows,
     buildEndReachedTts,
     voiceColsList,
@@ -3667,7 +3802,35 @@ export function useVoiceSession() {
         clearAnomalyAlert('persist_rollback');
         const current = useDataStore.getState().sessions.find((s) => s.id === sessionIdRef.current);
         if (current) useDataStore.getState().upsertSession(withoutPendingCandidate({ ...current, pendingValidation }));
+        return;
       }
+      // 🔴🔴 v0.52 P1-2(콜드 리뷰 R1 §2) — **이 갈래도 「그 셀의 durable 성공」이다.**
+      //   셀 실패 배너를 내리는 것은 `useCellPersistError.clearIfMatches` 하나뿐이고, 그 호출자는
+      //   `persistCellValue`의 성공 뒤(:3564) **한 곳**이었다(`cellPersistError.ts`가 그 계약을
+      //   *"해소는 같은 셀의 durable 성공뿐"* 으로 명문화한다). 그런데 배너의 [다시 저장]은
+      //   `commitManualValue` 재실행이고(VoiceScreen), 값이 이상치면 진입 즉시 `evaluateTrend`가
+      //   다시 걸려 **이 hold 갈래**로 온다 — 이 갈래는 공유 코어를 쓰지 않고 `persistSession`으로
+      //   세션을 통째로 조립하므로 `clearIfMatches`에 **구조적으로 도달할 수 없었다.**
+      //   실측(09-03 프로브 · 알람 없는 같은 실패는 정상 회수되는 대조군이 있다):
+      //     · 재시도 뒤 `idb m1=120.5` — **값은 실렸다.** 그런데 배너는 10초를 폴링해도 남는다.
+      //     · 그 배너는 `aria-modal` `alertdialog`라 **알람의 [확인] 버튼을 가린다**(클릭이
+      //       intercept된다 — Playwright 로그로 확인). 음성 「확인」은 manualHold라
+      //       「알림은 터치로만 응답할 수 있습니다」로 거부된다.
+      //     👉 값은 저장됐는데 사용자는 그 셀에 **갇힌다.** DEF-003이 만든 신호가 거짓으로 굳는
+      //        자리다(PRINCIPLES §1 — 실패 표시는 재시도가 성공하면 내려가야 한다).
+      //   🔑 **반환값만으로 내리지 않는다**(Y1 · `settleModifyDurable`과 같은 근거): `persistSession`은
+      //     실을 것이 없거나 단조 가드에 걸리면 **쓰지 않고 `true`** 를 돌리고, dataStore도 근거가
+      //     못 된다 — 이 갈래는 put **앞**에서 `pendingValidationPersisting`으로 이미 게시한다.
+      //     그래서 IDB를 되읽어 「재시작 후에도 남을 값」을 확인한 뒤에만 내린다. 되읽기가
+      //     실패하거나 값이 안 실렸으면 **배너를 남긴다**(고지가 거짓이 되지 않는 쪽).
+      //   ⚠️ ✓(`useSessionCommitMarks`)는 **붙이지 않는다** — 이건 확정값이 아니라 보류 후보다
+      //     (W4의 「성공 입력」 정의 · P5b 「보류 후보는 확정처럼 보이지 않는다」). 배너만 내린다.
+      try {
+        const savedHold = await loadSession(sessionIdRef.current);
+        if ((savedHold?.rows.find((r) => r.index === row)?.values[colId] ?? '') === value) {
+          useCellPersistError.getState().clearIfMatches(row, colId);
+        }
+      } catch { /* 되읽기 실패 = 내구성 미확인 → 배너를 그대로 둔다 */ }
       return;
     }
 

@@ -37,7 +37,8 @@ import { useCallback, useRef } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
 import { extractModifyValue } from './koreanNum';
 import { cancelTts } from './speech';
-import { extractModifyColumn, isExactCommandUtterance, isVoiceUiCommand, type VoiceUiCommandSignal } from './voiceCommands';
+import { isExactCommandUtterance, isVoiceUiCommand, resolveModifyTarget, type ModifyGuardKind, type ModifyReviewTarget, type VoiceUiCommandSignal } from './voiceCommands';
+import { armModifyColumnConfirm } from './modifyColumnConfirm';
 import { resolveFinal } from './voiceFinalResolver';
 import { cellWaitPrompt, formatNameForTts, relistenPrompt, REVIEW_WAIT_COMMANDS_TTS } from './voicePrompts';
 import type { Column } from '../types';
@@ -61,7 +62,8 @@ export interface FinalCommandsDeps {
   enterModifyMode: (
     preExtractedValue?: string,
     pendingCmd?: PendingCommandClip | null,
-    reviewTarget?: { row: number; idx: number; land?: 'review' | 'cell' },
+    reviewTarget?: ModifyReviewTarget,
+    guardKind?: ModifyGuardKind,
   ) => Promise<void>;
   rejectValue: (
     reason: 'low_confidence' | 'parse_failed',
@@ -240,27 +242,23 @@ export function useFinalCommands(deps: FinalCommandsDeps) {
       // ("수정 종경" → '종경'), 완료 행 대기에서는 컬럼명 매치를 먼저 확인해야 한다(숫자 발화는
       // 컬럼명과 매치될 수 없어 "수정 30.7" 직접값 경로는 그대로 성립). reviewWait/atEnd 한정 —
       // 일반 수정 의미론(직전 필드·값 추출)은 불변. 직접값 적용 후엔 검토 대기 복귀(enterModifyMode).
-      let modifyVal = extractModifyValue(utterance);
-      let reviewTarget: { row: number; idx: number; land?: 'review' | 'cell' } | undefined;
-      if (a.kind === 'reviewWait' || a.kind === 'atEnd' || a.kind === 'cellWait') {
-        const vcRw = voiceColsList();
-        let idx = Math.max(0, vcRw.findIndex((c) => c.id === a.colId));
-        const named = extractModifyColumn(utterance, vcRw.map((c) => c.name));
-        const namedIdx = named ? vcRw.findIndex((c) => c.name === named) : -1;
-        // 🔴 v0.49 fix49 — 셀 검토 대기(cellWait)의 '수정'은 **그 셀**이 타깃이다. 기본 규칙
-        //   (`curIdx - 1` = 직전 컬럼)에 맡기면 엉뚱한 셀을 열고, 0번 항목에서는 `targetIdx < 0`
-        //   분기로 떨어져 값을 지운 뒤 재질문하며 직접값까지 버린다(실측 — _ASK-fix49 Q2).
-        //   컬럼명 지목("수정 종경")은 reviewWait과 같은 규칙을 그대로 물려받는다.
-        const land = a.kind === 'cellWait' ? 'cell' as const : 'review' as const;
-        if (namedIdx >= 0) {
-          idx = namedIdx;
-          modifyVal = null; // 컬럼명 지목 — 값 후보('종경' 등 비숫자 잔여)로 오적용 금지
-          reviewTarget = { row: a.row, idx, land };
-        } else if (a.kind === 'reviewWait' || a.kind === 'cellWait') {
-          reviewTarget = { row: a.row, idx, land };
-        }
-      }
-      await enterModifyMode(modifyVal || undefined, pendingCmd, reviewTarget);
+      // 🔴 GL-006 §5 — 그 결정 본체는 `voiceCommands.resolveModifyTarget`(순수)이 소유한다.
+      //   이 파일이 정확히 500줄이라 여기에 한 줄도 더할 수 없었다(형제 선례: finalValueGate*.ts).
+      const plan = resolveModifyTarget({
+        kind: a.kind, row: a.row, colId: a.colId,
+        voiceCols: voiceColsList(),
+        utterance,
+        modifyVal: extractModifyValue(utterance),
+      });
+      // 🔴 v0.52 민구 결정(09-03 Q1「C」) — 모호(축약형이 같은 열 2개 이상)면 **묻는다.**
+      //   「첫 번째 수확량인가요, 두 번째 수확량인가요?」 — 순서만으로 가른다(괄호 미독 유지).
+      //   후보가 순번 어휘(셋)보다 많으면 `armModifyColumnConfirm`이 false를 돌려주고, 아래
+      //   종전 경로가 **비파괴 착지**로 받는다(고를 수 없는 열을 만들지 않는다 — 그 파일 헤더).
+      if (plan.ambiguous && plan.guardKind && await armModifyColumnConfirm(
+        { kind: plan.guardKind, row: a.row, colId: a.colId, name: a.name, ...(a.kind === 'cellWait' ? { previousValue: a.previousValue } : {}) },
+        plan.ambiguous.spoken, plan.ambiguous.colIds, { logCell, say, awaitingFieldRef },
+      )) return;
+      await enterModifyMode(plan.modifyVal || undefined, pendingCmd, plan.reviewTarget, plan.guardKind);
     }
 
     /** '취소' — 인식값을 지우고 같은 필드 재질문. [CLIP-VAL-1]① (cancel sibling): '수정'→'취소'
@@ -488,10 +486,12 @@ export function useFinalCommands(deps: FinalCommandsDeps) {
     }
 
     // 명령으로 끝나지 않았다 = 값 경로로 폴스루(종전 dispatch switch의 폴스루와 같은 의미).
-    // 🔴 되받기 — 강등(trendConfirm → modify)이 일어났으면 그 값을 값 경로가 봐야 한다. 구획을
-    //   가르기 전에는 같은 함수의 지역변수라 자동이었다. **오늘 이 경로로 강등값이 새는 일은
-    //   없다**(trendDemoted는 cmd가 있을 때만 서고 dispatch가 모든 non-null cmd를 return시킨다).
-    //   그래도 되쓴다 — 등가성을 「dispatch switch 목록이 완전하다」는 **우연**에 맡기지 않는다.
+    // 🔴 v0.52 P1-1 — **여기 도달하는 `cmd`가 생겼다**: 모호 확인 질문의 `cellScoped` 명령 넷을
+    //   `resolveFinal`이 `value`로 보낸다(근거는 그 플래그 주석). epoch bump·`command` 로그는
+    //   남기고, 답변 처리는 그 뒤 `modify_column_*`으로 따로 남는다.
+    // 🔴 되받기 — 강등(trendConfirm → modify) 값을 값 경로가 봐야 한다. **강등값이 새지는 않는다**
+    //   (`trendDemoted`는 trendConfirm 국면에서만 서고 그 국면의 non-null cmd는 전부 dispatch로
+    //   return한다). 그래도 되쓴다 — 등가성을 dispatch switch 목록의 완전성에 맡기지 않는다.
     ctx.awaiting = awaiting;
     return false;
   }, []);

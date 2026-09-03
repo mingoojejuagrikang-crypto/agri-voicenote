@@ -109,17 +109,23 @@ export type ConfusionAnswer =
 // 🔴 r2 P2-3 — **순서 낱말과 네/아니오만**이다. 맨 숫자·수사(1/2/3 · 일/이/삼 · 하나/둘/셋 · 일번/이번/삼번)는 뺐다: 질문
 //   국면에서도 그것들은 **값 재발화**로 파서에 넘어간다(리뷰 R-A 「일」=소수부 .1 · R-B int 「삼」=값 3). 「N번」은 순서
 //   표지가 붙어 있어 남긴다.
-const KEEP = /^(첫째|첫번째|첫째거|1번|처음|앞|앞에|앞에꺼|앞의것|앞엣것|네|예|응|어|넵|맞아|맞아요|맞습니다|맞다|그래|그래요|확인|유지|그대로)$/;
-const SECOND = /^(둘째|두번째|둘째거|2번|뒤|뒤에|뒤에꺼|뒤의것|뒤엣것|나중|나중거)$/;
-const THIRD = /^(셋째|세번째|셋째거|3번)$/;
-const RELISTEN = /^(아니오|아니요|아니|아냐|아니야|틀려|틀려요|틀렸어|틀렸어요|틀렸습니다|다시|수정|둘다아니|둘다아니야|둘다아니요|둘다아니에요)$/;
+// 🔴 v0.52 — 종전 `KEEP` 하나였던 것을 **순번**과 **긍정**으로 갈랐다(동작 불변: 아래 `parseConfusionAnswer`가
+//   둘의 합집합을 그대로 본다). 가른 이유는 사본을 만들지 않기 위해서다([PAST-2]) — 「수정 <이름>」 모호 확인
+//   질문(v0.52)이 **순번 낱말만** 재사용한다. 그 질문에는 「네/확인」이 가리킬 기본값이 없다(후보가 둘 다 열
+//   이름이다). 긍정어를 순번으로 읽으면 **엉뚱한 열이 열리고 그 칸이 비워진다** — 데이터 파괴다.
+export const FIRST_ORDINAL = /^(첫째|첫번째|첫째거|1번|처음|앞|앞에|앞에꺼|앞의것|앞엣것)$/;
+const AFFIRM = /^(네|예|응|어|넵|맞아|맞아요|맞습니다|맞다|그래|그래요|확인|유지|그대로)$/;
+export const SECOND = /^(둘째|두번째|둘째거|2번|뒤|뒤에|뒤에꺼|뒤의것|뒤엣것|나중|나중거)$/;
+export const THIRD = /^(셋째|세번째|셋째거|3번)$/;
+/** 「아니오」 계열 — R6에서는 재청취, v0.52 모호 질문에서는 **지목 취소**다(둘 다 「그게 아니다」). */
+export const RELISTEN = /^(아니오|아니요|아니|아냐|아니야|틀려|틀려요|틀렸어|틀렸어요|틀렸습니다|다시|수정|둘다아니|둘다아니야|둘다아니요|둘다아니에요)$/;
 
 /** 확인 질문에 대한 발화 해석(순수). 답변 낱말이 아니면 null — 호출자가 일반 값 경로로 넘긴다(값 재발화 · 소수부 조각 포함).
  *  `nCands`보다 큰 순번은 null. */
 export function parseConfusionAnswer(text: string, nCands: number): ConfusionAnswer | null {
   const s = text.replace(/[\s.,!?]+/g, '');
   if (!s) return null;
-  if (KEEP.test(s)) return { kind: 'keep' };
+  if (FIRST_ORDINAL.test(s) || AFFIRM.test(s)) return { kind: 'keep' };
   if (RELISTEN.test(s)) return { kind: 'relisten' };
   if (SECOND.test(s)) return nCands >= 1 ? { kind: 'choice', index: 0 } : null;
   if (THIRD.test(s)) return nCands >= 2 ? { kind: 'choice', index: 1 } : null;

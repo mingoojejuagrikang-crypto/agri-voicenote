@@ -226,5 +226,29 @@ export function confusionQuestionTts(heard: string, cands: string[]): string {
   return `${[heard, ...cands].map((v) => `${v}인가요`).join(', ')}?`;
 }
 
+/** 🔴 v0.52 민구 결정(09-03 · `_ASK-l1-def003` Q1 → 「C」) — **「수정 <이름>」 모호 확인 질문.**
+ *
+ *  「수정 종경」처럼 **앱이 가르친 축약 이름**으로 지목했는데 그 이름을 가진 열이 둘 이상일 때
+ *  묻는다(예: `수확량(1차)`·`수확량(2차)` → 둘 다 「수확량」).
+ *
+ *      「첫 번째 수확량인가요, 두 번째 수확량인가요?」
+ *
+ *  🔴 **순번만으로 묻는다.** 둘을 가르는 정보는 정확히 괄호 안인데, 09-02 회차가 「괄호를 읽지
+ *    않는다」로 결정했고 v0.52가 그 결정을 **그대로 지킨다**(새 문자열 변환 규칙을 만들지 않는다).
+ *  🔴 **수용된 대가** — 빌더가 `_ASK`에 *"구별 정보가 없다 · 화면을 봐야 답할 수 있다"* 를 대가로
+ *    적었고 민구가 선택지에서 그것을 읽고 그대로 골랐다. 기각이 아니라 **수용**이다.
+ *  🔑 **「첫 번째」의 정의 = 시트 열 순서상 앞선 것**(민구 못박음). 후보는 `voiceColsList()` 순서
+ *    그대로 실어 다닌다 — 컬럼 이름·개수·시트를 가정하지 않는다(스키마 불특정 설계).
+ *  ⚠️ 답변 어휘는 R6와 **같은 표**를 쓴다(`sttConfusionRuntime`의 순번 정규식) — 사본 없음. */
+export const MODIFY_COLUMN_ORDINALS = ['첫 번째', '두 번째', '세 번째'] as const;
+
+/** 🔴 순번 어휘가 셋뿐이라 후보가 넷 이상이면 **묻지 않는다**(호출자가 비파괴 착지로 보낸다).
+ *  후보를 잘라 세 개만 물으면 나머지가 조용히 사라져, 사용자가 고를 수 없는 열이 생긴다. */
+export const MODIFY_COLUMN_MAX_CANDS = MODIFY_COLUMN_ORDINALS.length;
+
+export function modifyColumnConfirmTts(spoken: string, n: number): string {
+  return `${MODIFY_COLUMN_ORDINALS.slice(0, n).map((o) => `${o} ${spoken}인가요`).join(', ')}?`;
+}
+
 /** v0.51.1 R6 — 확인 질문에 답하기 전 항목 이동을 거부할 때의 한 마디([PHASE-NAV-1] · 알람의 「먼저 알람을 확인하세요.」 짝). */
 export const CONFUSION_ANSWER_FIRST_TTS = '먼저 답해 주세요.';

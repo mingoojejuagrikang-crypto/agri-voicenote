@@ -229,3 +229,56 @@ test('confusionConfirm — 확인/유지=원값 확정, UI·이동 명령=질문
   // 신뢰도 게이트가 먼저다(종전 순서 그대로).
   expect(resolveFinal({ ...cc, cmd: 'end', confidence: 0.3 })).toEqual({ act: 'rejectLowConfidence', minConfidence: 0.7 });
 });
+
+/**
+ * 🔴 v0.52 P1-1 (콜드 리뷰 R1 §2) — **모호 확인 질문 국면의 명령 13종 전수표.**
+ *
+ * 「수정 수확량」처럼 축약형이 같은 열이 둘이면 앱이 「첫 번째 …인가요, 두 번째 …인가요?」로 묻는다.
+ * 그 국면의 `awaiting`은 **칸이 아니라 질문**이다. 종전엔 이 국면에 분기가 없어 모든 명령이 그대로
+ * dispatch됐고, 칸을 대상으로 하는 명령 넷이 **없는 대상의 좌표를 추측**했다 —
+ * 실측(프로브 P1A · 2행 검토 대기): 「수정」은 **1행**의 확정 셀을 지우고 그 행을 미완료로 되돌렸고,
+ * 「수정 41.4」는 그 셀을 41.4로 **덮어썼으며**, 「유지」는 답하지 않은 행을 완주·전진시켰다.
+ *
+ * 🔑 이 표가 잠그는 것은 **집합**이다. 명령이 하나 늘 때 `cellScoped`를 판정하지 않으면 여기서 깨진다.
+ */
+test('[P1-1] modifyColumnConfirm — cellScoped 넷은 답변 게이트로, 나머지 아홉은 종전대로 dispatch', () => {
+  const mc = { ...base, awaitingKind: 'modifyColumnConfirm' as const };
+  const ANSWERED = ['modify', 'cancel', 'keep', 'confirm'] as const;
+
+  // ① 선언 집합 자체를 고정한다 — 플래그가 붙고 빠지는 것이 곧 계약 변경이다.
+  expect(VOICE_COMMANDS.filter((c) => c.cellScoped).map((c) => c.id).sort())
+    .toEqual([...ANSWERED].sort());
+
+  // ② 그 넷은 값 경로로 간다(값 게이트의 `runModifyColumnAnswerGate`가 받아 질문 전 국면으로 복귀).
+  for (const cmd of ANSWERED) {
+    expect(resolveFinal({ ...mc, cmd }), `${cmd}는 명령이 아니라 답이다`)
+      .toEqual({ act: 'value', trendCorrection: false });
+  }
+
+  // ③ 나머지 아홉(UI·항목 이동·행 이동·세션)은 칸을 대상으로 하지 않는다 — 종전대로 dispatch.
+  const rest = VOICE_COMMANDS.map((c) => c.id).filter((id) => !ANSWERED.includes(id as never));
+  expect(rest.length, '명령 13종 = 답변 넷 + 나머지 아홉').toBe(9);
+  for (const cmd of rest) {
+    expect(resolveFinal({ ...mc, cmd }), `${cmd}는 종전대로 디스패치돼야 한다`)
+      .toEqual({ act: 'dispatch', cmd, trendDemoted: false });
+  }
+
+  // ④ 명령이 아닌 발화(순번·아니오·값)는 종전 그대로 값 경로 — 이 분기는 그것을 바꾸지 않는다.
+  expect(resolveFinal({ ...mc, cmd: null })).toEqual({ act: 'value', trendCorrection: false });
+
+  // ⑤ 🔴 **다른 국면은 불변이다.** `cellScoped`가 전역 우회로 새면 「수정 종경」 지목 자체가 죽는다.
+  for (const kind of ['value', 'modify', 'atEnd', 'reviewWait', 'cellWait'] as const) {
+    for (const cmd of ANSWERED) {
+      expect(resolveFinal({ ...base, awaitingKind: kind, cmd }), `${kind}/${cmd}는 종전대로 dispatch`)
+        .toEqual({ act: 'dispatch', cmd, trendDemoted: false });
+    }
+  }
+  // trendConfirm·confusionConfirm은 자기 분기가 먼저다(순서가 곧 우선순위 — 헤더 판정 순서 3 < 4).
+  expect(resolveFinal({ ...base, awaitingKind: 'trendConfirm', cmd: 'keep' })).toEqual({ act: 'trendResolve' });
+  expect(resolveFinal({ ...base, awaitingKind: 'confusionConfirm', cmd: 'modify' }))
+    .toEqual({ act: 'dispatch', cmd: 'modify', trendDemoted: false, confusionDismissed: true });
+
+  // ⑥ 신뢰도 게이트는 여전히 **앞**이다(판정 순서 2 < 4) — 안 들린 명령은 답으로도 받지 않는다.
+  expect(resolveFinal({ ...mc, cmd: 'keep', confidence: 0.5 }))
+    .toEqual({ act: 'rejectLowConfidence', minConfidence: 0.7 });
+});

@@ -34,12 +34,14 @@ import { isAmbiguousSingleSyllable, isBareResponseWord } from './koreanNum';
 import { bargeInTextSource, lowConfidenceParsed, wouldSalvage } from './logEvents';
 import { cancelTts } from './speech';
 import { attemptParseValue } from './valueParseAttempt';
-import { cellWaitPrompt, reviewWaitAbsorbTts } from './voicePrompts';
+import { cellWaitPrompt, formatNameForTts, reviewWaitAbsorbTts } from './voicePrompts';
 import { noteSttAttempt } from './sttCorrectionTracker';
 import { resolveSttConfusion } from './sttConfusionRuntime';
 import { closeConfusionForRespoken, runConfusionAnswerGate } from './finalValueGateConfusion';
-import { absorbAtEnd } from './finalValueGateAbsorb';
+import { absorbAtEnd, absorbCellWait } from './finalValueGateAbsorb';
+import { runModifyColumnAnswerGate } from './modifyColumnConfirm';
 import type { Column } from '../types';
+import type { ModifyReviewTarget } from './voiceCommands';
 import type { logger } from './logger';
 import type { AwaitingField, FinalCtx } from './useVoiceSession';
 
@@ -65,6 +67,8 @@ export interface FinalValueGateDeps {
   proceedAfterCommit: (awaiting: AwaitingField | null, opts?: { echoValue?: string }) => Promise<void>;
   relistenInContext: (a: AwaitingField) => Promise<void>;
   demoteConfusionConfirm: (a: Extract<AwaitingField, { kind: 'confusionConfirm' }>) => Extract<AwaitingField, { kind: 'modify' }>;
+  /** v0.52 — 모호 확인 질문의 「첫 번째/두 번째」 종단(고른 열 **한 칸만** 재기록 대기로 연다). []-고정. */
+  enterModifyMode: (v?: string, p?: null, t?: ModifyReviewTarget) => Promise<void>;
   ctrlRef: { current: { isTtsMuted: () => boolean } | null };
   lastInterimRef: { current: { text: string; at: number; confidence?: number } | null };
   lastConfidenceRef: { current: number };
@@ -192,18 +196,12 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
     //   없으면 `setRowValue`가 확정·저장된 값을 무조건 덮는다(커밋 지점에 셀 단위 게이트 없음).
     //   문구는 행 검토("N행은 완료된 행입니다")와 **다르다** — 여기서 행을 말하면 사용자는
     //   행이 끝난 줄 안다. 정정 진입로('수정')를 한 마디로 가르친다(H-2 — 길이 압력).
-    if (awaiting.kind === 'cellWait') {
-      useSessionStore.getState().setRecognized('');
-      useSessionStore.getState().setReaskReason(null); // Y6 — 위 atEnd 흡수와 같은 계약.
-      logCell({
-        type: 'command', parsed: 'cell_wait_absorb',
-        extra: `cell_wait_absorb:${awaiting.colId}`, text,
-        row: awaiting.row, colId: awaiting.colId,
-      });
-      // ⚠️ 문구는 `cellWaitPrompt`(#9 SSOT — voicePrompts.ts)를 쓴다. 이 흡수 안내가 그 문장의
-      //   **의미상 원본**이지만, 여기 리터럴을 남겨 두면 「선언은 하나인데 사본이 있는」
-      //   [PAST-2] 형태가 된다. ([ENV-12] E1 — 선언은 handleFinal 안에서 voicePrompts로 올랐다.)
-      await say(cellWaitPrompt(awaiting.name));
+    if (awaiting.kind === 'cellWait') { await absorbCellWait(awaiting, text, { logCell, say }); return true; }
+
+    // 🔴 v0.52 — 「수정 <축약이름>」 모호 확인 질문의 답변(민구 09-03). 흡수 3종 **바로 뒤**다: 이 국면은
+    //   그 셋 중 하나에서 왔고, 답이 아니면 그 국면으로 되돌려 종전 흡수와 같아진다(modifyColumnConfirm.ts).
+    if (awaiting.kind === 'modifyColumnConfirm') {
+      await runModifyColumnAnswerGate(awaiting, text, depsRef.current);
       return true;
     }
 
@@ -230,7 +228,10 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
     const allColumns = getSessionColumns();
     const currentCol = allColumns.find((c) => c.id === awaiting.colId);
     if (currentCol && currentCol.type !== 'text' && currentCol.type !== 'options') {
-      const colNames = allColumns.map((c) => c.name.trim());
+      // 🔴 v0.52(콜드 리뷰 §4 처방) — **축약형도 컬럼명이다.** 09-02 이후 앱이 그 이름을 가르치므로
+      //   사용자가 그대로 말한다. 거절 자체는 종전과 같고 **사유**가 바뀐다(`parse_failed` →
+      //   `stt_rejected_col_name`) — 그게 「사용자가 이름을 불렀다」의 관측 축이다.
+      const colNames = allColumns.flatMap((c) => [c.name.trim(), formatNameForTts(c.name)]);
       if (colNames.includes(text.trim())) {
         logCell({ type: 'stt_rejected_col_name', text, row: awaiting.row, colId: awaiting.colId });
         useSessionStore.getState().setRecognized('');
