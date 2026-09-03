@@ -34,7 +34,7 @@ import { isAmbiguousSingleSyllable, isBareResponseWord } from './koreanNum';
 import { bargeInTextSource, lowConfidenceParsed, wouldSalvage } from './logEvents';
 import { cancelTts } from './speech';
 import { attemptParseValue } from './valueParseAttempt';
-import { cellWaitPrompt, reviewWaitAbsorbTts } from './voicePrompts';
+import { cellWaitPrompt, formatNameForTts, reviewWaitAbsorbTts } from './voicePrompts';
 import { noteSttAttempt } from './sttCorrectionTracker';
 import { resolveSttConfusion } from './sttConfusionRuntime';
 import { closeConfusionForRespoken, runConfusionAnswerGate } from './finalValueGateConfusion';
@@ -230,7 +230,13 @@ export function useFinalValueGate(deps: FinalValueGateDeps) {
     const allColumns = getSessionColumns();
     const currentCol = allColumns.find((c) => c.id === awaiting.colId);
     if (currentCol && currentCol.type !== 'text' && currentCol.type !== 'options') {
-      const colNames = allColumns.map((c) => c.name.trim());
+      // 🔴 v0.52(콜드 리뷰 §4 처방) — **축약형도 컬럼명이다.** 09-02 이후 앱은 `종경(mm)`을
+      //   「종경」이라고 가르치므로 사용자는 그 이름을 그대로 말한다. 축약형을 모르면 그 발화가
+      //   여기서 안 걸리고 아래 일반 파싱으로 새 들어가, 로그에 `stt_rejected_col_name`이 아니라
+      //   `parse_failed`로 세어진다(같은 사건이 두 이름을 갖는다 — 판독이 갈린다).
+      //   ⚠️ 거절 자체는 종전과 같다(숫자 컬럼에서 컬럼명은 어차피 파싱 실패다). 바뀌는 것은
+      //     **어느 사유로** 거절되는가이고, 그게 곧 「사용자가 이름을 불렀다」의 관측 축이다.
+      const colNames = allColumns.flatMap((c) => [c.name.trim(), formatNameForTts(c.name)]);
       if (colNames.includes(text.trim())) {
         logCell({ type: 'stt_rejected_col_name', text, row: awaiting.row, colId: awaiting.colId });
         useSessionStore.getState().setRecognized('');

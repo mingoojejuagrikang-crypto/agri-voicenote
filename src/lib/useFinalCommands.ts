@@ -37,7 +37,7 @@ import { useCallback, useRef } from 'react';
 import { useSessionStore } from '../stores/sessionStore';
 import { extractModifyValue } from './koreanNum';
 import { cancelTts } from './speech';
-import { isExactCommandUtterance, isVoiceUiCommand, resolveModifyTarget, type VoiceUiCommandSignal } from './voiceCommands';
+import { isExactCommandUtterance, isVoiceUiCommand, resolveModifyTarget, type ModifyGuardKind, type ModifyReviewTarget, type VoiceUiCommandSignal } from './voiceCommands';
 import { resolveFinal } from './voiceFinalResolver';
 import { cellWaitPrompt, formatNameForTts, relistenPrompt, REVIEW_WAIT_COMMANDS_TTS } from './voicePrompts';
 import type { Column } from '../types';
@@ -61,7 +61,8 @@ export interface FinalCommandsDeps {
   enterModifyMode: (
     preExtractedValue?: string,
     pendingCmd?: PendingCommandClip | null,
-    reviewTarget?: { row: number; idx: number; land?: 'review' | 'cell' },
+    reviewTarget?: ModifyReviewTarget,
+    guardKind?: ModifyGuardKind,
   ) => Promise<void>;
   rejectValue: (
     reason: 'low_confidence' | 'parse_failed',
@@ -248,7 +249,17 @@ export function useFinalCommands(deps: FinalCommandsDeps) {
         utterance,
         modifyVal: extractModifyValue(utterance),
       });
-      await enterModifyMode(plan.modifyVal || undefined, pendingCmd, plan.reviewTarget);
+      // 🔴 v0.52 — 모호(축약형이 같은 열 2개 이상)는 지목하지 않는다. 동작은 미매칭과 같고
+      //   (둘 다 비파괴 착지 — `enterModifyMode`의 `guardKind` 분기), 로그만 가른다: 판독에서
+      //   「그 이름의 열이 없다」와 「그 이름이 두 칸을 가리킨다」는 전혀 다른 사실이다.
+      if (plan.ambiguous) {
+        logCell({
+          type: 'command', parsed: 'modify_target_ambiguous',
+          extra: `modify_target_ambiguous:${plan.ambiguous.length}`, text: utterance,
+          row: a.row, colId: a.colId,
+        });
+      }
+      await enterModifyMode(plan.modifyVal || undefined, pendingCmd, plan.reviewTarget, plan.guardKind);
     }
 
     /** '취소' — 인식값을 지우고 같은 필드 재질문. [CLIP-VAL-1]① (cancel sibling): '수정'→'취소'

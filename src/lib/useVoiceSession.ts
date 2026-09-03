@@ -7,8 +7,8 @@ import { recountSynced } from './sessionSync';
 import { parseKoreanNumber, detectCommand } from './koreanNum';
 // [ENV-12] v0.43.0 #3 — 값 파싱 시도는 순수 모듈이 소유한다(부수효과 없음). 이 파일은 호출만.
 import { parseValueForCol } from './valueParseAttempt';
-import { VOICE_COMMANDS, type VoiceCommand, type VoiceUiCommandSignal } from './voiceCommands';
-import { decimalReaskPrompt, formatNameForTts, NO_VOICE_COLUMNS_MESSAGE, REASK_TTS } from './voicePrompts';
+import { VOICE_COMMANDS, type ModifyGuardKind, type ModifyReviewTarget, type VoiceCommand, type VoiceUiCommandSignal } from './voiceCommands';
+import { cellWaitPrompt, decimalReaskPrompt, formatNameForTts, NO_VOICE_COLUMNS_MESSAGE, REASK_TTS, REVIEW_WAIT_COMMANDS_TTS } from './voicePrompts';
 import { SpeechController, speak, cancelTts, isSpeechSupported, formatForTts, warmupTts, setActiveController, setPreferredVoiceName, setBargeInEnabled, refreshVoices, resumeTtsEngine } from './speech';
 import { computeTotalRows, buildCyclingValues, nestedAutoValue, isUserInputColumn } from './autoValue';
 import type { Column, Session, SessionRow, SessionTarget } from '../types';
@@ -1229,7 +1229,10 @@ export function useVoiceSession() {
     //   들어온 경우. 종전엔 이 상태에서 타깃이 `curIdx - 1`(직전 컬럼)로 잡혀 **엉뚱한 셀**을
     //   열거나(0번 항목이면 `targetIdx < 0` 분기로 떨어져 값을 지우고 재질문), 직접값
     //   "수정 41.4"가 **통째로 유실**됐다(실측 — _ASK-fix49 Q2, Larry 승인).
-    reviewTarget?: { row: number; idx: number; land?: 'review' | 'cell' },
+    reviewTarget?: ModifyReviewTarget,
+    // 🔴 v0.52 민구 결정(09-03) — 검토 대기 3종에서 온 「수정 <텍스트>」라는 표지. 그 텍스트가
+    //   컬럼 지목에도 값 파싱에도 실패하면 **캐스케이드 소거로 떨어뜨리지 않는다**(아래 비파괴 착지).
+    guardKind?: ModifyGuardKind,
   ) => {
     const sess = useSessionStore.getState();
     const vc = voiceColsList();
@@ -1618,6 +1621,33 @@ export function useVoiceSession() {
         if (vc[curIdx]) await announceField(vc[curIdx]);
         return;
       }
+      // 🔴🔴 v0.52 민구 결정(09-03) — **어느 셀도 지워지지 않는다.** 값도 아니고 컬럼 지목도 아닌
+      //   「수정 <텍스트>」가 검토 대기 3종에서 들어왔다. 종전엔 그대로 아래 **캐스케이드 재기록**으로
+      //   떨어져 `targetIdx`부터 행 끝까지를 소거했다 — 실측 귀결이 「종경 한 칸을 고치려다 횡경까지
+      //   지워지고 「수정. 횡경.」이 들린다」였다(콜드 리뷰 §4 P1②).
+      //   여기 오는 것은 둘이다: ⓐ 지목 실패(그 이름의 열이 없다) ⓑ 모호(축약형이 같은 열이 2개 이상).
+      //   🔑 **새 문구를 만들지 않는다** — 그 국면의 **기존 대기 문구**를 다시 말하고 상태를 그대로 둔다
+      //     (`cmdConfirm`이 kind별 꼬리를 고르는 패턴과 같은 SSOT를 쓴다). 대기 상태(`awaitingFieldRef`)는
+      //     이 함수가 애초에 건드리지 않으므로, 말만 하고 돌아가면 사용자는 종전 국면 그대로다.
+      //   🟡 가정(NON-BLOCKING) — 「그런 항목이 없습니다」 류의 **사유 머리 문장은 붙이지 않았다**.
+      //     새 TTS 문구는 이 레포에서 계약이라 민구 확인 없이 만들지 않는다. 붙이기로 하면 한 줄이다.
+      //   ⚠️ bare 「수정」(`preExtractedValue` 없음)은 여기 오지 않는다 — 그건 사용자가 실제로 재기록을
+      //     요청한 것이라 캐스케이드가 정답이다.
+      if (guardKind) {
+        logCell({
+          type: 'command', parsed: 'modify_target_unmatched',
+          extra: `modify_target_unmatched:${guardKind}`, text: preExtractedValue,
+          row: targetRow, colId: target.id,
+        });
+        const msg = guardKind === 'cellWait'
+          ? cellWaitPrompt(target.name)
+          : guardKind === 'reviewWait'
+            ? REVIEW_WAIT_COMMANDS_TTS
+            : buildEndReachedTts(listEmptyRows(computeTotalRows(getSessionColumns()), vc));
+        useSessionStore.getState().setLastTts(msg);
+        await say(msg);
+        return;
+      }
     }
 
     // Cascade re-record path (no usable inline value): target/targetRow are already resolved above
@@ -1669,7 +1699,11 @@ export function useVoiceSession() {
     //   적 없는 뒤 칸의 확정값까지 지웠다(중단되면 그대로 유실).
     //   같은 상태의 직접값 경로("수정 41.4", :1249 분기)는 이미 **그 셀만** 고친다 — 한 상태에서
     //   같은 명령의 두 형태가 파괴성으로 갈리면 안 된다. 여기서 대칭을 맞춘다.
-    const clearEnd = reviewTarget?.land === 'cell' ? targetIdx + 1 : vc.length;
+    //   🔴 v0.52 민구 결정(09-03) — **「한 칸만 지목한다」.** 컬럼명 지목(`single`)도 같은 범위다:
+    //     지목은 「이 열을 고치겠다」이지 「여기부터 행 끝까지 다시 부르겠다」가 아니다. 종전엔
+    //     reviewWait 지목이 `vc.length`까지 지워, 실 시트 표본 7열의 「수정 과중」이 다섯 칸을
+    //     소거했다(프로덕션 시트는 종경이 마지막 열이라 우연히 한 칸이었다).
+    const clearEnd = (reviewTarget?.land === 'cell' || reviewTarget?.single) ? targetIdx + 1 : vc.length;
     for (let i = targetIdx; i < clearEnd; i++) {
       sess.setRowValue(targetRow, vc[i].id, '');
       // Clip preservation (was: delete pending clips). Archive the prior attempt under an attempt
