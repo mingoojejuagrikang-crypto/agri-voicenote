@@ -4,6 +4,21 @@
 > 🔴 `CHANGELOG.md`는 이 레인이 건드리지 않는다 — `check:release`가 `package.json` 버전과의 일치를
 > 강제하는데 이 레인은 버전 bump가 금지라 항목을 추가하는 순간 배포가 막힌다.
 
+- **2026-08-19** · **죽은 `import` 문 8건 제거**(6파일) + `_KNIP-VERDICT.md` §15(신규 검출 3건 판정).
+  계측기는 `npx tsc -p tsconfig.json --noUnusedLocals --noEmit`(설정 변경 0 · `src` 한정) —
+  정규 `tsc -b`·ESLint는 `tsconfig.json:15 "noUnusedLocals": false`라 이 축을 못 잡는다.
+  **실측 21 → 13**. 지운 것: `App.tsx`(`useSettingsStore`) · `ColumnCard.tsx`(`COLUMN_HELP`) ·
+  `OptionsPanel.tsx`(`autoValue`) · `TablePreviewModal.tsx`(`SegmentToggle` + `ColumnDetailRow`·
+  `ColumnGridCell` 2줄) · `ActiveState.tsx`(`T`) · `SettingsScreen.tsx`(`useEffect` 부분 · `Column` 타입).
+  **심볼 삭제 0 · `export` 제거 0 · 이동 0 — `import` 문만 지웠다.**
+  🔴 08-16 wrapup이 남긴 「선재 죽은 import 6건」은 **전부 `useVoiceSession.ts` 안**이라
+  오디오 3파일 제외 규칙에 걸려 **무접촉**이다(잔존 13건 = 그 6 + `audioRecorder` 지역 2 +
+  import이 아닌 지역 선언 5). 다음 회차가 이 6을 「놓친 것」으로 읽지 마라.
+  검증: `npm run build` EXIT 0 · `check:release` EXIT 0(lint 무경고) · **`check:unused` 출력
+  바이트 동일**(before/after diff 0 — import은 knip 축이 아니고, 마지막 임포터 제거·모듈 고아화가
+  없음을 사전 실측했다: `ColumnPreviewParts`는 `SettingsSummary`가, `SegmentToggle`은 4파일이,
+  `helpCopy`는 4파일이 계속 import한다). e2e 게이트 미실행 — 이동·분리·export 변경이 없어
+  E5 정리 회차(`62b3526`) 전례와 같은 판단이다.
 - **2026-08-10** · `knip@6.32.0` 도입 (Phase 0-b) — devDependency + `knip.jsonc` + `npm run check:unused`.
   미사용 판정을 grep에서 모듈 그래프 해석으로 옮긴다(`[TEAMOPS-5]`·`[TEAMOPS-18]`). **검출물은
   하나도 지우지 않았다** — 판정은 사람 몫(동적 참조 가능성·오디오 3파일 리뷰 대상).

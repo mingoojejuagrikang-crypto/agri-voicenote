@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { T } from '../tokens';
 import { I } from '../components/icons';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { useSettingsStore } from '../stores/settingsStore';
-import type { Column } from '../types';
 import { parseSpreadsheetId } from '../lib/sheets';
 import { computeTotalRows } from '../lib/autoValue';
 import { logger } from '../lib/logger';

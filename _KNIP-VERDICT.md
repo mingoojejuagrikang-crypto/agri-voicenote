@@ -435,3 +435,91 @@ dim 토큰인데, `CommandHelpPopup.tsx:23`이 같은 용도(`background: 'rgba(
 남는 유효 정보는 기준선뿐이다: **R1 P4가 §5의 2파일을 삭제한 뒤, knip 미사용 파일 잔존
 1건(BeepPicker)은 기대 기준선이다** — 이후 대조 회차는 이 1건을 드리프트로 세지 마라.
 삭제 금지·재도입 결정은 민구 몫(§2 그대로).
+
+---
+
+## §15. 08-19 자동 레인 추기 — 신규 검출 3건 판정 + 현행 인구조사
+
+> 회차: `auto/maintenance` 자동 유지보수(무인) · 기점 `c25d612` · knip@6.32.0.
+> 근거 과제: `deliverables/2026-08-16-r2-session-wrapup.md` 미결 #5(「신규 검출 3건 판정」).
+> **이 절은 판정만이다 — knip 축의 코드는 한 줄도 바꾸지 않았다.**
+
+### 15-0. 현행 HEAD 인구조사
+
+`npm run check:unused` 실측: **미사용 파일 1 + 미사용 export 27 = 28**. 미사용 타입 0 ·
+중복 export 0 · 미사용 의존성 0(baseline 83건에서 exp 레인·R1 정리를 거친 뒤의 현행값).
+
+- 파일 1건은 `BeepPicker.tsx` — **§14-A 기준선 그대로**다. 드리프트로 세지 마라.
+- export 27건 중 **24건은 이 문서에 이미 행이 있다**. 남은 **3건이 이 절의 대상**이다.
+- 대조 방법(재현 가능): 검출 심볼 27개를 이 문서 전문에 `grep -c "\b<심볼>\b"` —
+  히트 0인 것이 **정확히 3건**(`readPrevSurveyState` · `WOULD_SALVAGE_PREFIX` · `localISO`).
+- ⚠️ **계수 드리프트 1건 기록.** 위 wrapup 미결 #5는 「잔존 27 + 신규 3」으로 적었다. 현행 HEAD는
+  **「총 27 = 기존 24 + 신규 3」**이다. 재검출이 정본이므로(러너 규칙 10) 이 절의 수를 쓴다.
+  잔존 24건은 **이 항목 밖** — 다음 knip 회차 몫.
+
+### 15-A. `WOULD_SALVAGE_PREFIX` — `logEventsSession.ts:59` → **§3(계약 상수)**. 유지 · `export` 제거 금지
+
+값 `'would_salvage:'`가 스펙에 **리터럴로 복제**돼 있다(§13이 연 값 리터럴 스캔 축 — 심볼 grep만
+했으면 §8로 오판했을 자리다):
+
+| 복제처 | 형태 |
+|--------|------|
+| `tests/v023-voice.spec.ts:570,585,604,614` | `startsWith('would_salvage:')` — B2-W4·A4-r2 단언의 판별자 |
+| `tests/v023-voice.spec.ts:587` | `toBe('would_salvage:3.3')` — 값까지 박음 |
+| `tests/v027-clips-manifest.spec.ts:233,251,302` | 픽스처 `extra: 'would_salvage:3.3'` |
+| `tests/koreanNum.spec.ts:286` | 다음 회차 집계 명령(`extra^='would_salvage:'`) |
+
+**임포터 0은 의도된 상태다.** `logEvents.ts:57`이 그 결정과 이유를 미리 적어뒀다 — *"r3 #10이
+접두 판별을 구조 판별로 대체 — 배럴 재수출 없이 정의 파일에만 둔다. **knip 검출 파리티**."*
+즉 이 검출은 **예고된 것**이지 드리프트가 아니다.
+
+🔴 **부수 발견 — 소스 주석 1건이 낡았다(범위 밖이라 고치지 않았다).**
+`logEventsSession.ts:57-58`은 접두를 상수로 올린 이유를 *"소비자(`clipsManifest.findLastCellEvent`)가
+그걸 판별해야 하기 때문"* 이라고 적는다. 그런데 **r3 #10이 그 판별을 접두 allowlist에서 구조
+판별(`extra` 유무)로 바꿨다**(`clipsManifest.ts:132-140`). 실측: `clipsManifest.ts`의
+`would_salvage` 히트는 **주석 2줄뿐, 코드 0줄**이다. 지금 이 상수를 살려두는 근거는 그 주석이
+지목하는 앱 소비자가 아니라 **위 표의 스펙 리터럴**이다. 근거가 갈아치워졌을 뿐 판정(유지)은
+같다 — 주석 정정은 다음 회차 제안으로 남긴다.
+
+### 15-B. `readPrevSurveyState` — `SettingsSummaryModal.tsx:69` → **§8(`export` 키워드만 불필요)**. 심볼 삭제 금지
+
+같은 파일 `:126`에서 `usePrevSurvey`의 `useMemo`가 부른다 — **살아 있는 코드다.** import가 0인
+것은 **v0.49 r2 A9가 이 계산의 소유자를 `SettingsScreen` → 팝업으로 옮겼기** 때문이고, 그때
+`export`만 유물로 남았다. 08-11 baseline에 행이 없는 이유도 그것이다(그때는 화면이 import했다).
+
+🔴 **`export` 제거를 검토하는 회차는 이걸 먼저 읽어라 — 이 이름에는 「부정 이름 계약」이 붙어 있다.**
+`tests/v049-prev-survey.spec.ts:345-357`이 화면 3파일(`SettingsScreen.tsx` ·
+`SettingsActionBar.tsx` · `SettingsFooter.tsx`)의 소스를 **문자열로 읽어**
+`screen.includes('readPrevSurveyState(') === false`를 단언한다(C13 전수 스캔 회귀 가드).
+
+실측 판정: **그 단언은 정의 파일의 `export` 키워드를 보지 않으므로 `export` 제거로는 깨지지 않는다.**
+다만 두 가지를 못 박는다 — ⓐ이 스펙은 **import 스캔에 안 걸리는 「텍스트 읽기 스캔」 대상**이다
+(재표적 두 갈래 규율의 ⓑ갈래) ⓑ**심볼을 옮기거나 이름을 바꾸면 이 가드는 공허하게 통과한다**
+(없는 이름을 못 찾는 것은 언제나 참이다). 이름 변경·이동은 반드시 이 스펙과 함께 간다.
+
+### 15-C. `localISO` — `tests/fixtures/localDate.ts:16` → **§7(픽스처 미채택 부채)**. 🔴 제거 금지 — 채택이 답이다
+
+실측: 같은 함수의 **로컬 복제가 16곳**에 있다(스펙 15 + 픽스처 `activeZones.ts` 1).
+`_probe-fb10-transition` · `_probe-fb67-center-clip` · `anomaly-touch-buttons` ·
+`fixtures/activeZones` · `manual-input` · `trend-alert` · `v023-voice` · `v026-tolerance-strict` ·
+`v027-voice-cards-fit` · `v034-past-index-apikey` · `v034-wave-glow` · `v037-review-receipt` ·
+`v0440-alarm-fit` · `v0460-cr-alarm-card-floor` · `v0460-fit-headroom` · `v0461-fb10-corrected-hero`.
+
+SSOT 파일 헤더(`localDate.ts:11-13`)가 **스스로 이 부채를 적어놨다** — *"아직 이 파일을 쓰지 않는
+스펙이 14개 있다"*. 그 사이 2곳 늘었다(14 → 16). 같은 파일의 `daysAgoLocal`은 실제로 import되고
+(`v049-prev-survey` · `past-index-fallback`), `localISO`는 **같은 파일 `:26`이 쓴다**.
+즉 심볼도 파일도 죽지 않았다 — 죽은 것은 **채택률**이다.
+
+⚠️ **단순 import 치환이 아니다.** 복제본은 전부 `localISO(new Date(Date.now() - 86_400_000))`
+관용구와 한 몸인데, **그 관용구 자체가 헤더가 경고하는 DST 함정**이다(전이일의 하루는 23h·25h).
+옮기려면 `daysAgoLocal(1)`로 바꿔야 하고 그건 16파일 × 오라클 영향이다 — **이 항목 밖**,
+별도 리팩토링 회차 몫.
+
+### 15-D. 이 절이 바꾸지 않은 것
+
+- **knip 축 코드 무변경.** 같은 커밋의 `src/` 6파일 변경은 **범위 ①(죽은 `import` 문 제거)**이고
+  knip 축과 무관하다 — 실측으로 `check:unused` 출력이 **바이트 동일**(before/after diff 0)임을
+  확인했다. 이것이 제약 ③「의도한 검출만 줄었는지」의 가장 날카로운 형태다: **줄지 않아야 맞다.**
+- **계약 상수 불가침 준수** — §3 8건 + 승격 4건(`RELEASE_STEPS`·`RELEASE_STEP_MS`·
+  `SIMULATED_INSETS`·`CHIP_SWEEP_MIN_TRAVEL_PX`)은 손대지 않았다. 15-A로 §3에 1건이 늘어
+  **§3 계열은 9건**이 된다.
