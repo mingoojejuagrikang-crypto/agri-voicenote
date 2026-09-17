@@ -252,3 +252,10 @@ export function modifyColumnConfirmTts(spoken: string, n: number): string {
 
 /** v0.51.1 R6 — 확인 질문에 답하기 전 항목 이동을 거부할 때의 한 마디([PHASE-NAV-1] · 알람의 「먼저 알람을 확인하세요.」 짝). */
 export const CONFUSION_ANSWER_FIRST_TTS = '먼저 답해 주세요.';
+
+/** v0.53.0 C1a (민구 Q3 ⓐ — 확정) — 세션 결산 종료 화면 문구.
+ *  형태: 이번 세션 · 다시 묻기 <reask> · 고친 칸 <corr 칸 합> · 알람 <alarm fired> */
+export function sessionHealthSummaryScreen(reask: number, correctedCells: number, alarmFired: number): string {
+  return `이번 세션 · 다시 묻기 ${reask} · 고친 칸 ${correctedCells} · 알람 ${alarmFired}`;
+}
+

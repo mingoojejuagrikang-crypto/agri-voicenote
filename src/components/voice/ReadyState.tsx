@@ -18,6 +18,7 @@ export function ReadyState({ totalRows, onStart }: { totalRows: number; onStart:
   // v0.50 [CLIP-SILENT-1] — 직전 세션에서 음성 클립이 저장 실패했으면 그 사실을 남긴다.
   // 값은 정상이라 화면·시트 어디에도 이상이 없다 — 여기가 유일한 사후 표면이다.
   const clipWarning = useSessionStore((st) => st.clipWarning);
+  const sessionHealthLine = useSessionStore((st) => st.sessionHealthLine);
   const counting = progress != null;
   // v0.45.0 WP-1① — 시작 전 입·출력 상태 프로브(F15 근원 판정용). 스로틀·계약은 readyProbe.ts.
   useEffect(() => { emitReadyProbe(); }, []);
@@ -90,6 +91,20 @@ export function ReadyState({ totalRows, onStart }: { totalRows: number; onStart:
             }}
           >
             {clipWarning}
+          </div>
+        )}
+        {/* v0.53.0 A (민구 Q3 ⓐ) — 직전 세션 건강 결산 요약 한 줄 (clipWarning과 독립, 둘 다 표시 가능) */}
+        {sessionHealthLine && (
+          <div
+            data-testid="session-health-line"
+            style={{
+              width: '100%', maxWidth: 320,
+              color: T.textMute, fontSize: VOICE_TYPE.bodySm,
+              lineHeight: 1.5, letterSpacing: -0.1, textAlign: 'center',
+              wordBreak: 'keep-all', overflowWrap: 'anywhere',
+            }}
+          >
+            {sessionHealthLine}
           </div>
         )}
         <div style={{ position: 'relative' }}>

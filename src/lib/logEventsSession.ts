@@ -82,3 +82,43 @@ export function endAbsorb(colId: string): string {
 export function sheetSynced(fields: { sheet: string; tab: string; from: number; to: number; n: number }): string {
   return `sheet_synced:sheet=${fields.sheet},tab=${escapeExtraValue(fields.tab)},rows=${fields.from}-${fields.to},n=${fields.n}`;
 }
+
+/** v0.53.0 C13 (민구 Q4 ⓐ) — **시트 올리기 합계 계측**(동기화 1회당 1건).
+ *  방출: sync.ts syncSelected() 마지막 return report 직전 1곳.
+ *  형태: sync_summary:ok=<ok>,failed=<failed>,rows=<rows>,updated=<updated>,fallback=<fallback> */
+export function syncSummary(fields: {
+  ok: number;
+  failed: number;
+  rows: number;
+  updated: number;
+  fallback: number;
+}): string {
+  return `sync_summary:ok=${fields.ok},failed=${fields.failed},rows=${fields.rows},updated=${fields.updated},fallback=${fields.fallback}`;
+}
+
+export interface SessionHealthSummaryInput {
+  cells: number;
+  reask: number;
+  lowconf: number;
+  alarm: string | { fired: number; confirmed: number };
+  sttErr: number;
+  wakeFail: number;
+  authSkip: number;
+  corr: string;
+  confQ: string | { asked: number; hit: number };
+  modMishear: number;
+}
+
+/** v0.53.0 C1a (민구 Q2 ⓐ · Q3 ⓐ · Q6 ⓐ) — **세션 결산 계측**(세션 1회당 1건).
+ *  방출: useVoiceSession.ts stop()의 setClipWarning() 직후.
+ *  형태: session_health:cells=<n>,reask=<n>,lowconf=<n>,alarm=<fired>/<confirmed>,sttErr=<n>,wakeFail=<n>,authSkip=<n>,corr=<…>,confQ=<asked>/<hit>,modMishear=<n> */
+export function sessionHealth(fields: SessionHealthSummaryInput): string {
+  const alarmStr = typeof fields.alarm === 'string'
+    ? fields.alarm
+    : `${fields.alarm.fired}/${fields.alarm.confirmed}`;
+  const confQStr = typeof fields.confQ === 'string'
+    ? fields.confQ
+    : `${fields.confQ.asked}/${fields.confQ.hit}`;
+  return `session_health:cells=${fields.cells},reask=${fields.reask},lowconf=${fields.lowconf},alarm=${alarmStr},sttErr=${fields.sttErr},wakeFail=${fields.wakeFail},authSkip=${fields.authSkip},corr=${fields.corr},confQ=${confQStr},modMishear=${fields.modMishear}`;
+}
+

@@ -33,6 +33,7 @@ import {
   notifyPerm,
   // v0.51.1 B1 — 음성 열 0개 구성의 세션 시작 차단(제보①).
   sessionStartBlocked,
+  sessionHealth,
 } from './logEvents';
 import { shouldKeepInBackground, LONG_BACKGROUND_OFF_MS } from './backgroundSessionPolicy';
 import { requestNotifyPermissionOnce, showBackgroundOffNotification } from './backgroundNotify';
@@ -52,7 +53,8 @@ import { getMutedSpanCount, resetMicInterruptionSpans } from './micInterruption'
 import { getAudioSessionEventCount } from './audioInterruption';
 import { useClipFailureAlert } from './useClipFailureAlert';
 import { useMicInterruptionNotice } from './useMicInterruptionNotice';
-import { clipFailSummaryScreen, clipUnreliableSummaryScreen } from './voicePrompts';
+import { clipFailSummaryScreen, clipUnreliableSummaryScreen, sessionHealthSummaryScreen } from './voicePrompts';
+import { resetSessionHealth, summarySessionHealth, getSessionHealthScreenValues } from './sessionHealth';
 // [ENV-12] Stage 3 — 세션 영속화(persistSession)는 usePersistSession이 소유한다(이 파일은 호출만).
 import { usePersistSession } from './usePersistSession';
 // [ENV-12] Stage 3 — 행 이동 계열 내비게이션은 useRowNav가, 항목 한 칸 이동(F-1)은 useFieldNav가
@@ -2610,6 +2612,9 @@ export function useVoiceSession() {
     const total = computeTotalRows(columns);
     if (total === 0) return false;
 
+    // v0.53.0 C14 — start() 앞부분 진단 로그가 직전 세션 id로 찍히지 않게 빈 값으로 리셋(X1 창으로 새 세션 zip에 포섭)
+    sessionIdRef.current = '';
+
     // v0.38.0 리뷰#1(Codex High) — 이전 세션의 마지막 UI 음성명령(도움말·인식률 등)이 남아 있으면,
     // 새 세션에서 ActiveState가 마운트될 때 소비 시퀀스가 0으로 초기화돼 **그 명령이 자동 재실행**된다
     // (세션 B 시작하자마자 도움말이 열리고, 인식률 설정이 한 번 더 바뀐다). 세션 경계에서 비운다.
@@ -2726,6 +2731,7 @@ export function useVoiceSession() {
 
     const startTs = Date.now();
     sessionIdRef.current = `sess_${startTs}`;
+    resetSessionHealth(sessionIdRef.current);
     // v0.15.0 A3 — 같은 날 자동 세션명 중복 방지. 라벨 생성 출처(설정탭 sessionAutoLabel / 입력탭
     // buildAutoLabel)와 무관하게, 세션 생성 시점에 기존 세션 라벨과 충돌하면 `-2`,`-3`… 순번을 붙여
     // 고유화한다(데이터탭에서 같은 날 세션 구분). 라벨이 비면(undefined) 손대지 않는다.
@@ -3033,6 +3039,20 @@ export function useVoiceSession() {
     //   포인터가 미저장인 채** 새 세션을 시작할 수 있었다(start()의 resetAll이 메모리 사본까지 지워
     //   복구 기회 소멸). v0.34.0 "durable 실패를 삼키지 않는다" 원칙과 정면 충돌 → 실패면 ready 미전환.
     const durable = await persistSession();
+    // v0.53.0 A (민구 Q1 ⓐ · Q3 ⓐ, Larry 답 1 확정) — 세션 결산 이벤트 + 화면 요약 한 줄
+    {
+      const savedSession = useDataStore.getState().sessions.find((s) => s.id === sessionIdRef.current);
+      const healthSummary = summarySessionHealth(savedSession);
+      logCell({ type: 'session', extra: sessionHealth(healthSummary) });
+      const healthScreenValues = getSessionHealthScreenValues();
+      useSessionStore.getState().setSessionHealthLine(
+        sessionHealthSummaryScreen(
+          healthScreenValues.reask,
+          healthScreenValues.correctedCells,
+          healthScreenValues.alarmFired,
+        ),
+      );
+    }
     if (!durable) {
       // stopping을 유지해 '음성 입력 시작' 버튼과 모든 세션 컨트롤을 띄우지 않는다
       //   → 새 세션의 resetAll이 미저장 값을 덮을 수 없다. 화면엔 재시도 배너(VoiceScreen).

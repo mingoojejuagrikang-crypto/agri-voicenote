@@ -65,6 +65,10 @@ export {
   endAbsorb,
   // v0.51.1 L — 동기화 완료(대상 시트·탭·행 범위·건수).
   sheetSynced,
+  // v0.53.0 C13 — 시트 올리기 합계.
+  syncSummary,
+  // v0.53.0 C1a — 세션 결산.
+  sessionHealth,
 } from './logEventsSession';
 
 // 설정·UI 계측 도메인 — logEventsUi.ts.

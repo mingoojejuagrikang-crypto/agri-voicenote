@@ -4,7 +4,7 @@ import { appendRows, updateCellsSparse, fetchHeaderRow } from './sheets';
 import { saveSession } from './db';
 import { getAccessToken } from './googleAuth';
 import { logger } from './logger';
-import { sheetSynced } from './logEvents';
+import { sheetSynced, syncSummary } from './logEvents';
 import {
   hasSyncState,
   recountSynced,
@@ -405,5 +405,17 @@ export async function syncSelected(sessionIds: string[]): Promise<SyncReport> {
       inFlightSessionIds.delete(id);
     }
   }
+  // v0.53.0 C13 (민구 Q4 ⓐ) — 시트 올리기 합계 계측(동기화 1회당 1건). 조기 return은 올리기가 돌지 않아 제외.
+  logger.log({
+    type: 'app',
+    sessionId: '__app__',
+    extra: syncSummary({
+      ok: report.ok,
+      failed: report.failed,
+      rows: report.rows,
+      updated: report.updatedRows,
+      fallback: report.fallbackAppended,
+    }),
+  });
   return report;
 }
