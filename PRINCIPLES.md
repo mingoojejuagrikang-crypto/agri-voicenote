@@ -101,6 +101,12 @@
     (후보 발동당 **정확히 1건** — 물었으면 답이 정해진 뒤, 상한으로 안 물었으면 그 자리에서 asked=0).
     같은 회차의 `session start` `meta.speaker`(이메일 sha256 앞 8자)는 meta 필드 추가(additive)다.
     ⚠️ `field_nav_blocked:<국면>`에 값 `confusionConfirm`이 **추가**됐다 — 꼬리가 아니라 값 하나짜리 형태의 새 값이다(예외 ②의 주의 그대로).
+  - **신규 이벤트 ⑦·⑧(v0.53.0 · 2026-09-17):** `session_health` · `sync_summary` — 둘 다 신규 `LogEntry.type` 없이 기존 `type:'session'` / `type:'app'`의 `extra` 접두로 방출한다(log-replay 호환).
+    형태(바이트 고정 · 빌더 `logEventsSession.ts` · 리터럴 `tests/logEvents.spec.ts`):
+    `session_health:cells=<n>,reask=<n>,lowconf=<n>,alarm=<fired>/<confirmed>,sttErr=<n>,wakeFail=<n>,authSkip=<n>,corr=<…>,confQ=<asked>/<hit>,modMishear=<n>`
+    (세션 종료 `stop()` 시점 persistSession 직후 정확히 1건 · 순수 모듈 `sessionHealth.ts` 집계 · 종료 화면 `session-health-line` 문구 동봉) ·
+    `sync_summary:ok=<report.ok>,failed=<report.failed>,rows=<report.rows>,updated=<report.updatedRows>,fallback=<report.fallbackAppended>`
+    (시트 동기화 `syncSelected()` 완료 시점 명시적 `sessionId:'__app__'` 귀속으로 정확히 1건 방출).
   - 목록에 없는 이벤트는 **바이트 불변**이다. 확장이 필요하면 필드를 늘리지 말고 **새 이벤트
     이름**을 써라 — 그게 계약을 안 깨고 늘리는 유일한 길이다.
   - 🔴 **오라클은 「프로덕션이 실제로 방출하는 형상」을 재라.** 확장 필드가 항상 붙는 이벤트를
