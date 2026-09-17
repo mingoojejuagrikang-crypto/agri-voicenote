@@ -26,7 +26,9 @@ import {
   sttCorrection,
   sttConfusionHint,
   sessionHealth,
+  beepPlay,
 } from '../src/lib/logEvents';
+import { sessionHealthSummaryScreen } from '../src/lib/voicePrompts';
 
 const ROOT = process.cwd();
 
@@ -113,9 +115,27 @@ test('ⓒ 경계 검증 — wakeFail, authSkip, corr, confQ, modMishear, 세션 
   tracker.onEntry({ ts: 2, type: 'session', sessionId: SID, extra: 'wake_lock:action=reacquire,result=ok' }); // failed 없음 -> 미카운트
   tracker.onEntry({ ts: 3, type: 'session', sessionId: SID, extra: 'other_event:result=failed' }); // wake_lock 없음 -> 미카운트
 
+  // S3-a: reask — beep_play:kind= 가 reject가 아닌 비프는 reask 카운트에 포함되지 않음 단언 (변이: beep_play: 전체를 셈 방지)
+  tracker.onEntry({
+    ts: 3.1,
+    type: 'session',
+    sessionId: SID,
+    extra: beepPlay({ kind: 'ready', result: 'played', ctx: 'running', gain: 1, tones: 1 }),
+  });
+  tracker.onEntry({
+    ts: 3.2,
+    type: 'session',
+    sessionId: SID,
+    extra: beepPlay({ kind: 'commit', result: 'played', ctx: 'running', gain: 1, tones: 1 }),
+  });
+
   // 2. lowconf: type!=='value'인 low_conf_parsed 이벤트는 안 센다
   tracker.onEntry({ ts: 4, type: 'stt', sessionId: SID, extra: 'low_conf_parsed:conf=0.4' });
   tracker.onEntry({ ts: 5, type: 'app', sessionId: SID, extra: 'low_conf_parsed:conf=0.4' });
+
+  // S3-b: lowconf — low_conf_parsed 접두가 아닌데 low_conf를 포함하는 value 이벤트는 lowconf에 미반영 단언 (변이: includes('low_conf') 방지)
+  tracker.onEntry({ ts: 5.1, type: 'value', sessionId: SID, extra: 'not_low_conf_parsed:conf=0.4' });
+  tracker.onEntry({ ts: 5.2, type: 'value', sessionId: SID, extra: 'custom_low_conf_something:conf=0.4' });
 
   // 3. authSkip: SID, __app__, '', 다른 세션 ID
   tracker.onEntry({ ts: 6, type: 'app', sessionId: SID, extra: 'past_index_skip:not_signed_in' });
@@ -153,6 +173,8 @@ test('ⓒ 경계 검증 — wakeFail, authSkip, corr, confQ, modMishear, 세션 
 
   // - 칸 5: 최종 행 없음 (saved.rows에 row 5 없음) -> 분자 제외
   tracker.onEntry({ ts: 25, type: 'value', sessionId: SID, row: 5, colId: 'c1', colName: 'col1', parsed: '1.0' });
+  // S2: 칸(row 5 · c1)에 parsed:'9.0' 값 이벤트를 하나 더 넣어 「최종 행 없으면 마지막 parsed로 대체」 변이에서 confQ가 바뀌게
+  tracker.onEntry({ ts: 25.5, type: 'value', sessionId: SID, row: 5, colId: 'c1', colName: 'col1', parsed: '9.0' });
   tracker.onEntry({ ts: 26, type: 'stt', sessionId: SID, row: 5, colId: 'c1', colName: 'col1', extra: 'stt_confusion_hint:heard=1.0,cands=9.0,rule=r1,asked=1,chosen=alt' });
 
   // - 칸 6: 음성 열 아닌 이름 (colName: 'manual_col', input: 'manual') -> 분자 제외
@@ -188,17 +210,21 @@ test('ⓒ 경계 검증 — wakeFail, authSkip, corr, confQ, modMishear, 세션 
   };
 
   const beforeOther = tracker.summary(saved);
-  expect(beforeOther.reask, '다른 세션 전 reask=0').toBe(0);
+  expect(beforeOther.reask, '다른 세션 전 reask=0 (S3-a: non-reject beepPlay 미카운트)').toBe(0);
   tracker.onEntry({ ts: 32, type: 'session', sessionId: 'other_sess', extra: 'beep_play:kind=reject' });
   const afterOther = tracker.summary(saved);
   expect(afterOther.reask, '다른 세션 이벤트 삽입 후에도 reask는 늘지 않아야 한다').toBe(0);
 
   // 결과 검증
+  // S4: cells 필터 — 음성 열이면서 최종 행에 존재하는 2개 셀(c2 in row 2, c3 in row 3)만 카운트
+  expect(afterOther.cells, 'cells는 음성 열이면서 최종 행에 존재하는 2개 셀만 카운트').toBe(2);
   expect(afterOther.wakeFail, 'wakeFail 1건').toBe(1);
-  expect(afterOther.lowconf, 'type!=value로 들어간 lowconf는 0건').toBe(0);
+  expect(afterOther.lowconf, 'type!=value 및 접두 불일치 lowconf는 0건 (S3-b)').toBe(0);
   expect(afterOther.authSkip, 'authSkip은 SID, __app__, 빈문자열 3건').toBe(3);
   expect(afterOther.alarm, 'alarm은 fired=2, confirmed=1').toEqual({ fired: 2, confirmed: 1 });
   expect(sessionHealth(afterOther), '빌더에서 alarm=2/1 형식 출력 확인').toContain('alarm=2/1');
+  // S5: 배선이 confirmed가 아닌 alarmFired(2)를 넘기는지 단위 단언
+  expect(tracker.getScreenValues().alarmFired, 'getScreenValues.alarmFired는 confirmed(1)가 아닌 fired(2)를 반환해야 한다').toBe(2);
   expect(afterOther.corr, 'corr은 역순 삽입에도 고정 순서 유지').toBe('reask:2/1|direct_modify:1/1|rerecord:1/1|touch:1/1|confusion:1/1');
   // asked=1인 힌트: 칸 2, 칸 3, 칸 4, 칸 5, 칸 6 (총 5건).
   // 분자: 칸 3만 적중 (첫 7 != 최종 8 && cands '8.0' == 최종 8) => 1건.
@@ -362,4 +388,9 @@ test('R7 getSessionId 및 복원 세션 판별 검증', () => {
   expect(tracker.getSessionId()).toBe('sess_normal');
   expect(tracker.getSessionId() === 'sess_normal').toBe(true);
 });
+
+test('S5 sessionHealthSummaryScreen 서로 다른 세 값 바이트 리터럴 단언', () => {
+  expect(sessionHealthSummaryScreen(28, 36, 2)).toBe('이번 세션 · 다시 묻기 28 · 고친 칸 36 · 알람 2');
+});
+
 

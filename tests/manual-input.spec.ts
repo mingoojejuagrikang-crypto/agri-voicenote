@@ -195,10 +195,10 @@ async function loadLogEventsFromIDB(page: Page) {
       r.onerror = () => res(null);
     });
     if (!db || !db.objectStoreNames.contains('logEvents')) return [];
-    return new Promise<Array<{ type: string; extra?: string; parsed?: string; text?: string; row?: number; colId?: string }>>((res) => {
+    return new Promise<Array<{ type: string; extra?: string; parsed?: string; text?: string; row?: number; colId?: string; sessionId?: string }>>((res) => {
       const tx = db.transaction('logEvents', 'readonly');
       const req = tx.objectStore('logEvents').getAll();
-      req.onsuccess = () => res(req.result as Array<{ type: string; extra?: string; parsed?: string; text?: string; row?: number; colId?: string }>);
+      req.onsuccess = () => res(req.result as Array<{ type: string; extra?: string; parsed?: string; text?: string; row?: number; colId?: string; sessionId?: string }>);
       req.onerror = () => res([]);
     });
   });
@@ -677,6 +677,85 @@ test('[리뷰 High] manualHold → reload: 후보·팝업·중앙 게이트를 I
   expect(committed).toBe('22.2');
   await waitForRow(page, 2); // 행 완료 → 정상 전진(복구된 흐름이 온전히 살아 있다)
 });
+
+test('v0.53.0 S1 — manualHold 이상치 보류 → reload: 복원 세션은 session_health_skip 방출, 새 세션은 정상 결산', async ({ page }) => {
+  await setupTrendAndStart(page);
+  await openSheetFor(page, '횡경');
+  for (const k of ['1', '2', '0', '.', '5']) await page.locator(`[data-testid="manual-key-${k}"]`).click();
+  await page.locator('[data-testid="manual-commit"]').click();
+  const popup = page.locator('[data-testid="anomaly-alert"]');
+  await expect(popup).toBeVisible();
+
+  // IDB에 보류된 세션 ID 확인 (복원될 세션 id)
+  const restoredSessionId = await page.evaluate(async () => {
+    const db: IDBDatabase = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('agri-voicenote');
+      req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
+    });
+    const tx = db.transaction('sessions', 'readonly');
+    const all: any[] = await new Promise((resolve, reject) => {
+      const req = tx.objectStore('sessions').getAll(); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
+    });
+    return all.find((s) => s.pendingValidation)?.id;
+  });
+  expect(restoredSessionId, '복원 대상 세션 ID가 존재해야 한다').toBeTruthy();
+
+  // 새로고침 실행
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(900);
+  await page.locator('[data-testid="tab-voice"]').click();
+  await expect(popup).toBeVisible();
+
+  // [확인] 클릭
+  await page.locator('[data-testid="anomaly-confirm-btn"]').click();
+  await expect(popup).toHaveCount(0);
+
+  // 세션 종료 (복원된 세션 종료)
+  await page.locator('button[title="입력 종료"]').click();
+  await page.locator('button[title="종료 확인"]').click();
+
+  // 종료 완료 대기 (ReadyState 복귀)
+  const startBtn = page.locator('text=음성 입력 시작').first();
+  await expect(startBtn, '복원 세션 종료 후 음성 입력 시작 버튼이 표시되어야 한다').toBeVisible({ timeout: 15_000 });
+
+  // ⓐ session_health_skip:reason=restored 정확히 1줄 (복원된 세션 id)
+  const allEventsAfterRestored = await loadLogEventsFromIDB(page);
+  const skipEvents = allEventsAfterRestored.filter(
+    (e) => e.sessionId === restoredSessionId && e.extra === 'session_health_skip:reason=restored',
+  );
+  expect(skipEvents.length, '복원 세션은 session_health_skip:reason=restored가 정확히 1줄이어야 한다').toBe(1);
+
+  // ⓑ session_health: 0줄 (복원 세션)
+  const healthEventsForRestored = allEventsAfterRestored.filter(
+    (e) => e.sessionId === restoredSessionId && (e.extra ?? '').startsWith('session_health:'),
+  );
+  expect(healthEventsForRestored.length, '복원 세션은 session_health 이벤트가 0줄이어야 한다').toBe(0);
+
+  // ⓒ session-health-line 화면 줄 없음
+  const healthLine = page.locator('[data-testid="session-health-line"]');
+  await expect(healthLine, '복원 세션 종료 후 화면에 session-health-line이 없어야 한다').toHaveCount(0);
+
+  // ⓓ 이어서 새 세션 1번 → 그 세션은 정상 session_health 1줄
+  await startBtn.click();
+  await page.waitForTimeout(600);
+  await expect(page.locator('[data-testid="voice-active-state"]').first()).toBeVisible({ timeout: 5000 });
+
+  // 새 세션 종료
+  await page.locator('button[title="입력 종료"]').click();
+  await page.locator('button[title="종료 확인"]').click();
+
+  // 새 세션 종료 후 session-health-line 표면 확인
+  await expect(healthLine, '새 세션 종료 후 session-health-line이 표시되어야 한다').toBeVisible({ timeout: 15_000 });
+
+  // 전체 로그에서 정상 session_health 이벤트는 정확히 1줄 (새 세션의 것)
+  const allEventsFinal = await loadLogEventsFromIDB(page);
+  const healthEventsFinal = allEventsFinal.filter(
+    (e) => (e.extra ?? '').startsWith('session_health:'),
+  );
+  expect(healthEventsFinal.length, '새 세션 종료 후 정상 session_health는 정확히 1줄이어야 한다').toBe(1);
+  expect(healthEventsFinal[0].sessionId, 'session_health는 복원 세션이 아닌 새 세션에 귀속되어야 한다').not.toBe(restoredSessionId);
+});
+
 
 /**
  * v0.38.0 [리뷰#9] 민구 결정(2026-07-23): **업로드는 입력을 종료한 뒤에만 가능하다.**
