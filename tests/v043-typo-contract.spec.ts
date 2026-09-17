@@ -218,7 +218,12 @@ test('[node] 인라인 fontSize 계약 강제 검사기 (UI-g)', () => {
   //   🔴 같은 회차에 **조절판 음성 명령 5종이 제거**됐지만 이 수에는 영향이 없다 —
   //   그것들은 `voiceCommands.ts`(배열 데이터)에 있었고 이 검사기는 `.tsx`의 인라인
   //   `fontSize:`만 센다. 도움말은 그 배열을 **동적 렌더**하므로 줄 수가 아니라 항목 수가 준다.
-  expect(contractCount, '계약 참조 (통과)').toBe(73);
+  // v0.53.0 A(민구 Q3 ⓐ — 세션 결산 종료 화면 한 줄): **정당 파손 — 방향이 계약 쪽이다.**
+  //   `ReadyState.tsx`의 session-health-line 1건(+1 계약 — `VOICE_TYPE.bodySm`,
+  //   "이번 세션 · 다시 묻기 … · 고친 칸 … · 알람 …"). 위반 0 그대로. 73 → 74.
+  //   🔴 이 검사기는 `src/components/voice/`를 **재귀 순회**한다 — `ReadyState.tsx`를 이 디렉터리
+  //   밖으로 옮기면 계약이 −1 되어 여기가 red가 된다(AlarmInterimStrip 분리 때와 같은 함정).
+  expect(contractCount, '계약 참조 (통과)').toBe(74);
   expect(allowlistCount, 'ALLOWLIST (허용)').toBe(4);
   expect(commentCount, '주석 (skip)').toBe(3);
   expect(violationCount, '위반 (0건이어야 함)').toBe(0);
