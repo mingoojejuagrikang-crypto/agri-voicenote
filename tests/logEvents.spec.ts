@@ -46,6 +46,8 @@ import {
   sheetSynced,
   sttCorrection,
   sttConfusionHint,
+  syncSummary,
+  sessionHealth,
 } from '../src/lib/logEvents';
 
 /** v0.51.1 L (민구 지시 2026-09-02) — 동기화 완료 계측. 예시는 STT 레인 §6 L의 형태 그대로. */
@@ -58,6 +60,43 @@ test('sheetSynced — 동기화 완료 바이트 계약 (L 신규 이벤트)', (
   // 탭 이름의 `,`·`=`는 extra 문법을 깨지 않게 %-이스케이프된다(escapeExtraValue 계약).
   expect(sheetSynced({ sheet: 'abcdefgh', tab: 'a,b=c', from: 5, to: 5, n: 1 }))
     .toBe('sheet_synced:sheet=abcdefgh,tab=a%2Cb%3Dc,rows=5-5,n=1');
+});
+
+/** v0.53.0 C13 (민구 Q4 ⓐ) — 시트 올리기 합계 바이트 계약 (신규 이벤트). */
+test('syncSummary — 시트 올리기 합계 바이트 계약 (C13 신규 이벤트)', () => {
+  expect(syncSummary({ ok: 1, failed: 0, rows: 2, updated: 1, fallback: 0 }))
+    .toBe('sync_summary:ok=1,failed=0,rows=2,updated=1,fallback=0');
+  expect(syncSummary({ ok: 0, failed: 2, rows: 0, updated: 0, fallback: 0 }))
+    .toBe('sync_summary:ok=0,failed=2,rows=0,updated=0,fallback=0');
+});
+
+/** v0.53.0 C1a (민구 Q2 ⓐ · Q3 ⓐ · Q6 ⓐ) — 세션 결산 바이트 계약 (신규 이벤트 · 09-16 세션 기대값). */
+test('sessionHealth — 세션 결산 바이트 계약 (C1a 신규 이벤트 · 09-16 세션 기대값)', () => {
+  expect(sessionHealth({
+    cells: 144,
+    reask: 28,
+    lowconf: 12,
+    alarm: '0/0',
+    sttErr: 3,
+    wakeFail: 3,
+    authSkip: 0,
+    corr: 'reask:27/19|direct_modify:8/8|rerecord:7/6|touch:3/3',
+    confQ: '3/2',
+    modMishear: 7,
+  })).toBe('session_health:cells=144,reask=28,lowconf=12,alarm=0/0,sttErr=3,wakeFail=3,authSkip=0,corr=reask:27/19|direct_modify:8/8|rerecord:7/6|touch:3/3,confQ=3/2,modMishear=7');
+
+  expect(sessionHealth({
+    cells: 10,
+    reask: 1,
+    lowconf: 2,
+    alarm: { fired: 2, confirmed: 1 },
+    sttErr: 0,
+    wakeFail: 0,
+    authSkip: 0,
+    corr: '-',
+    confQ: { asked: 1, hit: 1 },
+    modMishear: 0,
+  })).toBe('session_health:cells=10,reask=1,lowconf=2,alarm=2/1,sttErr=0,wakeFail=0,authSkip=0,corr=-,confQ=1/1,modMishear=0');
 });
 
 /** v0.51.1 B2 (제보② 2026-09-02) — atEnd 흡수. `cell_wait_absorb:<colId>`와 같은 꼴. */
