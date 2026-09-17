@@ -120,7 +120,7 @@ test('ⓒ 경계 검증 — wakeFail, authSkip, corr, confQ, modMishear, 세션 
     ts: 3.1,
     type: 'session',
     sessionId: SID,
-    extra: beepPlay({ kind: 'ready', result: 'played', ctx: 'running', gain: 1, tones: 1 }),
+    extra: beepPlay({ kind: 'alert', result: 'played', ctx: 'running', gain: 1, tones: 1 }),
   });
   tracker.onEntry({
     ts: 3.2,
@@ -392,5 +392,4 @@ test('R7 getSessionId 및 복원 세션 판별 검증', () => {
 test('S5 sessionHealthSummaryScreen 서로 다른 세 값 바이트 리터럴 단언', () => {
   expect(sessionHealthSummaryScreen(28, 36, 2)).toBe('이번 세션 · 다시 묻기 28 · 고친 칸 36 · 알람 2');
 });
-
 

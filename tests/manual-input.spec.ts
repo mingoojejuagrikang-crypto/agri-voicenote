@@ -555,6 +555,15 @@ test('v0.34.0 A1 — 수동 커밋 이상치: 팝업 보류 중 활성 칩 부�
   expect(fired?.extra).toContain('hold=1');
   expect(events.some((e) => e.type === 'command' && e.parsed === 'confirm' && e.extra === 'touch:manual_hold')).toBe(true);
   expect(events.some((e) => e.type === 'trend' && e.extra === 'trend_alert_confirmed')).toBe(true);
+
+  // v0.53.0 T1 (민구 Q8 ⓐ) — 종료 화면 인자 순서 잠금: alarm(fired) >= 1 이고 reask = 0 상태로 세션 종료 후 문구 글자 그대로 단언
+  await page.locator('button[title="입력 종료"]').click();
+  await page.locator('button[title="종료 확인"]').click();
+
+  const healthLine = page.locator('[data-testid="session-health-line"]');
+  await expect(healthLine, '종료 화면에 session-health-line이 표시되어야 한다').toBeVisible({ timeout: 15_000 });
+  const healthText = await healthLine.innerText();
+  expect(healthText).toBe('이번 세션 · 다시 묻기 0 · 고친 칸 0 · 알람 1');
 });
 
 // v0.34.0 코드리뷰 라운드1 회귀 — **manualHold 중 STT 하드 게이트**(3모델 전원 지적, 민구 결정
