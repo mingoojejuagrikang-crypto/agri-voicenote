@@ -8,6 +8,7 @@
 import { useSessionStore } from '../stores/sessionStore';
 import { computeTotalRows } from './autoValue';
 import { endAbsorb } from './logEvents';
+import { cellWaitPrompt } from './voicePrompts';
 import type { AwaitingField } from './useVoiceSession';
 import type { FinalValueGateDeps } from './useFinalValueGate';
 
@@ -15,6 +16,32 @@ export type AtEndAbsorbDeps = Pick<
   FinalValueGateDeps,
   'logCell' | 'rejectValue' | 'listEmptyRows' | 'buildEndReachedTts' | 'voiceColsList' | 'getSessionColumns'
 >;
+
+// v0.52 — **셀 검토 대기 흡수 본체**도 같은 이유로 여기 있다(게이트의 500줄 게이트 · 기능 변경 없음).
+//   게이트에는 가드 뼈대 한 줄만 남아 D·E 내로잉이 그대로다(위 atEnd 흡수와 같은 방식).
+//
+// 🔴 v0.49 fix49(리뷰 B-1) — 셀 검토 대기(값 있는 셀에 항목 이동으로 착지): 명령은 위에서
+//   이미 dispatch됐다. 여기 도달한 것은 일반 값 발화이므로 **커밋하지 않는다.** 이 흡수가
+//   없으면 `setRowValue`가 확정·저장된 값을 무조건 덮는다(커밋 지점에 셀 단위 게이트 없음).
+//   문구는 행 검토("N행은 완료된 행입니다")와 **다르다** — 여기서 행을 말하면 사용자는
+//   행이 끝난 줄 안다. 정정 진입로('수정')를 한 마디로 가르친다(H-2 — 길이 압력).
+export async function absorbCellWait(
+  awaiting: Extract<AwaitingField, { kind: 'cellWait' }>,
+  text: string,
+  deps: Pick<FinalValueGateDeps, 'logCell' | 'say'>,
+): Promise<void> {
+  useSessionStore.getState().setRecognized('');
+  useSessionStore.getState().setReaskReason(null); // Y6 — 위 atEnd 흡수와 같은 계약.
+  deps.logCell({
+    type: 'command', parsed: 'cell_wait_absorb',
+    extra: `cell_wait_absorb:${awaiting.colId}`, text,
+    row: awaiting.row, colId: awaiting.colId,
+  });
+  // ⚠️ 문구는 `cellWaitPrompt`(#9 SSOT — voicePrompts.ts)를 쓴다. 이 흡수 안내가 그 문장의
+  //   **의미상 원본**이지만, 여기 리터럴을 남겨 두면 「선언은 하나인데 사본이 있는」
+  //   [PAST-2] 형태가 된다. ([ENV-12] E1 — 선언은 handleFinal 안에서 voicePrompts로 올랐다.)
+  await deps.say(cellWaitPrompt(awaiting.name));
+}
 
 // v0.23.0 입력탭#4 — 마지막 행 종료 대기(atEnd): 명령(종료/수정/이동 등)은 위에서 이미 dispatch됐다.
 // 여기 도달한 것은 일반 값 발화이므로 새 행으로 커밋하지 않고 종료 안내만 재생한다(자동 종료 제거).

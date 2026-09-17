@@ -125,6 +125,17 @@ export async function saveSession(session: Session): Promise<void> {
   if (typeof failAfter === 'number' && sessionPutCount >= failAfter) {
     throw new Error('injected: session put failed (QuotaExceededError)');
   }
+  // 🔴 v0.52 P2-1(콜드 리뷰 R1 §5) — **「쓰지 않고 성공을 돌려주는」 seam.** 위 두 seam은 put을
+  //   *실패*시키므로 `persistSession`이 `false`를 돌려주고, 그러면 **반환값 감지기 하나만으로도**
+  //   durable 실패가 잡힌다 — 즉 IDB 되읽기 감지기(`settleModifyDurable` · `commitManualValue`의
+  //   hold 갈래)의 **단독 판별력을 잴 수단이 없었다**(리뷰 M4·M-P2b가 green인 이유).
+  //   Y1 헤더가 경계한 형상 — *"`persistSession`은 실을 것이 없거나 단조 가드에 걸리면 쓰지 않고
+  //   `true`를 돌린다"* — 의 최소 재현이 이것이다: **호출자에겐 성공, IDB엔 옛 값.**
+  //   ⚠️ `sessionPutCount`를 올리지 않는다 — 일어나지 않은 put이다(형제 seam의 순번 계약 불변).
+  //   운영 경로 비용은 형제 둘과 같은 분기 1회(기본 undefined).
+  if ((globalThis as typeof globalThis & { __survey011SwallowSessionPut?: boolean }).__survey011SwallowSessionPut) {
+    return;
+  }
   const db = await getDb();
   // pendingValidationPersisting은 동시 UI 게이트용 메모리 플래그다. sync가 저장 중 Session을
   // 재저장해도 이 플래그가 IDB에 박혀 reload 후 [확인]을 영구 차단하지 않도록 DB 경계에서 제거한다.

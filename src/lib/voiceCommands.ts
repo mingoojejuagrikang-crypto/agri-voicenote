@@ -31,6 +31,9 @@
  * 반드시 확인하라. (사용자가 「다음 행」처럼 띄어 말해도 detectCommand가 공백을 먼저 지우므로
  * '다음행'으로 정규화돼 동일하게 잡힌다.)
  */
+// 🔴 v0.52 — 유일한 import다. `voicePrompts.ts`는 import가 0개라 순환이 아니다(§5-3 판정 기준).
+//   반대 방향(`voicePrompts` → 여기)도 없다. `koreanNum.ts`가 이 파일을 읽으므로 그쪽은 계속 금지다.
+import { formatNameForTts } from './voicePrompts';
 
 export type VoiceCommand =
   | 'modify'
@@ -140,6 +143,27 @@ export interface CommandSpec {
    */
   preservesAlert?: boolean;
   /**
+   * 🔴 v0.52 P1-1 — **`awaiting`이 「값을 기다리는 칸」일 때만 뜻이 서는 명령.**
+   *
+   * 이 넷은 dispatch switch에서 **`awaiting`을 인자로 받는다**(`cmdModify(a, text)`·`cmdCancel(a)`·
+   * `cmdKeep(a)`·`cmdConfirm(a)`) — 대상이 「그 칸의 값」이라는 뜻이다. `awaiting`이 칸이 아니라
+   * **질문**인 국면(`modifyColumnConfirm`)에서 그대로 dispatch하면 없는 대상의 좌표를 추측한다.
+   * 실측(09-03 프로브 P1A · 2행 검토 대기에서 「수정 수확량」으로 질문을 세운 뒤):
+   *   · 「수정」     → **1행** m2가 지워지고 그 행이 `completedRows`에서 빠졌다(다른 행 · 미완료 강등)
+   *   · 「수정 41.4」→ **1행** m2가 41.4로 **덮어써졌다**(리뷰 6낱말 표에 없던 축 — 소거보다 나쁘다)
+   *   · 「유지」     → 답하지 않은 행이 완주·전진했다(「조사나무 2 완료. 조사나무 3.」)
+   *   · 「확인」·「취소」→ 파괴는 없으나 질문을 켜 둔 채 「{항목} 말씀해 주세요」라는 **실행 불가능한
+   *     지시**를 낸다(r7 #4·Y5가 「꼬리는 국면이 정한다」로 닫은 그 형태).
+   *
+   * 👉 `resolveFinal`이 이 플래그를 보고 질문 국면에서는 **답변 게이트**로 보낸다. 설계 의도와도
+   *    같다 — `sttConfusionRuntime.RELISTEN`이 이미 `'수정'`을 「그게 아니다」 어휘로 등재했고
+   *    `modifyColumnConfirm.parseModifyColumnAnswer`가 그 표를 취소 판정에 쓴다.
+   * ⚠️ 판정을 resolver의 id 리터럴로 두지 않는 근거는 `preservesAlert`와 같다(fix49b #15):
+   *    선언과 계약이 붙어 있어야 명령이 늘 때 이 축이 함께 검토된다. 오라클은
+   *    `tests/voiceFinalResolver.spec.ts`의 **13종 전수표**다.
+   */
+  cellScoped?: boolean;
+  /**
    * 🔴 v0.51 P2-2 (민구 요청 08-31) — **같은 동작을 손으로 하는 방법.**
    *
    * 민구 원문의 문제: *"말로 되는 건지 손으로 해야 하는 건지 화면만 봐서는 모른다."*
@@ -200,6 +224,11 @@ export function preservesAnomalyAlert(cmd: VoiceCommand): boolean {
   return cmd != null && (VOICE_COMMANDS.find((c) => c.id === cmd)?.preservesAlert ?? false);
 }
 
+/** 이 명령이 「`awaiting` 칸의 값」을 대상으로 하는가 — 질문 국면에서는 명령이 아니라 **답**이다. */
+export function isCellScopedCommand(cmd: VoiceCommand): boolean {
+  return cmd != null && (VOICE_COMMANDS.find((c) => c.id === cmd)?.cellScoped ?? false);
+}
+
 /** v0.51.1 R5 — 발화가 그 명령의 `word`와 **정확히 일치**하는가(`minConfidenceExact` 분기 판정).
  *  정규화는 `detectCommand`(koreanNum.ts)와 같다: 공백·`.`·`,`만 지운다 — 「수정.」은 정확 일치,
  *  「수정해줘」·「178.1 수정」은 modify지만 정확 일치가 아니다(종전 floor). */
@@ -210,7 +239,7 @@ export function isExactCommandUtterance(raw: string, cmd: VoiceCommand): boolean
 }
 
 export const VOICE_COMMANDS: CommandSpec[] = [
-  { id: 'modify',  word: '수정',     display: '수정',     desc: '직전에 입력한 값을 고칩니다',      primary: true, minConfidence: 0.55, minConfidenceExact: 0.4 },
+  { id: 'modify',  word: '수정',     display: '수정',     desc: '직전에 입력한 값을 고칩니다',      primary: true, minConfidence: 0.55, minConfidenceExact: 0.4, cellScoped: true },
   // 🔴 v0.49 F-1 (민구 결정 2026-08-12) — **어휘 재배정**. 결정 계보를 지우지 말 것:
   //   · v0.33.0 백로그 A(민구 결정 1·3): '이전'=prevRow / '다음'=nextRow, 즉 **둘 다 행 이동**이었다.
   //     ('이전'은 버튼과 동일한 단순 행 이동 — v0.4.5 I3의 재입력 모드는 그때 폐지됐다.)
@@ -229,13 +258,13 @@ export const VOICE_COMMANDS: CommandSpec[] = [
   { id: 'nextField', word: '다음',   display: '다음',     desc: '값 입력 없이 바로 뒤 항목으로 건너뜁니다', preservesAlert: true },
   { id: 'prevRow', word: '이전행',   display: '이전행',   desc: '이전 행으로 이동합니다 (완료된 행은 값을 읽어주고 대기)', touch: '‹' },
   { id: 'nextRow', word: '다음행',   display: '다음행',   desc: '다음 행으로 넘어갑니다 (입력 중이던 행은 빈 행으로 남아 데이터 탭에서 채울 수 있어요)', primary: true, touch: '›' },
-  { id: 'cancel',  word: '취소',     display: '취소',     desc: '현재 인식된 값을 지웁니다' },
-  { id: 'keep',    word: '유지',     display: '유지',     desc: '현재 항목의 값을 그대로 두고 다음으로 넘어갑니다' },
+  { id: 'cancel',  word: '취소',     display: '취소',     desc: '현재 인식된 값을 지웁니다', cellScoped: true },
+  { id: 'keep',    word: '유지',     display: '유지',     desc: '현재 항목의 값을 그대로 두고 다음으로 넘어갑니다', cellScoped: true },
   // v0.7.0 B4: 추세 검증 알림의 확인 응답("확인해주세요" → "확인"). 알림 상태 밖에서는 짧은
   // 재안내만 한다(useVoiceSession). prefix 불변식 검증: 기존 단어(수정·이전·다음·취소·유지·
   // 일시정지·재시작·종료) 어느 것과도 서로 prefix 관계가 아니다. (v0.49 F-1: 최장 일치 체계로
   // 바뀐 뒤에도 '확인'은 접두 쌍 2개 어디에도 끼지 않는다 — 위 헤더 주석의 계수와 일치.)
-  { id: 'confirm', word: '확인',     display: '확인',     desc: '추세 알림에서 방금 입력한 값을 그대로 확정합니다', touch: '✓' },
+  { id: 'confirm', word: '확인',     display: '확인',     desc: '추세 알림에서 방금 입력한 값을 그대로 확정합니다', touch: '✓', cellScoped: true },
   { id: 'pause',   word: '일시정지', display: '일시정지', desc: '입력을 잠시 멈춥니다',            primary: true, touch: '⏸' },
   { id: 'resume',  word: '재시작',   display: '재시작',   desc: '멈춘 입력을 다시 시작합니다',      primary: true, touch: '⏸' },
   { id: 'end',     word: '종료',     display: '종료',     desc: '입력을 끝내고 저장합니다',        primary: true, touch: '종료', touchNote: '말로는 1단계까지 — 확정은 ✓ 버튼' },
@@ -293,44 +322,160 @@ export const PRIMARY_COMMANDS = VOICE_COMMANDS.filter((c) => c.primary);
 const MODIFY_COL_PARTICLES = ['으로', '로', '을', '를', '은', '는', '이', '가', '에', '의', '만'];
 
 /** v0.34.0 A3 — "수정 <컬럼명>" 파서. 완료 행 검토 대기(reviewWait) 스코프에서 특정 컬럼을 지목해
- *  수정 진입할 때 쓴다("수정 초장" → '초장'). 규칙:
- *   - 정규화: 공백 전부 제거(STT가 '초장'을 '초 장'으로 쪼개는 변형 대응) 후 '수정' 전치/후치 제거.
+ *  수정 진입할 때 쓴다("수정 초장" → '초장').
+ *
+ *  🔴 **v0.52 민구 결정(09-03) — 「괄호 앞 이름으로 매칭한다」.** 09-02 회차가 TTS에서 괄호를
+ *  벗기면서(`formatNameForTts`) 앱은 `종경(mm)`을 **「종경」이라고 가르친다.** 그런데 매칭은
+ *  원문 완전일치라 사용자가 들은 대로 「수정 종경」이라고 말하면 지목이 **구조적으로 불가능**했고
+ *  (STT는 괄호를 절대 출력하지 않는다), 실측 귀결은 「지목 실패」가 아니라 **두 칸 소거 + 엉뚱한
+ *  칸 열기**였다(콜드 리뷰 §4 P1②). 그래서 후보 키를 **둘**로 든다:
+ *    · `raw`    = 원문 공백 제거          — 종전 계약(더 구체적인 발화라 그대로 산다)
+ *    · `spoken` = `formatNameForTts` 공백 제거 — **앱이 실제로 가르친 이름**
+ *  괄호 없는 열은 둘이 같으므로 종전 동작이 **그대로 포함**된다.
+ *
+ *  규칙:
+ *   - 정규화: 공백·`.`·`,` 제거(STT가 '초장'을 '초 장'으로 쪼개는 변형 대응) 후 '수정' 전치/후치 제거.
  *   - 매칭(v0.34.0 리뷰 Codex High·agy 공통 — 오지목=시트 오염이므로 보수적으로):
- *     ① **완전 일치** 우선. ② 없으면 **컬럼명 + 허용 조사**(MODIFY_COL_PARTICLES)만 인정.
- *     임의 접미사는 불허 — '횡경'만 있을 때 "수정 횡경도"는 매치 실패(null)로 떨어진다.
- *   - **모호하면 거부(null)**: 같은 이름의 컬럼이 둘 이상이면(시트 중복 헤더 — sheets.ts는
- *     occurrence별 다른 id를 부여) 어느 쪽인지 결정할 수 없으므로 지목하지 않는다. 호출자가
- *     첫 동명 컬럼을 잡아 엉뚱한 셀을 지우던 경로를 차단.
- *   - **숫자값 추출(extractModifyValue)과 상호배타** — 호출자는 값 추출이 null일 때만 이 함수를
- *     시도한다(컬럼명이 숫자로 파싱될 일은 없지만, 우선순위를 값>컬럼명으로 고정하는 계약).
- *  reviewWait 밖에서는 호출하지 않는다(일반 수정 의미론 불변). */
-export function extractModifyColumn(text: string, colNames: string[]): string | null {
+ *     ① **완전 일치**(raw 또는 spoken) 우선. ② 없으면 **이름 + 허용 조사**(MODIFY_COL_PARTICLES)만
+ *     인정하며 **가장 긴 키**가 이긴다(접두 섀도잉 방지). 임의 접미사는 불허 — '횡경'만 있을 때
+ *     "수정 횡경도"는 매치 실패로 떨어진다.
+ *   - **모호하면 지목하지 않는다**: 같은 티어에서 후보가 둘 이상이면 `'ambiguous'`다. 여기 들어오는
+ *     것은 ⓐ 동명 컬럼(시트 중복 헤더 — sheets.ts는 occurrence별 다른 id를 부여) ⓑ **축약형이 같은
+ *     서로 다른 열**(`수확량(1차)`·`수확량(2차)` — 콜드 리뷰 §3 P2). 둘은 사용자에게 같은 문제다:
+ *     귀로 들은 이름이 두 칸을 가리킨다. 호출자가 확인 질문으로 가르거나(민구 결정) 지목을 포기한다 —
+ *     어느 쪽이든 **셀을 지우지 않는 것이 계약이다.**
+ *   - **숫자값 추출(extractModifyValue)과 상호배타** — 호출자는 컬럼명 매치를 먼저 확인한다.
+ *  reviewWait/atEnd/cellWait 밖에서는 호출하지 않는다(일반 수정 의미론 불변). */
+/** 🔑 **후보는 «인덱스»다.** 이름으로 돌려주면 시트 중복 헤더(동명 컬럼 2개)에서 두 후보가 같은
+ *  문자열이 되어 서로를 가리킬 수 없다 — 확인 질문의 「첫 번째/두 번째」가 성립하지 않는다.
+ *  인덱스는 `colNames`(= `voiceColsList()`) 순서, 곧 **시트 열 순서**다(민구 09-03: 「첫 번째」의 정의).
+ *  `spoken`은 정규화된 발화 이름 — 질문 문구가 그대로 쓴다. */
+export type ModifyColumnMatch =
+  | { kind: 'match'; name: string; index: number }
+  | { kind: 'ambiguous'; names: string[]; indices: number[]; spoken: string }
+  | null;
+
+export function matchModifyColumn(text: string, colNames: string[]): ModifyColumnMatch {
   const norm = text.replace(/[\s.,]+/g, '');
   let rest: string | null = null;
   if (norm.startsWith('수정')) rest = norm.slice(2);
   else if (norm.endsWith('수정')) rest = norm.slice(0, -2);
   if (!rest) return null;
   const target = rest;
-  const norms = colNames.map((name) => ({ name, n: name.replace(/\s+/g, '') })).filter((c) => c.n);
-  // 동명 컬럼이 둘 이상이면 어느 것도 지목하지 않는다(모호 → 거부).
-  const isDuplicated = (n: string) => norms.filter((c) => c.n === n).length > 1;
+  const cands = colNames
+    .map((name, index) => ({
+      name, index,
+      raw: name.replace(/\s+/g, ''),
+      spoken: formatNameForTts(name).replace(/\s+/g, ''),
+    }))
+    .filter((c) => c.raw);
+  const verdict = (hits: { name: string; index: number }[]): ModifyColumnMatch =>
+    hits.length === 1
+      ? { kind: 'match', name: hits[0].name, index: hits[0].index }
+      : { kind: 'ambiguous', names: hits.map((h) => h.name), indices: hits.map((h) => h.index), spoken: target };
 
-  // ① 완전 일치.
-  const exact = norms.filter((c) => c.n === target);
-  if (exact.length === 1) return exact[0].name;
-  if (exact.length > 1) return null; // 중복 헤더 — 모호
+  // ① 완전 일치 — raw·spoken 합집합(한 컬럼이 두 키로 걸려도 한 번만 센다).
+  const exact = cands.filter((c) => c.raw === target || c.spoken === target);
+  if (exact.length > 0) return verdict(exact);
 
-  // ② 컬럼명 + 허용 조사. 후보가 여럿이면 가장 긴 컬럼명(접두 섀도잉 방지), 그래도 동명 중복이면 거부.
-  let best: string | null = null;
+  // ② 이름 + 허용 조사. 가장 긴 키가 이긴다(접두 섀도잉 방지). 같은 길이가 둘이면 모호다.
   let bestLen = 0;
-  for (const { name, n } of norms) {
-    if (!target.startsWith(n)) continue;
-    const tail = target.slice(n.length);
-    if (!MODIFY_COL_PARTICLES.includes(tail)) continue; // 임의 접미사 불허
-    if (n.length > bestLen) {
-      best = isDuplicated(n) ? null : name;
-      bestLen = n.length;
+  let best: { name: string; index: number }[] = [];
+  for (const c of cands) {
+    for (const key of [c.raw, c.spoken]) {
+      if (!key || !target.startsWith(key)) continue;
+      if (!MODIFY_COL_PARTICLES.includes(target.slice(key.length))) continue;
+      if (key.length > bestLen) { bestLen = key.length; best = [c]; }
+      else if (key.length === bestLen) best.push(c);
+      break; // 이 컬럼은 이미 셌다
     }
   }
-  return best;
+  if (best.length > 0) return verdict(best);
+  return null;
+}
+
+/** 종전 시그니처 — 모호는 종전과 같이 `null`이다(오지목 금지 계약 불변). */
+export function extractModifyColumn(text: string, colNames: string[]): string | null {
+  const m = matchModifyColumn(text, colNames);
+  return m?.kind === 'match' ? m.name : null;
+}
+
+/** 「수정」의 **타깃 해석** — `useFinalCommands`의 `cmdModify`에서 그대로 옮긴 순수 함수다.
+ *
+ *  왜 옮겼나: `useFinalCommands.ts`가 **정확히 500줄**(GL-006 §5 상한)이라 이 블록에 한 줄도
+ *  더할 수 없었다. 형제 선례(`finalValueGateAbsorb.ts`·`finalValueGateConfusion.ts`)와 같은
+ *  처방이고, 순수 결정이라 훅 밖으로 나가는 것이 오히려 제자리다 —
+ *  `extractModifyColumn`(같은 파일)이 이 결정의 핵심 부품이다.
+ *
+ *  ⚠️ **값 추출은 호출자가 한다.** `extractModifyValue`는 `koreanNum.ts`에 있고 그 파일이 이
+ *  파일을 import하므로(명령 표가 SSOT), 여기서 되짚으면 **순환**이다. 그래서 결과만 받는다.
+ *
+ *  규칙(이동 전과 바이트 동일):
+ *   - 검토 대기 3종(`reviewWait`·`atEnd`·`cellWait`) **밖에서는 아무것도 하지 않는다** —
+ *     일반 수정 의미론(직전 필드·값 추출)은 불변이다.
+ *   - 컬럼명 지목이 성공하면 그 컬럼이 타깃이고 값 후보는 **버린다**(`'종경'` 같은 비숫자
+ *     잔여가 값으로 오적용되면 안 된다).
+ *   - 지목이 없으면 `reviewWait`/`cellWait`은 포인터 컬럼을 타깃으로 예약하고, `atEnd`는
+ *     예약을 만들지 않는다(센티넬이 이미 가리킨다).
+ */
+export interface ModifyReviewTarget {
+  row: number;
+  idx: number;
+  land?: 'review' | 'cell';
+  /** 🔴 v0.52 민구 결정(09-03) — 「**한 칸만** 지목한다」. 캐스케이드 소거를 이 칸 하나로 묶는다.
+   *  종전엔 `land==='cell'`만 한 칸이었고 `reviewWait` 지목은 **그 열부터 행 끝까지** 지웠다 —
+   *  실 시트 표본 7열에서 「수정 과중」은 과중·과피중·과피두께·당도·적정 **다섯 칸**을 지운다
+   *  (프로덕션 시트는 종경이 마지막 열이라 우연히 한 칸이었을 뿐이다). */
+  single?: true;
+}
+
+/** 검토 대기 3종 중 어디서 온 「수정」인가 — 지목·값 둘 다 실패했을 때 **캐스케이드 소거 대신**
+ *  그 국면의 대기 문구로 되돌리기 위한 표지다(민구 결정: 어느 셀도 지워지지 않아야 한다). */
+export type ModifyGuardKind = 'reviewWait' | 'atEnd' | 'cellWait';
+
+export function resolveModifyTarget(input: {
+  kind: string;
+  row: number;
+  colId: string;
+  /** 음성 컬럼 목록(순서 = 인덱스 축). */
+  voiceCols: readonly { id: string; name: string }[];
+  utterance: string;
+  /** `extractModifyValue(utterance)`의 결과 — 위 ⚠️ 참조. */
+  modifyVal: string | null;
+}): {
+  modifyVal: string | null;
+  reviewTarget?: ModifyReviewTarget;
+  /** 검토 대기 3종에서 왔다는 표지(비파괴 착지 조건). 그 밖이면 `undefined`. */
+  guardKind?: ModifyGuardKind;
+  /** 축약형이 같은 열이 둘 이상이라 지목하지 않았다 — 판독용(동작은 미매칭과 같다). */
+  /** 축약형이 같은 열이 둘 이상이라 지목하지 않았다 — 확인 질문의 원료(후보는 **colId**,
+   *  순서는 시트 열 순서)이자 판독용 로그. */
+  ambiguous?: { spoken: string; names: string[]; colIds: string[] };
+} {
+  const { kind, row, colId, voiceCols, utterance } = input;
+  let modifyVal = input.modifyVal;
+  if (kind !== 'reviewWait' && kind !== 'atEnd' && kind !== 'cellWait') return { modifyVal };
+  const guardKind = kind as ModifyGuardKind;
+  const idxOfAwaiting = Math.max(0, voiceCols.findIndex((c) => c.id === colId));
+  const named = matchModifyColumn(utterance, voiceCols.map((c) => c.name));
+  // 🔴 v0.49 fix49 — 셀 검토 대기(cellWait)의 '수정'은 **그 셀**이 타깃이다. 기본 규칙
+  //   (`curIdx - 1` = 직전 컬럼)에 맡기면 엉뚱한 셀을 열고, 0번 항목에서는 `targetIdx < 0`
+  //   분기로 떨어져 값을 지운 뒤 재질문하며 직접값까지 버린다(실측 — _ASK-fix49 Q2).
+  //   컬럼명 지목("수정 종경")은 reviewWait과 같은 규칙을 그대로 물려받는다.
+  const land = kind === 'cellWait' ? 'cell' as const : 'review' as const;
+  if (named?.kind === 'match') {
+    modifyVal = null; // 컬럼명 지목 — 값 후보('종경' 등 비숫자 잔여)로 오적용 금지
+    return { modifyVal, reviewTarget: { row, idx: named.index, land, single: true }, guardKind };
+  }
+  // 모호 — 지목하지 않는다. 🔴 **값 후보는 그대로 남긴다.** 여기서 null로 지우면 bare 「수정」과
+  //   구별이 사라져 호출부가 **캐스케이드 재기록**(= 소거)으로 간다 — 민구가 🔴로 금지한 그 결과다.
+  //   남겨 두면 `parseValueForCol`이 실패하고 `guardKind`가 서 있으므로 호출부가 **비파괴 착지**로
+  //   보낸다(미매칭과 완전히 같은 경로 — 사용자에게도 같은 사건이다).
+  const ambiguous = named?.kind === 'ambiguous'
+    ? { spoken: named.spoken, names: named.names, colIds: named.indices.map((i) => voiceCols[i].id) }
+    : undefined;
+  if (kind === 'reviewWait' || kind === 'cellWait') {
+    return { modifyVal, reviewTarget: { row, idx: idxOfAwaiting, land }, guardKind, ...(ambiguous ? { ambiguous } : {}) };
+  }
+  return { modifyVal, guardKind, ...(ambiguous ? { ambiguous } : {}) };
 }
