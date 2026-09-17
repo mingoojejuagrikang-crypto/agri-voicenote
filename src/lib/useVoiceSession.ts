@@ -34,6 +34,7 @@ import {
   // v0.51.1 B1 — 음성 열 0개 구성의 세션 시작 차단(제보①).
   sessionStartBlocked,
   sessionHealth,
+  sessionHealthSkip,
 } from './logEvents';
 import { shouldKeepInBackground, LONG_BACKGROUND_OFF_MS } from './backgroundSessionPolicy';
 import { requestNotifyPermissionOnce, showBackgroundOffNotification } from './backgroundNotify';
@@ -54,7 +55,7 @@ import { getAudioSessionEventCount } from './audioInterruption';
 import { useClipFailureAlert } from './useClipFailureAlert';
 import { useMicInterruptionNotice } from './useMicInterruptionNotice';
 import { clipFailSummaryScreen, clipUnreliableSummaryScreen, sessionHealthSummaryScreen } from './voicePrompts';
-import { resetSessionHealth, summarySessionHealth, getSessionHealthScreenValues } from './sessionHealth';
+import { resetSessionHealth, summarySessionHealth, getSessionHealthScreenValues, getSessionHealthSessionId } from './sessionHealth';
 // [ENV-12] Stage 3 — 세션 영속화(persistSession)는 usePersistSession이 소유한다(이 파일은 호출만).
 import { usePersistSession } from './usePersistSession';
 // [ENV-12] Stage 3 — 행 이동 계열 내비게이션은 useRowNav가, 항목 한 칸 이동(F-1)은 useFieldNav가
@@ -3040,18 +3041,25 @@ export function useVoiceSession() {
     //   복구 기회 소멸). v0.34.0 "durable 실패를 삼키지 않는다" 원칙과 정면 충돌 → 실패면 ready 미전환.
     const durable = await persistSession();
     // v0.53.0 A (민구 Q1 ⓐ · Q3 ⓐ, Larry 답 1 확정) — 세션 결산 이벤트 + 화면 요약 한 줄
+    // v0.53.0 R7 (민구 Q7 ⓐ 확정) — 새로고침 복원 세션 판별: 트래커 세션 id ≠ sessionIdRef.current 이면 skip
     {
-      const savedSession = useDataStore.getState().sessions.find((s) => s.id === sessionIdRef.current);
-      const healthSummary = summarySessionHealth(savedSession);
-      logCell({ type: 'session', extra: sessionHealth(healthSummary) });
-      const healthScreenValues = getSessionHealthScreenValues();
-      useSessionStore.getState().setSessionHealthLine(
-        sessionHealthSummaryScreen(
-          healthScreenValues.reask,
-          healthScreenValues.correctedCells,
-          healthScreenValues.alarmFired,
-        ),
-      );
+      const trackerSessionId = getSessionHealthSessionId();
+      if (trackerSessionId !== sessionIdRef.current) {
+        logCell({ type: 'session', extra: sessionHealthSkip({ reason: 'restored' }) });
+        useSessionStore.getState().setSessionHealthLine(null);
+      } else {
+        const savedSession = useDataStore.getState().sessions.find((s) => s.id === sessionIdRef.current);
+        const healthSummary = summarySessionHealth(savedSession);
+        logCell({ type: 'session', extra: sessionHealth(healthSummary) });
+        const healthScreenValues = getSessionHealthScreenValues();
+        useSessionStore.getState().setSessionHealthLine(
+          sessionHealthSummaryScreen(
+            healthScreenValues.reask,
+            healthScreenValues.correctedCells,
+            healthScreenValues.alarmFired,
+          ),
+        );
+      }
     }
     if (!durable) {
       // stopping을 유지해 '음성 입력 시작' 버튼과 모든 세션 컨트롤을 띄우지 않는다

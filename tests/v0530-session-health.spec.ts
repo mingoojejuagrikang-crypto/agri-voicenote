@@ -82,3 +82,5 @@ test('session_health — 세션 종료 시 정확히 1줄 방출 · 종료 화�
   await expect(page.locator('[data-testid="voice-active-state"]').first()).toBeVisible({ timeout: 10_000 });
   await expect(healthLine, '새 세션이 시작되면 session-health-line이 사라져야 한다').not.toBeVisible();
 });
+
+

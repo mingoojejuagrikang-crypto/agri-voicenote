@@ -48,6 +48,7 @@ import {
   sttConfusionHint,
   syncSummary,
   sessionHealth,
+  sessionHealthSkip,
 } from '../src/lib/logEvents';
 
 /** v0.51.1 L (민구 지시 2026-09-02) — 동기화 완료 계측. 예시는 STT 레인 §6 L의 형태 그대로. */
@@ -64,6 +65,8 @@ test('sheetSynced — 동기화 완료 바이트 계약 (L 신규 이벤트)', (
 
 /** v0.53.0 C13 (민구 Q4 ⓐ) — 시트 올리기 합계 바이트 계약 (신규 이벤트). */
 test('syncSummary — 시트 올리기 합계 바이트 계약 (C13 신규 이벤트)', () => {
+  expect(syncSummary({ ok: 11, failed: 2, rows: 33, updated: 4, fallback: 5 }))
+    .toBe('sync_summary:ok=11,failed=2,rows=33,updated=4,fallback=5');
   expect(syncSummary({ ok: 1, failed: 0, rows: 2, updated: 1, fallback: 0 }))
     .toBe('sync_summary:ok=1,failed=0,rows=2,updated=1,fallback=0');
   expect(syncSummary({ ok: 0, failed: 2, rows: 0, updated: 0, fallback: 0 }))
@@ -97,6 +100,12 @@ test('sessionHealth — 세션 결산 바이트 계약 (C1a 신규 이벤트 · 
     confQ: { asked: 1, hit: 1 },
     modMishear: 0,
   })).toBe('session_health:cells=10,reask=1,lowconf=2,alarm=2/1,sttErr=0,wakeFail=0,authSkip=0,corr=-,confQ=1/1,modMishear=0');
+});
+
+/** v0.53.0 R7 (민구 Q7 ⓐ) — 세션 결산 생략 바이트 계약 (신규 이벤트). */
+test('sessionHealthSkip — 세션 결산 생략 바이트 계약 (R7 신규 이벤트)', () => {
+  expect(sessionHealthSkip({ reason: 'restored' }))
+    .toBe('session_health_skip:reason=restored');
 });
 
 /** v0.51.1 B2 (제보② 2026-09-02) — atEnd 흡수. `cell_wait_absorb:<colId>`와 같은 꼴. */

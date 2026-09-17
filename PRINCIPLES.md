@@ -104,7 +104,7 @@
   - **신규 이벤트 ⑦·⑧(v0.53.0 · 2026-09-17):** `session_health` · `sync_summary` — 둘 다 신규 `LogEntry.type` 없이 기존 `type:'session'` / `type:'app'`의 `extra` 접두로 방출한다(log-replay 호환).
     형태(바이트 고정 · 빌더 `logEventsSession.ts` · 리터럴 `tests/logEvents.spec.ts`):
     `session_health:cells=<n>,reask=<n>,lowconf=<n>,alarm=<fired>/<confirmed>,sttErr=<n>,wakeFail=<n>,authSkip=<n>,corr=<…>,confQ=<asked>/<hit>,modMishear=<n>`
-    (세션 종료 `stop()` 시점 persistSession 직후 정확히 1건 · 순수 모듈 `sessionHealth.ts` 집계 · 종료 화면 `session-health-line` 문구 동봉) ·
+    (세션 종료 `stop()` 시점 persistSession 직후 정확히 1건 · 순수 모듈 `sessionHealth.ts` 집계 · 종료 화면 `session-health-line` 문구 동봉 · 단 새로고침 복원 등으로 트래커 세션 ID 불일치 시 `session_health_skip:reason=restored` 방출 및 화면 요약 생략) ·
     `sync_summary:ok=<report.ok>,failed=<report.failed>,rows=<report.rows>,updated=<report.updatedRows>,fallback=<report.fallbackAppended>`
     (시트 동기화 `syncSelected()` 완료 시점 명시적 `sessionId:'__app__'` 귀속으로 정확히 1건 방출).
   - 목록에 없는 이벤트는 **바이트 불변**이다. 확장이 필요하면 필드를 늘리지 말고 **새 이벤트

@@ -4,14 +4,14 @@
  * ⓐ 빌더가 있는 접두: lowConfidenceParsed, sttCorrection, sttConfusionHint의 실제 빌더 출력을 onEntry에 공급.
  * ⓑ 빌더가 없는 접두: 방출처 소스 파일에 그 문자열이 있는지 fs.readFileSync로 단언 + 그 리터럴로 카운트.
  * ⓒ 필드별 경계:
- *   - wakeFail: wake_lock과 result=failed 포함 매칭
+ *   - wakeFail: wake_lock과 result=failed 포함 매칭 (앞머리가 wake_lock이 아니어도 매칭)
  *   - authSkip: sessionId 일치 + __app__ + '' 포함
  *   - corr: 고정 순서(reask -> direct_modify -> rerecord -> touch -> confusion), 0 생략, 전부 0이면 '-'
- *   - confQ: asked=0 제외, 분자 2가지 조건 (첫 parsed != finalValue && finalValue in cands)
+ *   - confQ: asked=0 제외, 분자 2가지 조건 (첫 parsed != finalValue && finalValue in cands), 0이어도 '0/0'
  *   - modMishear: 정규식 매칭 (일치 1건, 불일치 1건)
  *   - 다른 세션 id는 무시
  *   - reset(newId) 호출 시 0 리셋
- *   - 09-16 세션 기대값 및 getScreenValues 검증
+ *   - 합성 기대값 및 getScreenValues 검증 (실데이터 대조는 Larry가 판 밖에서 5/5 일치 확인)
  */
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
@@ -25,6 +25,7 @@ import {
   lowConfidenceParsed,
   sttCorrection,
   sttConfusionHint,
+  sessionHealth,
 } from '../src/lib/logEvents';
 
 const ROOT = process.cwd();
@@ -38,13 +39,15 @@ test('[node] ⓪-게이트 이 오라클이 릴리스 게이트 목록에 등재
 });
 
 test('ⓑ 방출처 소스 파일 오라클 잠금 — 소스 변경 시 red', () => {
-  // 1. beep_play:kind=reject (logEventsAudio.ts의 beepPlay builder 및 useFinalCommands.ts 주석/beep.ts)
+  // 1. beep_play:kind=reject (logEventsAudio.ts:275 빌더 출력 리터럴 순서: kind가 첫 필드)
   const audioSrc = readFileSync(resolve(ROOT, 'src/lib/logEventsAudio.ts'), 'utf-8');
-  expect(audioSrc).toContain('beep_play:');
-  expect(audioSrc).toContain('kind: fields.kind');
+  expect(audioSrc).toMatch(/`beep_play:\$\{kv\(\{\s*kind:\s*fields\.kind,/);
+  const beepSrc = readFileSync(resolve(ROOT, 'src/lib/beep.ts'), 'utf-8');
+  expect(beepSrc).toContain('extra: beepPlay({ kind, ...outcome })');
 
-  // 2. lifecycle:error: (speech.ts:367 `error:${err}`)
+  // 2. lifecycle:error: (speech.ts:175 접두 생성 + speech.ts:367 error:${err})
   const speechSrc = readFileSync(resolve(ROOT, 'src/lib/speech.ts'), 'utf-8');
+  expect(speechSrc).toContain("extra: `lifecycle:${kind}`");
   expect(speechSrc).toContain("this.logLifecycle(`error:${err}`, true)");
 
   // 3. wake_lock ... result=failed (wakeLock.ts:48 logRelease & logEventsAudio.ts:169 wakeLockEvent)
@@ -70,10 +73,10 @@ test('ⓐ 빌더 출력 공급 및 카운터 동작 검증', () => {
   const SID = 'sess_test_1';
   tracker.reset(SID);
 
-  // lowConfidenceParsed
+  // lowConfidenceParsed: 실제 시그니처 객체 전달
   tracker.onEntry({
     ts: 1, type: 'value', sessionId: SID, row: 1, colId: 'm1', parsed: '10.5',
-    extra: lowConfidenceParsed(0.42),
+    extra: lowConfidenceParsed({ conf: 0.42, minConf: 0.6, tolerance: 3, via: 'primary' }),
   });
 
   // sttCorrection
@@ -105,67 +108,116 @@ test('ⓒ 경계 검증 — wakeFail, authSkip, corr, confQ, modMishear, 세션 
   const SID = 'sess_bound';
   tracker.reset(SID);
 
-  // 1. wakeFail 포함 매칭 검증
-  tracker.onEntry({ ts: 1, type: 'session', sessionId: SID, extra: 'wake_lock:action=acquire,result=failed,reason=NotAllowedError' });
-  tracker.onEntry({ ts: 2, type: 'session', sessionId: SID, extra: 'wake_lock:action=reacquire,result=ok' }); // failed 없음
-  tracker.onEntry({ ts: 3, type: 'session', sessionId: SID, extra: 'other_event:result=failed' }); // wake_lock 없음
+  // 1. wakeFail: 포함 매칭 (앞머리가 wake_lock이 아니어도 매칭)
+  tracker.onEntry({ ts: 1, type: 'session', sessionId: SID, extra: 'custom_prefix:wake_lock:action=acquire,result=failed,reason=NotAllowedError' });
+  tracker.onEntry({ ts: 2, type: 'session', sessionId: SID, extra: 'wake_lock:action=reacquire,result=ok' }); // failed 없음 -> 미카운트
+  tracker.onEntry({ ts: 3, type: 'session', sessionId: SID, extra: 'other_event:result=failed' }); // wake_lock 없음 -> 미카운트
 
-  // 2. authSkip: SID, __app__, '', 다른 세션 ID
-  tracker.onEntry({ ts: 4, type: 'app', sessionId: SID, extra: 'past_index_skip:not_signed_in' });
-  tracker.onEntry({ ts: 5, type: 'app', sessionId: '__app__', extra: 'past_index_skip:not_signed_in' });
-  tracker.onEntry({ ts: 6, type: 'app', sessionId: '', extra: 'past_index_skip:not_signed_in' });
-  tracker.onEntry({ ts: 7, type: 'app', sessionId: 'sess_other', extra: 'past_index_skip:not_signed_in' }); // 다른 세션 ID -> 카운트 안 함
+  // 2. lowconf: type!=='value'인 low_conf_parsed 이벤트는 안 센다
+  tracker.onEntry({ ts: 4, type: 'stt', sessionId: SID, extra: 'low_conf_parsed:conf=0.4' });
+  tracker.onEntry({ ts: 5, type: 'app', sessionId: SID, extra: 'low_conf_parsed:conf=0.4' });
 
-  // 3. corr: 순서, 0 생략, 전부 0이면 '-'
-  // reask 2건(같은 칸), direct_modify 1건
-  tracker.onEntry({ ts: 8, type: 'stt', sessionId: SID, row: 1, colId: 'c1', colName: 'col1', extra: 'stt_correction:path=reask' });
-  tracker.onEntry({ ts: 9, type: 'stt', sessionId: SID, row: 1, colId: 'c1', colName: 'col1', extra: 'stt_correction:path=reask' });
-  tracker.onEntry({ ts: 10, type: 'stt', sessionId: SID, row: 2, colId: 'c2', colName: 'col2', extra: 'stt_correction:path=direct_modify' });
+  // 3. authSkip: SID, __app__, '', 다른 세션 ID
+  tracker.onEntry({ ts: 6, type: 'app', sessionId: SID, extra: 'past_index_skip:not_signed_in' });
+  tracker.onEntry({ ts: 7, type: 'app', sessionId: '__app__', extra: 'past_index_skip:not_signed_in' });
+  tracker.onEntry({ ts: 8, type: 'app', sessionId: '', extra: 'past_index_skip:not_signed_in' });
+  tracker.onEntry({ ts: 9, type: 'app', sessionId: 'sess_other', extra: 'past_index_skip:not_signed_in' }); // 다른 세션 ID -> 카운트 안 함
 
-  // 4. confQ: asked=0 제외, 분자 조건(첫 parsed != final, final in cands)
-  // 칸 1: asked=0 (제외되어야 함)
-  tracker.onEntry({ ts: 11, type: 'stt', sessionId: SID, row: 1, colId: 'c1', colName: 'col1', extra: 'stt_confusion_hint:heard=1.0,cands=8.0,rule=r1,asked=0,chosen=-' });
-  // 칸 2: asked=1, 첫 parsed='1.0', final='8.0', cands=['8.0'] -> HIT!
-  tracker.onEntry({ ts: 12, type: 'value', sessionId: SID, row: 2, colId: 'c2', colName: 'col2', parsed: '1.0' });
-  tracker.onEntry({ ts: 13, type: 'stt', sessionId: SID, row: 2, colId: 'c2', colName: 'col2', extra: 'stt_confusion_hint:heard=1.0,cands=8.0|7.0,rule=r1,asked=1,chosen=alt' });
-  // 칸 3: asked=1, 첫 parsed='2.0', final='2.0'(미수정), cands=['9.0'] -> NOT hit!
-  tracker.onEntry({ ts: 14, type: 'value', sessionId: SID, row: 3, colId: 'c3', colName: 'col3', parsed: '2.0' });
-  tracker.onEntry({ ts: 15, type: 'stt', sessionId: SID, row: 3, colId: 'c3', colName: 'col3', extra: 'stt_confusion_hint:heard=2.0,cands=9.0,rule=r2,asked=1,chosen=heard' });
+  // 4. alarm: fired ≠ confirmed (예: fired 2, confirmed 1) 및 순서/포맷 단언
+  tracker.onEntry({ ts: 10, type: 'app', sessionId: SID, extra: 'trend_alert_fired:rule=r1' });
+  tracker.onEntry({ ts: 11, type: 'app', sessionId: SID, extra: 'trend_alert_fired:rule=r2' });
+  tracker.onEntry({ ts: 12, type: 'app', sessionId: SID, extra: 'trend_alert_confirmed' });
 
-  // 5. modMishear: 정규식 매칭 (맞는 예 1건, 안 맞는 예 1건, extra 있는 경우 무시)
+  // 5. corr: 입력을 고정 순서와 반대로 넣고 출력 순서 단언 (confusion -> touch -> rerecord -> direct_modify -> reask)
+  tracker.onEntry({ ts: 13, type: 'stt', sessionId: SID, row: 5, colName: 'col1', extra: 'stt_correction:path=confusion' });
+  tracker.onEntry({ ts: 14, type: 'stt', sessionId: SID, row: 4, colName: 'col1', extra: 'stt_correction:path=touch' });
+  tracker.onEntry({ ts: 15, type: 'stt', sessionId: SID, row: 3, colName: 'col1', extra: 'stt_correction:path=rerecord' });
+  tracker.onEntry({ ts: 16, type: 'stt', sessionId: SID, row: 2, colName: 'col1', extra: 'stt_correction:path=direct_modify' });
+  tracker.onEntry({ ts: 17, type: 'stt', sessionId: SID, row: 1, colName: 'col1', extra: 'stt_correction:path=reask' });
+  tracker.onEntry({ ts: 18, type: 'stt', sessionId: SID, row: 1, colName: 'col1', extra: 'stt_correction:path=reask' });
+
+  // 6. confQ 및 숫자 비교 (R5-6):
+  // - 칸 1: asked=0 (분모 제외)
+  tracker.onEntry({ ts: 19, type: 'stt', sessionId: SID, row: 1, colId: 'c1', colName: 'col1', extra: 'stt_confusion_hint:heard=1.0,cands=8.0,rule=r1,asked=0,chosen=-' });
+
+  // - 칸 2: 숫자 비교: 첫 '8' ↔ 최종 '8.0'은 같음 (isDiff=false -> 분자 아님!)
+  tracker.onEntry({ ts: 20, type: 'value', sessionId: SID, row: 2, colId: 'c2', colName: 'col2', parsed: '8' });
+  tracker.onEntry({ ts: 21, type: 'stt', sessionId: SID, row: 2, colId: 'c2', colName: 'col2', extra: 'stt_confusion_hint:heard=8,cands=8.0,rule=r1,asked=1,chosen=alt' });
+
+  // - 칸 3: 숫자 비교: 첫 '7' ↔ 최종 '8', cands '8.0' ↔ 최종 '8' 적중 (isDiff=true && isCandHit=true -> HIT!)
+  tracker.onEntry({ ts: 22, type: 'value', sessionId: SID, row: 3, colId: 'c3', colName: 'col3', parsed: '7' });
+  tracker.onEntry({ ts: 23, type: 'stt', sessionId: SID, row: 3, colId: 'c3', colName: 'col3', extra: 'stt_confusion_hint:heard=7,cands=8.0,rule=r1,asked=1,chosen=alt' });
+
+  // - 칸 4: 첫 value 없음 (value 이벤트 없음) -> heard 대체 금지, 분자 제외
+  tracker.onEntry({ ts: 24, type: 'stt', sessionId: SID, row: 4, colId: 'c4', colName: 'col4', extra: 'stt_confusion_hint:heard=1.0,cands=9.0,rule=r1,asked=1,chosen=alt' });
+
+  // - 칸 5: 최종 행 없음 (saved.rows에 row 5 없음) -> 분자 제외
+  tracker.onEntry({ ts: 25, type: 'value', sessionId: SID, row: 5, colId: 'c1', colName: 'col1', parsed: '1.0' });
+  tracker.onEntry({ ts: 26, type: 'stt', sessionId: SID, row: 5, colId: 'c1', colName: 'col1', extra: 'stt_confusion_hint:heard=1.0,cands=9.0,rule=r1,asked=1,chosen=alt' });
+
+  // - 칸 6: 음성 열 아닌 이름 (colName: 'manual_col', input: 'manual') -> 분자 제외
+  tracker.onEntry({ ts: 27, type: 'value', sessionId: SID, row: 6, colId: 'c_manual', colName: 'manual_col', parsed: '1.0' });
+  tracker.onEntry({ ts: 28, type: 'stt', sessionId: SID, row: 6, colId: 'c_manual', colName: 'manual_col', extra: 'stt_confusion_hint:heard=1.0,cands=9.0,rule=r1,asked=1,chosen=alt' });
+
+  // 7. modMishear: 정규식 매칭 (맞는 예, 안 맞는 예, extra 있는 경우)
   expect(MOD_MISHEAR_REGEX.test('소정 15.2')).toBe(true);
   expect(MOD_MISHEAR_REGEX.test('수 정 8')).toBe(true);
   expect(MOD_MISHEAR_REGEX.test('그 정 4.5')).toBe(true);
   expect(MOD_MISHEAR_REGEX.test('일반 15.2')).toBe(false);
 
-  tracker.onEntry({ ts: 16, type: 'stt', sessionId: SID, text: '소정 15.2' }); // 매칭 1
-  tracker.onEntry({ ts: 17, type: 'stt', sessionId: SID, text: '일반 15.2' }); // 매칭 안 됨
-  tracker.onEntry({ ts: 18, type: 'stt', sessionId: SID, text: '수 정 8', extra: 'raw_confidence:0.9' }); // extra 존재 -> 제외
+  tracker.onEntry({ ts: 29, type: 'stt', sessionId: SID, text: '소정 15.2' }); // 매칭 1
+  tracker.onEntry({ ts: 30, type: 'stt', sessionId: SID, text: '일반 15.2' }); // 매칭 안 됨
+  tracker.onEntry({ ts: 31, type: 'stt', sessionId: SID, text: '수 정 8', extra: 'raw_confidence:0.9' }); // extra 존재 -> 제외
 
-  // 6. 다른 세션 ID 이벤트는 무시
-  tracker.onEntry({ ts: 19, type: 'session', sessionId: 'other', extra: 'beep_play:kind=reject' });
-
+  // 8. 다른 세션 ID 이벤트는 무시하고 reask 등이 안 늘었음을 명시적 단언 (R5-1)
   const saved: SessionHealthSavedInput = {
     columns: [
       { id: 'c1', name: 'col1', input: 'voice' },
       { id: 'c2', name: 'col2', input: 'voice' },
       { id: 'c3', name: 'col3', input: 'voice' },
+      { id: 'c4', name: 'col4', input: 'voice' },
+      { id: 'c_manual', name: 'manual_col', input: 'manual' },
     ],
     rows: [
       { index: 1, values: { c1: '10' } },
       { index: 2, values: { c2: '8.0' } },
-      { index: 3, values: { c3: '2.0' } },
+      { index: 3, values: { c3: '8' } },
+      { index: 4, values: { c4: '9.0' } },
+      { index: 6, values: { c_manual: '9.0' } },
     ],
   };
 
-  const res = tracker.summary(saved);
-  expect(res.wakeFail, 'wakeFail은 wake_lock과 result=failed를 모두 포함한 1건').toBe(1);
-  expect(res.authSkip, 'authSkip은 SID, __app__, 빈문자열 3건').toBe(3);
-  expect(res.corr, 'corr은 reask와 direct_modify만 포함').toBe('reask:2/1|direct_modify:1/1');
-  expect(res.confQ, 'confQ는 asked=1인 2건 중 hit 1건').toBe('2/1');
-  expect(res.modMishear, 'modMishear는 1건').toBe(1);
+  const beforeOther = tracker.summary(saved);
+  expect(beforeOther.reask, '다른 세션 전 reask=0').toBe(0);
+  tracker.onEntry({ ts: 32, type: 'session', sessionId: 'other_sess', extra: 'beep_play:kind=reject' });
+  const afterOther = tracker.summary(saved);
+  expect(afterOther.reask, '다른 세션 이벤트 삽입 후에도 reask는 늘지 않아야 한다').toBe(0);
 
-  // 7. reset 호출 시 전부 0
+  // 결과 검증
+  expect(afterOther.wakeFail, 'wakeFail 1건').toBe(1);
+  expect(afterOther.lowconf, 'type!=value로 들어간 lowconf는 0건').toBe(0);
+  expect(afterOther.authSkip, 'authSkip은 SID, __app__, 빈문자열 3건').toBe(3);
+  expect(afterOther.alarm, 'alarm은 fired=2, confirmed=1').toEqual({ fired: 2, confirmed: 1 });
+  expect(sessionHealth(afterOther), '빌더에서 alarm=2/1 형식 출력 확인').toContain('alarm=2/1');
+  expect(afterOther.corr, 'corr은 역순 삽입에도 고정 순서 유지').toBe('reask:2/1|direct_modify:1/1|rerecord:1/1|touch:1/1|confusion:1/1');
+  // asked=1인 힌트: 칸 2, 칸 3, 칸 4, 칸 5, 칸 6 (총 5건).
+  // 분자: 칸 3만 적중 (첫 7 != 최종 8 && cands '8.0' == 최종 8) => 1건.
+  expect(afterOther.confQ, 'confQ는 물은 5건 중 1건 적중 -> 5/1').toBe('5/1');
+  expect(afterOther.modMishear, 'modMishear는 1건').toBe(1);
+
+  // 9. R1/R2/R4 경계: saved 없음 검증 (cells=0, confQ 분모 5 유지, 분자 0)
+  const noSavedRes = tracker.summary();
+  expect(noSavedRes.cells, 'saved 없으면 cells=0').toBe(0);
+  expect(noSavedRes.confQ, 'saved 없으면 confQ 분자 0').toBe('5/0');
+
+  // 10. R2 경계: valueCells가 0일 때 saved.rows가 있어도 cells=0
+  const cleanTracker = createSessionHealth();
+  cleanTracker.reset('clean_sess');
+  const emptyValRes = cleanTracker.summary(saved);
+  expect(emptyValRes.cells, '값 이벤트가 0이면 saved.rows가 있어도 cells=0').toBe(0);
+  expect(emptyValRes.confQ, '힌트가 0이면 0/0').toBe('0/0');
+
+  // 11. reset 호출 시 전부 0 및 confQ='0/0', corr='-'
   tracker.reset('sess_new');
   const emptyRes = tracker.summary();
   expect(emptyRes.cells).toBe(0);
@@ -176,11 +228,12 @@ test('ⓒ 경계 검증 — wakeFail, authSkip, corr, confQ, modMishear, 세션 
   expect(emptyRes.wakeFail).toBe(0);
   expect(emptyRes.authSkip).toBe(0);
   expect(emptyRes.corr).toBe('-');
-  expect(emptyRes.confQ).toBe('-');
+  expect(emptyRes.confQ, '물은 힌트가 0이어도 0/0').toBe('0/0');
   expect(emptyRes.modMishear).toBe(0);
 });
 
-test('09-16 세션 기대값 전수 재현 및 getScreenValues 검증', () => {
+test('합성 기대값 및 getScreenValues 검증', () => {
+  // 실데이터 대조는 Larry가 판 밖에서 5/5 일치 확인
   const tracker = createSessionHealth();
   const SID = 'sess_0916';
   tracker.reset(SID);
@@ -213,7 +266,10 @@ test('09-16 세션 기대값 전수 재현 및 getScreenValues 검증', () => {
 
   // lowconf: 12
   for (let i = 0; i < 12; i++) {
-    tracker.onEntry({ ts: 300, type: 'value', sessionId: SID, row: 1, colId: 'c1', extra: 'low_conf_parsed:0.35' });
+    tracker.onEntry({
+      ts: 300, type: 'value', sessionId: SID, row: 1, colId: 'c1',
+      extra: lowConfidenceParsed({ conf: 0.35, minConf: 0.6, tolerance: 3, via: 'primary' }),
+    });
   }
 
   // alarm: 0/0 (발생 없음)
@@ -293,3 +349,17 @@ test('09-16 세션 기대값 전수 재현 및 getScreenValues 검증', () => {
   expect(screen.correctedCells).toBe(36);
   expect(screen.alarmFired).toBe(0);
 });
+
+test('R7 getSessionId 및 복원 세션 판별 검증', () => {
+  const tracker = createSessionHealth();
+  // reset 전에는 '' (새로고침 직후 상태)
+  expect(tracker.getSessionId()).toBe('');
+  // 다른 sessionId와 대조 시 다름 -> 복원 판정
+  expect(tracker.getSessionId() === 'sess_restored').toBe(false);
+
+  // reset 호출 후
+  tracker.reset('sess_normal');
+  expect(tracker.getSessionId()).toBe('sess_normal');
+  expect(tracker.getSessionId() === 'sess_normal').toBe(true);
+});
+

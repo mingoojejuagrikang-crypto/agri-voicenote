@@ -69,6 +69,8 @@ export {
   syncSummary,
   // v0.53.0 C1a — 세션 결산.
   sessionHealth,
+  // v0.53.0 R7 — 세션 결산 생략(새로고침 복원).
+  sessionHealthSkip,
 } from './logEventsSession';
 
 // 설정·UI 계측 도메인 — logEventsUi.ts.

@@ -51,7 +51,6 @@ interface AskedConfusionHint {
   row: number;
   colId?: string;
   colName?: string;
-  heard: string;
   cands: string[];
 }
 
@@ -79,7 +78,6 @@ export function createSessionHealth() {
   let askedHintsCount = 0;
   const askedHints: AskedConfusionHint[] = [];
   const firstParsedByCell = new Map<string, string>();
-  const lastParsedByCell = new Map<string, string>();
 
   function reset(sessionId: string): void {
     curSessionId = sessionId;
@@ -101,7 +99,6 @@ export function createSessionHealth() {
     askedHintsCount = 0;
     askedHints.length = 0;
     firstParsedByCell.clear();
-    lastParsedByCell.clear();
   }
 
   function onEntry(entry: LogEntry): void {
@@ -124,22 +121,15 @@ export function createSessionHealth() {
       return;
     }
 
-    // cells / value tracking
+    // cells / value tracking: R4 firstParsedByCell에는 colId 키만 담음
     if (entry.type === 'value') {
-      if (entry.row != null && entry.colId) {
-        valueCells.add(`${entry.row}:${entry.colId}`);
-      }
-      const parsedVal = entry.parsed ?? '';
       const r = entry.row ?? 0;
       if (entry.colId) {
         const kId = `${r}:${entry.colId}`;
-        if (!firstParsedByCell.has(kId)) firstParsedByCell.set(kId, parsedVal);
-        lastParsedByCell.set(kId, parsedVal);
-      }
-      if (entry.colName) {
-        const kName = `${r}:${entry.colName}`;
-        if (!firstParsedByCell.has(kName)) firstParsedByCell.set(kName, parsedVal);
-        lastParsedByCell.set(kName, parsedVal);
+        valueCells.add(kId);
+        if (!firstParsedByCell.has(kId)) {
+          firstParsedByCell.set(kId, entry.parsed ?? '');
+        }
       }
 
       if (x.startsWith('low_conf_parsed')) {
@@ -188,13 +178,10 @@ export function createSessionHealth() {
         askedHintsCount++;
         const candsMatch = x.match(/cands=([^,]+)/);
         const cands = candsMatch ? candsMatch[1].split('|') : [];
-        const heardMatch = x.match(/heard=([^,]+)/);
-        const heard = heardMatch ? heardMatch[1] : '';
         askedHints.push({
           row: entry.row ?? 0,
           colId: entry.colId,
           colName: entry.colName,
-          heard,
           cands,
         });
       }
@@ -209,13 +196,15 @@ export function createSessionHealth() {
   }
 
   function summary(saved?: SessionHealthSavedInput): SessionHealthSummary {
-    // cells: voice 입력 열(input === 'voice')에 한정, saved.rows에 실제 존재하는 서로 다른 (row, colId) 수
     let cells = 0;
+    const hitCells = new Set<string>();
+
     if (saved?.columns && saved?.rows) {
-      const voiceColIds = new Set(
-        saved.columns.filter((c) => c.input === 'voice').map((c) => c.id),
-      );
+      const voiceColumns = saved.columns.filter((c) => c.input === 'voice');
+      const voiceColIds = new Set(voiceColumns.map((c) => c.id));
       const validRows = new Set(saved.rows.map((r) => r.index));
+
+      // R2: cells = 값 이벤트의 distinct (row, colId) 중 saved.columns의 음성 열이고 saved.rows에 있는 행인 것
       for (const k of valueCells) {
         const colon = k.indexOf(':');
         const r = Number(k.slice(0, colon));
@@ -224,20 +213,64 @@ export function createSessionHealth() {
           cells++;
         }
       }
-      // 만약 valueCells가 비어있으나 saved.rows에 값이 있는 경우(테스트/직접 데이터 시드) 폴백
-      if (cells === 0 && valueCells.size === 0) {
-        for (const r of saved.rows) {
-          for (const cId of voiceColIds) {
-            const val = r.values?.[cId];
-            if (typeof val === 'string' && val.trim() !== '') {
-              cells++;
-            }
-          }
+
+      // R4: confQ 분자 계산 — 음성 열의 name -> id 매핑
+      const voiceColIdByName = new Map<string, string>();
+      for (const col of voiceColumns) {
+        if (col.name && !voiceColIdByName.has(col.name)) {
+          voiceColIdByName.set(col.name, col.id);
         }
       }
-    } else {
-      cells = valueCells.size;
+
+      for (const hint of askedHints) {
+        // ⓒ 힌트의 colName -> saved.columns 음성 열의 name으로 id를 찾음
+        let cId: string | undefined;
+        if (hint.colName) {
+          cId = voiceColIdByName.get(hint.colName);
+        } else if (hint.colId && voiceColIds.has(hint.colId)) {
+          cId = hint.colId;
+        }
+        if (!cId) continue; // 음성 열이 아니면 분자에서 뺀다
+
+        // ⓐ 그 칸의 첫 value 이벤트 parsed (없으면 분자에서 뺀다 - heard 대체 금지)
+        const cellKey = `${hint.row}:${cId}`;
+        const firstParsed = firstParsedByCell.get(cellKey);
+        if (firstParsed === undefined) continue;
+
+        // ⓑ 최종값은 saved.rows에서만 — 행이 없거나 값이 없으면 분자에서 뺀다 (마지막 parsed 대체 금지)
+        const rowObj = saved.rows.find((r) => r.index === hint.row);
+        const finalVal = rowObj?.values?.[cId];
+        if (finalVal == null || finalVal === '') continue;
+
+        // ⓐ 첫 value parsed !== 최종값 (둘 다 숫자로 읽히면 숫자 비교, 아니면 문자열 비교)
+        const nFirst = Number(firstParsed);
+        const nFinal = Number(finalVal);
+        const isFirstNum = !isNaN(nFirst) && firstParsed.trim() !== '';
+        const isFinalNum = !isNaN(nFinal) && finalVal.trim() !== '';
+
+        const isDiff =
+          isFirstNum && isFinalNum
+            ? nFirst !== nFinal
+            : firstParsed !== finalVal;
+
+        if (!isDiff) continue;
+
+        // ⓑ 최종값이 힌트의 cands 중 하나와 일치 (둘 다 숫자로 읽히면 숫자 비교)
+        const isCandHit = hint.cands.some((c) => {
+          const nc = Number(c);
+          const isCNum = !isNaN(nc) && c.trim() !== '';
+          if (isCNum && isFinalNum) {
+            return nc === nFinal;
+          }
+          return c === finalVal;
+        });
+
+        if (isCandHit) {
+          hitCells.add(cellKey);
+        }
+      }
     }
+    // R1: saved === undefined면 cells=0, hitCells.size=0 (confQ 분자 0, 분모는 그대로)
 
     // corr: 경로마다 <줄 수>/<서로 다른 (row, colName) 수>, 순서 고정, 0인 경로 생략, 전부 0이면 '-'
     const corrParts: string[] = [];
@@ -250,54 +283,8 @@ export function createSessionHealth() {
     }
     const corr = corrParts.length > 0 ? corrParts.join('|') : '-';
 
-    // confQ: asked=0이면 '-', 물었으면 <asked>/<hit>
-    let confQ = '-';
-    if (askedHintsCount > 0) {
-      const hitCells = new Set<string>();
-      for (const hint of askedHints) {
-        const kId = hint.colId ? `${hint.row}:${hint.colId}` : null;
-        const kName = hint.colName ? `${hint.row}:${hint.colName}` : null;
-        const cellKey = kId ?? kName ?? `${hint.row}:`;
-        const firstParsed =
-          (kId ? firstParsedByCell.get(kId) : undefined) ??
-          (kName ? firstParsedByCell.get(kName) : undefined) ??
-          hint.heard;
-
-        // 최종값: saved.rows가 있으면 그 칸의 값, 없으면 마지막 parsed
-        let finalVal =
-          (kId ? lastParsedByCell.get(kId) : undefined) ??
-          (kName ? lastParsedByCell.get(kName) : undefined) ??
-          '';
-        if (saved?.rows && hint.colId) {
-          const r = saved.rows.find((row) => row.index === hint.row);
-          if (r?.values?.[hint.colId] != null) {
-            finalVal = r.values[hint.colId];
-          }
-        }
-
-        // ⓐ 첫 value parsed !== 최종값 (숫자로 읽히면 숫자 비교, 아니면 문자열 비교)
-        const nFirst = Number(firstParsed);
-        const nFinal = Number(finalVal);
-        const isDiff =
-          !isNaN(nFirst) && !isNaN(nFinal) && firstParsed !== '' && finalVal !== ''
-            ? nFirst !== nFinal
-            : firstParsed !== finalVal;
-
-        // ⓑ 최종값이 힌트의 cands 중 하나와 일치 (숫자 비교 가능하면 숫자 비교)
-        const isCandHit = hint.cands.some((c) => {
-          const nc = Number(c);
-          if (!isNaN(nc) && !isNaN(nFinal) && c !== '' && finalVal !== '') {
-            return nc === nFinal;
-          }
-          return c === finalVal;
-        });
-
-        if (isDiff && isCandHit) {
-          hitCells.add(cellKey);
-        }
-      }
-      confQ = `${askedHintsCount}/${hitCells.size}`;
-    }
+    // R3: confQ 형식 — 물은 힌트가 0이어도 0/0. '-'는 corr에만.
+    const confQ = `${askedHintsCount}/${hitCells.size}`;
 
     return {
       cells,
@@ -325,11 +312,16 @@ export function createSessionHealth() {
     };
   }
 
+  function getSessionId(): string {
+    return curSessionId;
+  }
+
   return {
     reset,
     onEntry,
     summary,
     getScreenValues,
+    getSessionId,
   };
 }
 
@@ -348,3 +340,8 @@ export function summarySessionHealth(saved?: SessionHealthSavedInput): SessionHe
 export function getSessionHealthScreenValues(): SessionHealthScreenValues {
   return sessionHealthTracker.getScreenValues();
 }
+
+export function getSessionHealthSessionId(): string {
+  return sessionHealthTracker.getSessionId();
+}
+

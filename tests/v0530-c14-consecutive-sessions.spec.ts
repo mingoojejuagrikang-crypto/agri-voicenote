@@ -70,6 +70,7 @@ test('C14 — 같은 화면에서 연속 2세션 → 둘째 세션 zip에 audio_
   await expect(page.locator('text=음성 입력 시작').first()).toBeVisible({ timeout: 15_000 });
 
   // 2. 같은 화면(입력 탭 유지)에서 세션 2 시작
+  const beforeSess2ClickTs = await page.evaluate(() => Date.now());
   await page.locator('text=음성 입력 시작').first().click();
   await expect(page.locator('[data-testid="voice-active-state"]').first()).toBeVisible({ timeout: 10_000 });
   await waitForTtsIdle(page);
@@ -117,9 +118,11 @@ test('C14 — 같은 화면에서 연속 2세션 → 둘째 세션 zip에 audio_
   // 완료 모달 닫기
   await page.getByRole('button', { name: '닫기' }).click();
 
-  // 검증 ②: 둘째 세션 zip에 audio_unlock, start_ready 존재!
-  expect(extras2.some((e) => e.startsWith('audio_unlock:')), '둘째 세션 zip에 audio_unlock이 있어야 한다').toBe(true);
-  expect(extras2.some((e) => e.startsWith('start_ready:')), '둘째 세션 zip에 start_ready가 있어야 한다').toBe(true);
+  // 검증 ②: 둘째 세션 시작(beforeSess2ClickTs) 뒤 ts인 audio_unlock, start_ready가 zip2에 존재!
+  const unlockInSess2 = evs2.filter((e) => (e.ts ?? 0) >= beforeSess2ClickTs && (e.extra ?? '').startsWith('audio_unlock:'));
+  const readyInSess2 = evs2.filter((e) => (e.ts ?? 0) >= beforeSess2ClickTs && (e.extra ?? '').startsWith('start_ready:'));
+  expect(unlockInSess2.length, '둘째 세션 시작 뒤 ts인 audio_unlock이 zip2에 있어야 한다').toBe(1);
+  expect(readyInSess2.length, '둘째 세션 시작 뒤 ts인 start_ready가 zip2에 있어야 한다').toBe(1);
 
   // 6. 첫째 세션(sess1)만 선택하여 zip 다운로드
   await page.getByRole('button', { name: /내보내기/ }).first().click();

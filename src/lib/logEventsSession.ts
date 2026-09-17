@@ -110,7 +110,7 @@ export interface SessionHealthSummaryInput {
 }
 
 /** v0.53.0 C1a (민구 Q2 ⓐ · Q3 ⓐ · Q6 ⓐ) — **세션 결산 계측**(세션 1회당 1건).
- *  방출: useVoiceSession.ts stop()의 setClipWarning() 직후.
+ *  방출: stop()의 persistSession() 직후(`if (!durable)` 앞).
  *  형태: session_health:cells=<n>,reask=<n>,lowconf=<n>,alarm=<fired>/<confirmed>,sttErr=<n>,wakeFail=<n>,authSkip=<n>,corr=<…>,confQ=<asked>/<hit>,modMishear=<n> */
 export function sessionHealth(fields: SessionHealthSummaryInput): string {
   const alarmStr = typeof fields.alarm === 'string'
@@ -121,4 +121,12 @@ export function sessionHealth(fields: SessionHealthSummaryInput): string {
     : `${fields.confQ.asked}/${fields.confQ.hit}`;
   return `session_health:cells=${fields.cells},reask=${fields.reask},lowconf=${fields.lowconf},alarm=${alarmStr},sttErr=${fields.sttErr},wakeFail=${fields.wakeFail},authSkip=${fields.authSkip},corr=${fields.corr},confQ=${confQStr},modMishear=${fields.modMishear}`;
 }
+
+/** v0.53.0 R7 (민구 Q7 ⓐ) — 세션 결산 생략 계측(새로고침 복원 등 비정상 추적 세션).
+ *  방출: stop()의 persistSession() 직후(`if (!durable)` 앞)에서 trackerSessionId !== sessionIdRef.current일 때.
+ *  형태: session_health_skip:reason=restored */
+export function sessionHealthSkip(fields: { reason: 'restored' }): string {
+  return `session_health_skip:reason=${fields.reason}`;
+}
+
 

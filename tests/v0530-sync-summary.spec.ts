@@ -133,3 +133,35 @@ test('동기화 1회에 sync_summary 정확히 1줄 방출 · __app__ 귀속 · 
   // 1 append, 1 update -> ok=1, failed=0, rows=1, updated=1, fallback=0
   expect(ev.extra).toBe('sync_summary:ok=1,failed=0,rows=1,updated=1,fallback=0');
 });
+
+test('[node] sync.ts의 syncSummary 호출부 매핑 잠금 — 5개 필드가 1:1로 전달됨', () => {
+  const syncSrc = readFileSync(resolve(process.cwd(), 'src/lib/sync.ts'), 'utf-8');
+  expect(syncSrc).toContain('ok: report.ok');
+  expect(syncSrc).toContain('failed: report.failed');
+  expect(syncSrc).toContain('rows: report.rows');
+  expect(syncSrc).toContain('updated: report.updatedRows');
+  expect(syncSrc).toContain('fallback: report.fallbackAppended');
+});
+
+test('선택 0건 또는 로그인 필요 조기 return 시 sync_summary가 방출되지 않는다', async ({ page }) => {
+  await stubNetwork(page);
+  await seedSessionAndOpenData(page, sampleSession());
+
+  // 1. 조기 return 실행 (선택 0건 & 미로그인)
+  await page.evaluate(async () => {
+    const { syncSelected } = await import('/src/lib/sync.ts');
+    // 선택 0건
+    const rep1 = await syncSelected([]);
+    if (!rep1.message) throw new Error('선택 0건 조기 return 실패');
+
+    // 토큰 제거 후 호출 (미로그인)
+    localStorage.removeItem('gs10_google_token');
+    const rep2 = await syncSelected(['sess-sync-sum-1']);
+    if (!rep2.needsLogin) throw new Error('미로그인 조기 return 실패');
+  });
+
+  const evs = await loadLogEvents(page);
+  const syncSummaries = evs.filter((e) => e.extra?.startsWith('sync_summary:'));
+  expect(syncSummaries.length, '조기 return에서는 sync_summary가 방출되지 않아야 한다').toBe(0);
+});
+
