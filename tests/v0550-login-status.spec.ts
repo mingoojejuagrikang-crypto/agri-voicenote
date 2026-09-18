@@ -12,11 +12,11 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { BASE } from './baseUrl';
 
 test.setTimeout(60_000);
 
 const ROOT = process.cwd();
-const BASE = process.env.SURVEY_BASE_URL || 'http://localhost:5179';
 const STORE_KEY = 'agri-voicenote-settings-v3';
 const SHEET_ID = '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms';
 

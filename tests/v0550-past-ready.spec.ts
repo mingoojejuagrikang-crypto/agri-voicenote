@@ -15,6 +15,7 @@ import { serializePastIndexEntry, type PersistedPastIndexRecord } from '../src/l
 import { effectiveSampleKey } from '../src/lib/columnFlags';
 import type { Column } from '../src/types';
 import { daysAgoLocal } from './fixtures/localDate';
+import { BASE } from './baseUrl';
 
 test.setTimeout(60_000);
 
@@ -26,7 +27,6 @@ test('[node] ⓪-게이트 이 오라클이 릴리스 게이트 목록에 등재
   expect(listed, 'tests/v0550-past-ready.spec.ts가 릴리스 게이트 목록에 없다').toContain('tests/v0550-past-ready.spec.ts');
 });
 
-const BASE = process.env.SURVEY_BASE_URL || 'http://localhost:5179';
 const STORE_KEY = 'agri-voicenote-settings-v3';
 const SHEET_ID = 'SHEET_PAST_READY_1';
 const PREV_ROUND = daysAgoLocal(1);

@@ -24,11 +24,11 @@ import { serializePastIndexEntry, type PersistedPastIndexRecord } from '../src/l
 
 import { installVoiceMocks, fireStt, waitForTtsIdle } from './fixtures/stt';
 import { daysAgoLocal } from './fixtures/localDate';
+import { BASE } from './baseUrl';
 
 test.setTimeout(60_000);
 
 const ROOT = process.cwd();
-const BASE = process.env.SURVEY_BASE_URL || 'http://localhost:5179';
 const SHEET_ID = '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms';
 const PREV_ROUND = daysAgoLocal(1);
 
