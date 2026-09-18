@@ -271,6 +271,9 @@ test('⑤ 세션이 살아 있으면 버튼 없음 · reloginUnlessSessionLive()
 
   await page.reload({ waitUntil: 'domcontentloaded' });
 
+  // (a) 스토어를 active로 바꾸기 전에 conn-google-refresh 버튼이 보이는 것을 선단언
+  await expect(page.locator('[data-testid="conn-google-refresh"]')).toBeVisible();
+
   // 세션을 phase: 'active'로 설정
   await page.evaluate(async () => {
     const { useSessionStore } = await import('/src/stores/sessionStore.ts');
@@ -283,20 +286,24 @@ test('⑤ 세션이 살아 있으면 버튼 없음 · reloginUnlessSessionLive()
   // 세션이 살아 있으므로 conn-google-refresh 버튼이 DOM에 없음
   await expect(page.locator('[data-testid="conn-google-refresh"]')).toHaveCount(0);
 
-  // reloginUnlessSessionLive() 직접 호출 시 false 반환 및 status_card_login:skipped_session_live 방출
+  // (b) reloginUnlessSessionLive() 호출을 Promise.race(2000ms)로 감싸 false 반환 및 timeout 아님 단언
   const res = await page.evaluate(async () => {
     const { reloginUnlessSessionLive } = await import('/src/lib/syncAuthGuard.ts');
-    return reloginUnlessSessionLive();
+    return Promise.race([
+      reloginUnlessSessionLive(),
+      new Promise((r) => setTimeout(() => r('timeout'), 2000)),
+    ]);
   });
   expect(res).toBe(false);
+
+  // GIS 호출 0회 확인
+  const gisCount = await page.evaluate(() => (window as any).__survey011GisCallCount);
+  expect(gisCount).toBe(0);
 
   const logs = await page.evaluate(async () => {
     const { logger } = await import('/src/lib/logger.ts');
     return logger.getAll().filter((e) => (e.extra ?? '') === 'status_card_login:skipped_session_live');
   });
   expect(logs).toHaveLength(1);
-
-  // GIS 호출 0회 확인
-  const gisCount = await page.evaluate(() => (window as any).__survey011GisCallCount);
-  expect(gisCount).toBe(0);
 });
+
