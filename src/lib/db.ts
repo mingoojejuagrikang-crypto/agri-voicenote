@@ -456,3 +456,32 @@ export async function loadLogEvents(sessionIds?: string[]): Promise<PersistedLog
   results.sort((a, b) => a.ts - b.ts);
   return results;
 }
+
+/** v0.54.0 R5 — 세션별 녹음 바이트 및 클립 수 커서 순회 집계. */
+export async function sumSessionClipBytes(sessionId: string): Promise<{ total: number; raw: number; count: number }> {
+  const db = await getDb();
+  const tx = db.transaction('audioClips', 'readonly');
+  const store = tx.objectStore('audioClips');
+  const range = IDBKeyRange.bound(`${sessionId}:`, `${sessionId}:\ufffd`);
+  let total = 0;
+  let raw = 0;
+  let count = 0;
+  let cursor = await store.openCursor(range);
+  while (cursor) {
+    const val = cursor.value;
+    let bytes = 0;
+    if (isStoredClip(val)) {
+      bytes = val.buf.byteLength;
+    } else if (val instanceof Blob) {
+      bytes = val.size;
+    }
+    total += bytes;
+    if (typeof cursor.key === 'string' && cursor.key.endsWith(':raw')) {
+      raw += bytes;
+    }
+    count++;
+    cursor = await cursor.continue();
+  }
+  return { total, raw, count };
+}
+
