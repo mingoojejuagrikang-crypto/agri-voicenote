@@ -451,6 +451,10 @@ test('ⓔ 트림 미발생(무음 PCM 스텁) → clip_raw_skipped:reason=no_seg
     expect(ev.extra).toBe('clip_raw_skipped:reason=no_segments');
   }
 
+  // 값 클립에서도 clip_raw_skipped:reason=no_segments가 발생했는지 확인 (M1)
+  const valueRawSkipped = rawSkippedEvents.filter((e) => (e as any).kind !== 'command' && e.extra === 'clip_raw_skipped:reason=no_segments');
+  expect(valueRawSkipped.length, '값 클립에서도 clip_raw_skipped:reason=no_segments가 1줄 이상이어야 한다').toBeGreaterThanOrEqual(1);
+
   // 명령 클립에서도 clip_raw_skipped가 발생했는지 확인 (M06 명령 클립 잠금)
   const cmdRawSkipped = rawSkippedEvents.filter((e) => (e as any).kind === 'command');
   expect(cmdRawSkipped.length, '명령 클립에서도 clip_raw_skipped:reason=no_segments가 발생해야 한다').toBeGreaterThanOrEqual(1);
