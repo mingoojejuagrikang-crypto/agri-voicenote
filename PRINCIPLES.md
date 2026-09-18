@@ -106,7 +106,7 @@
     `session_health:cells=<n>,reask=<n>,lowconf=<n>,alarm=<fired>/<confirmed>,sttErr=<n>,wakeFail=<n>,authSkip=<n>,corr=<…>,confQ=<asked>/<hit>,modMishear=<n>`
     (세션 종료 `stop()` 시점 persistSession 직후 정확히 1건 · 순수 모듈 `sessionHealth.ts` 집계 · 종료 화면 `session-health-line` 문구 동봉 · 단 새로고침 복원 등으로 트래커 세션 ID 불일치 시 `session_health_skip:reason=restored` 방출 및 화면 요약 생략) ·
     `sync_summary:ok=<report.ok>,failed=<report.failed>,rows=<report.rows>,updated=<report.updatedRows>,fallback=<report.fallbackAppended>`
-    (시트 동기화 `syncSelected()` 완료 시점 명시적 `sessionId:'__app__'` 귀속으로 정확히 1건 방출).
+    (시트 동기화 `syncSelected()` 완료 시점 명시적 `sessionId:'__app__'` 귀속으로 정확히 1건 방출 · 올리기가 **예외로** 끝나면 합계를 남기지 않는다(마지막 `return report` 앞 1곳만 — 설계)).
   - 목록에 없는 이벤트는 **바이트 불변**이다. 확장이 필요하면 필드를 늘리지 말고 **새 이벤트
     이름**을 써라 — 그게 계약을 안 깨고 늘리는 유일한 길이다.
   - 🔴 **오라클은 「프로덕션이 실제로 방출하는 형상」을 재라.** 확장 필드가 항상 붙는 이벤트를

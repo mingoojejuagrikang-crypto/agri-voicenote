@@ -325,6 +325,7 @@ export function createSessionHealth() {
   };
 }
 
+// 모듈 최상위 구독은 모듈 평가 1회에 1번 — 프로덕션에선 1회뿐이고, 개발 HMR에서만 재평가로 중복될 수 있다(screenshot.ts의 initialized 가드는 App 부팅 함수라서 필요했다).
 // 모듈 싱글턴 + logger.subscribe 연결
 export const sessionHealthTracker = createSessionHealth();
 logger.subscribe((entry) => sessionHealthTracker.onEntry(entry));

@@ -121,6 +121,13 @@ test('⓪-게이트 이 오라클이 릴리스 게이트 목록에 등재돼 있
 test('동기화 1회에 sync_summary 정확히 1줄 방출 · __app__ 귀속 · SyncReport와 값 일치', async ({ page }) => {
   await stubNetwork(page);
   await seedSessionAndOpenData(page, sampleSession());
+
+  // v0.54.0 A-3: 올리기 전에 페이지 안에서 logger.setSessionId('sess_live_dummy')로 살아 있는 세션을 흉내 냄
+  await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    logger.setSessionId('sess_live_dummy');
+  });
+
   await page.getByText('시트에 추가').click();
   await page.locator('button:has-text("추가 (")').click();
 
@@ -132,6 +139,12 @@ test('동기화 1회에 sync_summary 정확히 1줄 방출 · __app__ 귀속 · 
   expect(ev.sessionId, 'sync_summary는 __app__으로 명시 귀속되어야 한다').toBe('__app__');
   // 1 append, 1 update -> ok=1, failed=0, rows=1, updated=1, fallback=0
   expect(ev.extra).toBe('sync_summary:ok=1,failed=0,rows=1,updated=1,fallback=0');
+
+  // 끝나면 logger.setSessionId(undefined)로 되돌림
+  await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    logger.setSessionId(undefined);
+  });
 });
 
 test('[node] sync.ts의 syncSummary 호출부 매핑 잠금 — 5개 필드가 1:1로 전달됨', () => {

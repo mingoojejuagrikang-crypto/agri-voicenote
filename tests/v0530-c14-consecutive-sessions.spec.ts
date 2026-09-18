@@ -112,7 +112,7 @@ test('C14 — 같은 화면에서 연속 2세션 → 둘째 세션 zip에 audio_
   const file2 = await download2Promise;
   const zip2 = await JSZip.loadAsync(readFileSync((await file2.path())!));
   const raw2 = await zip2.file('events.json')!.async('string');
-  const evs2 = JSON.parse(raw2) as Array<{ sessionId?: string; extra?: string }>;
+  const evs2 = JSON.parse(raw2) as Array<{ sessionId?: string; extra?: string; ts?: number }>;
   const extras2 = evs2.map((e) => e.extra ?? '');
 
   // 완료 모달 닫기

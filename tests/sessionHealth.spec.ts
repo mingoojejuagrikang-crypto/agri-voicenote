@@ -393,3 +393,93 @@ test('S5 sessionHealthSummaryScreen 서로 다른 세 값 바이트 리터럴 �
   expect(sessionHealthSummaryScreen(28, 36, 2)).toBe('이번 세션 · 다시 묻기 28 · 고친 칸 36 · 알람 2');
 });
 
+test('A-1 · corr 칸 키 및 confQ 분자 중복 제거 (A-1 ⓐⓑ)', () => {
+  const tracker = createSessionHealth();
+  const SID = 'sess_a1';
+  tracker.reset(SID);
+
+  // ⓐ 같은 행 · 서로 다른 두 칸 이름에 stt_correction path=reask 1줄씩 -> corr: reask:2/2
+  tracker.onEntry({
+    ts: 1, type: 'stt', sessionId: SID, row: 1, colId: 'm1', colName: '측정1',
+    extra: sttCorrection({ from: null, to: '10.5', path: 'reask', text: '열 점 오', conf: 0.8, alt: null }),
+  });
+  tracker.onEntry({
+    ts: 2, type: 'stt', sessionId: SID, row: 1, colId: 'm2', colName: '측정2',
+    extra: sttCorrection({ from: null, to: '20.5', path: 'reask', text: '이십 점 오', conf: 0.8, alt: null }),
+  });
+
+  // ⓑ 같은 칸에 asked=1 힌트 2개가 둘 다 적중 -> confQ: 2/1
+  tracker.onEntry({
+    ts: 3, type: 'value', sessionId: SID, row: 2, colId: 'm3', colName: '측정3', parsed: '1.5',
+  });
+  tracker.onEntry({
+    ts: 4, type: 'stt', sessionId: SID, row: 2, colId: 'm3', colName: '측정3',
+    extra: sttConfusionHint({ heard: '1.5', cands: ['10.5'], rules: ['dec:1>10'], asked: true, chosen: 'alt' }),
+  });
+  tracker.onEntry({
+    ts: 5, type: 'stt', sessionId: SID, row: 2, colId: 'm3', colName: '측정3',
+    extra: sttConfusionHint({ heard: '1.5', cands: ['10.5'], rules: ['dec:1>10'], asked: true, chosen: 'alt' }),
+  });
+
+  const saved: SessionHealthSavedInput = {
+    columns: [
+      { id: 'm1', name: '측정1', input: 'voice' },
+      { id: 'm2', name: '측정2', input: 'voice' },
+      { id: 'm3', name: '측정3', input: 'voice' },
+    ],
+    rows: [
+      { index: 1, values: { m1: '10.5', m2: '20.5' } },
+      { index: 2, values: { m3: '10.5' } },
+    ],
+  };
+
+  const sum = tracker.summary(saved);
+  expect(sum.corr).toBe('reask:2/2');
+  expect(sum.confQ).toBe('2/1');
+});
+
+test('A-2 · 결산 방출 자리 잠금 — stop()의 persistSession() 뒤, if (!durable) 앞', () => {
+  const voiceSrc = readFileSync(resolve(ROOT, 'src/lib/useVoiceSession.ts'), 'utf-8');
+  const stopIndex = voiceSrc.indexOf('const stop = useCallback(async (');
+  expect(stopIndex, 'useVoiceSession.ts에 stop 함수가 있어야 한다').toBeGreaterThan(-1);
+
+  const stopBody = voiceSrc.slice(stopIndex);
+  const persistIdx = stopBody.indexOf('const durable = await persistSession();');
+  const healthIdx = stopBody.indexOf('logCell({ type: \'session\', extra: sessionHealth(healthSummary) });');
+  const ifDurableIdx = stopBody.indexOf('if (!durable) {', persistIdx);
+
+  expect(persistIdx, 'stop() 안에 const durable = await persistSession(); 가 있어야 한다').toBeGreaterThan(-1);
+  expect(healthIdx, 'stop() 안에 sessionHealth 방출 블록이 있어야 한다').toBeGreaterThan(-1);
+  expect(ifDurableIdx, 'stop() 안에 if (!durable) 체크가 있어야 한다').toBeGreaterThan(-1);
+
+  expect(persistIdx < healthIdx, 'sessionHealth(healthSummary) 방출은 persistSession() 뒤에 있어야 한다').toBe(true);
+  expect(healthIdx < ifDurableIdx, 'sessionHealth(healthSummary) 방출은 if (!durable) 앞에 있어야 한다').toBe(true);
+});
+
+test('A-4 ⓐ · 공백 값 경계 — 첫 value parsed가 공백문자열일 때 0과 다르다고 판별', () => {
+  const tracker = createSessionHealth();
+  const SID = 'sess_ws_boundary';
+  tracker.reset(SID);
+
+  // 첫 value parsed: ' ' <-> 최종값 '0': 가드가 없으면 Number(' ') === 0 이 되어 같은 값으로 판별됨
+  // trim() 가드로 인해 숫자가 아닌 것으로 보아 다르다고 판별(isDiff=true)되어 confQ 적중으로 인정됨
+  tracker.onEntry({
+    ts: 1, type: 'value', sessionId: SID, row: 1, colId: 'm1', colName: '측정1', parsed: ' ',
+  });
+  tracker.onEntry({
+    ts: 2, type: 'stt', sessionId: SID, row: 1, colId: 'm1', colName: '측정1',
+    extra: sttConfusionHint({ heard: ' ', cands: ['0'], rules: ['ws:test'], asked: true, chosen: 'alt' }),
+  });
+
+  const saved: SessionHealthSavedInput = {
+    columns: [{ id: 'm1', name: '측정1', input: 'voice' }],
+    rows: [{ index: 1, values: { m1: '0' } }],
+  };
+
+  const sum = tracker.summary(saved);
+  // trim() 가드가 있으면 isDiff === true, finalVal '0' in cands ['0'] => hit 1
+  // trim() 가드가 없으면 Number(' ') === 0 === Number('0') => isDiff === false => hit 0
+  expect(sum.confQ).toBe('1/1');
+});
+
+
