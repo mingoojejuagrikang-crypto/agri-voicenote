@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { BASE } from './baseUrl';
 import { boot, PHONE_402, SETTINGS as AZ_SETTINGS } from './fixtures/activeZones';
-import { waitForTtsIdle } from './fixtures/stt';
+import { fireStt, waitForTtsIdle } from './fixtures/stt';
 
 test.setTimeout(60_000);
 
@@ -597,26 +597,24 @@ test('H3 / K8 SessionCard 녹음 용량 표시 e2e (1.5MB / 0.0MB · 삭제 버�
   expect(errorLogs.length, 'clip_bytes_count_failed 로그가 1줄 이상 남아야 함').toBeGreaterThanOrEqual(1);
 });
 
-test('K5 useSessionClipBytes 진행 중 세션 커밋(finishedAt 변경) 시 재계산 방지 및 종료 시 1바퀴 재계산', async ({ page }) => {
+test('L1 useSessionClipBytes 실제 세션(커밋 뒤 추가 셈 0 · 종료 뒤 1바퀴 · 카드 문구 = 실제 IDB 바이트)', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).__audioClipsCursorCount = 0;
+    const origOpenCursor = IDBObjectStore.prototype.openCursor;
+    IDBObjectStore.prototype.openCursor = function (...args: any[]) {
+      if (this.name === 'audioClips') {
+        (window as any).__audioClipsCursorCount++;
+      }
+      return origOpenCursor.apply(this, args as any);
+    };
+  });
+
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
 
-  const sessLive = 'sess_k5_live';
-  const sessOld = 'sess_k5_old';
-
-  await page.evaluate(async ({ liveId, oldId }) => {
+  const sessOld = 'sess_l1_old';
+  await page.evaluate(async (oldId) => {
     localStorage.clear();
     const { saveSession } = await import('/src/lib/db.ts');
-    await saveSession({
-      id: liveId,
-      date: '2026-09-18',
-      label: '진행 중 세션',
-      startedAt: 1000,
-      finishedAt: 1000,
-      completedRows: 1,
-      syncedRows: 0,
-      rows: [{ index: 1, values: { m1: '10' } }],
-      columns: [{ id: 'm1', name: '측정1', input: 'voice' }],
-    } as any);
     await saveSession({
       id: oldId,
       date: '2026-09-18',
@@ -628,58 +626,54 @@ test('K5 useSessionClipBytes 진행 중 세션 커밋(finishedAt 변경) 시 재
       rows: [{ index: 1, values: { m1: '20' } }],
       columns: [{ id: 'm1', name: '측정1', input: 'voice' }],
     } as any);
-  }, { liveId: sessLive, oldId: sessOld });
+  }, sessOld);
 
-  await page.reload({ waitUntil: 'domcontentloaded' });
-
-  // 1. openCursor 호출 횟수 계측 장치 설치
-  await page.evaluate(() => {
-    (window as any).__audioClipsCursorCount = 0;
-    const origOpenCursor = IDBObjectStore.prototype.openCursor;
-    IDBObjectStore.prototype.openCursor = function (...args: any[]) {
-      if (this.name === 'audioClips') {
-        (window as any).__audioClipsCursorCount++;
-      }
-      return origOpenCursor.apply(this, args as any);
-    };
+  // 1. 실제 음성 세션 시작 (boot)
+  const MINI_COLUMNS = [
+    { id: 'm1', name: '측정1', type: 'float', input: 'voice', ttsAnnounce: false, auto: { kind: 'fixed', value: '' }, decimals: 1, sampleKey: false },
+  ];
+  const MINI_SETTINGS = {
+    ...AZ_SETTINGS,
+    state: { ...AZ_SETTINGS.state, columns: MINI_COLUMNS, totalRows: 2 },
+  };
+  await boot(page, PHONE_402, {
+    settings: MINI_SETTINGS as unknown as typeof AZ_SETTINGS,
   });
+  await waitForTtsIdle(page);
 
-  // 2. liveSessionId를 sessLive로 설정 (진행 중 상태)
-  await page.evaluate(async ({ liveId }) => {
+  const liveSessionId = await page.evaluate(async () => {
     const { useSessionStore } = await import('/src/stores/sessionStore.ts');
-    useSessionStore.setState({ sessionId: liveId, phase: 'active' });
-  }, { liveId: sessLive });
+    return useSessionStore.getState().sessionId;
+  });
+  expect(liveSessionId).toBeTruthy();
 
-  // 3. 데이터 탭 이동 → DataScreen 마운트 및 첫 바퀴 집계 (2개 세션)
+  // 첫 값 커밋 (세션이 dataStore에 등록됨)
+  await fireStt(page, '10.0', 900);
+  await waitForTtsIdle(page);
+
+  // 2. 데이터 탭으로 이동 (세션은 백그라운드 keepalive로 계속 동작)
   await page.locator('[data-testid="tab-data"]').click();
-  await expect(page.locator(`[data-testid="session-clip-bytes-${sessLive}"]`)).not.toHaveText('녹음 …', { timeout: 10_000 });
+  await expect(page.locator(`[data-testid="session-clip-bytes-${liveSessionId}"]`)).not.toHaveText('녹음 …', { timeout: 10_000 });
   await expect(page.locator(`[data-testid="session-clip-bytes-${sessOld}"]`)).not.toHaveText('녹음 …', { timeout: 10_000 });
   const initialCount = await page.evaluate(() => (window as any).__audioClipsCursorCount);
 
-  // 4. 진행 중 세션(sessLive)의 finishedAt을 3번 변경 (커밋 모사)
-  for (let step = 1; step <= 3; step++) {
-    await page.evaluate(async ({ liveId, step }) => {
-      const { useDataStore } = await import('/src/stores/dataStore.ts');
-      useDataStore.setState((s) => ({
-        sessions: s.sessions.map((sess) =>
-          sess.id === liveId ? { ...sess, finishedAt: 1000 + step * 100 } : sess
-        ),
-      }));
-    }, { liveId: sessLive, step });
-    await page.waitForTimeout(100);
-  }
+  // 3. 데이터 탭이 열린 채로 실제 값 커밋 (fireStt)
+  await fireStt(page, '12.3', 900);
+  await waitForTtsIdle(page);
 
-  // 단언: 3번의 finishedAt 변경에도 추가 openCursor 호출은 0이어야 함
+  // 커밋으로 finishedAt이 찍혔지만 진행 중 세션이므로 추가 openCursor 호출은 0
   const midCount = await page.evaluate(() => (window as any).__audioClipsCursorCount);
-  expect(midCount - initialCount, '진행 중 세션의 finishedAt 변경 시 추가 집계는 0이어야 함').toBe(0);
+  expect(midCount - initialCount, '진행 중 세션 커밋 시 추가 집계는 0이어야 함').toBe(0);
 
-  // 5. 세션 종료 (liveSessionId가 해제됨)
-  await page.evaluate(async () => {
+  // 4. 데이터 탭이 열린 채로 실제 세션 종료 (fireStt '종료')
+  await fireStt(page, '종료', 1000);
+  await waitForTtsIdle(page);
+  await page.waitForFunction(async () => {
     const { useSessionStore } = await import('/src/stores/sessionStore.ts');
-    useSessionStore.getState().resetAll(); // sessionId = ''
-  });
+    return useSessionStore.getState().phase === 'ready';
+  }, { timeout: 15_000 });
 
-  // 단언: 세션 종료 후 정확히 1바퀴(2개 세션 = 2번) 다시 계산됨
+  // 세션이 실제 종료(phase === ready)되면 liveSessionId가 undefined로 넘어가 정확히 1바퀴(2개 세션) 다시 계산됨
   await page.waitForFunction(
     (expected) => (window as any).__audioClipsCursorCount >= expected,
     midCount + 2,
@@ -687,4 +681,13 @@ test('K5 useSessionClipBytes 진행 중 세션 커밋(finishedAt 변경) 시 재
   );
   const finalCount = await page.evaluate(() => (window as any).__audioClipsCursorCount);
   expect(finalCount - midCount, '세션 종료 시 정확히 1바퀴(2개 세션) 추가 집계되어야 함').toBe(2);
+
+  // 5. 카드 문구 = 실제 IDB 바이트 검증
+  const expectedText = await page.evaluate(async (sid) => {
+    const { sumSessionClipBytes } = await import('/src/lib/db.ts');
+    const { total } = await sumSessionClipBytes(sid);
+    return `녹음 ${(total / 1_000_000).toFixed(1)}MB`;
+  }, liveSessionId);
+  await expect(page.locator(`[data-testid="session-clip-bytes-${liveSessionId}"]`)).toHaveText(expectedText);
 });
+

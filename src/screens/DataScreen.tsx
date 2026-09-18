@@ -78,8 +78,8 @@ export function DataScreen() {
   const isLiveProgress = livePhase === 'active' || livePhase === 'complete' || livePhase === 'stopping';
   const isLivePaused = livePhase === 'paused';
 
-  // v0.54.0 H2 / K5 — 세션별 녹음 클립 바이트 비동기 집계 (진행 중 세션은 id만 의존)
-  const clipBytesMap = useSessionClipBytes(sessions, liveSessionId);
+  // v0.54.0 H2 / K5 / L1 — 세션별 녹음 클립 바이트 비동기 집계 (진행 중 세션만 id만 의존)
+  const clipBytesMap = useSessionClipBytes(sessions, (isLiveProgress || isLivePaused) ? liveSessionId : undefined);
 
   const unsynced = sessions.filter((s) => sessionPending(s) > 0).length;
   const empty = sessions.length === 0;
