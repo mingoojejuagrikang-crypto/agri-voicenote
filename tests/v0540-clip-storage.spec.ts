@@ -407,7 +407,7 @@ test('K1-b: Drive 백업 실패(user leg 실패) → raw_uploaded 기록 안 됨
   expect(uploadedIds).not.toContain(sessId);
 });
 
-test('K1-c: 클립 1개 읽기 실패(get 가로채 throw) → 업로드 성공해도 raw_uploaded 기록 안 됨 + export_clips_* 로그 1줄', async ({ page }) => {
+test('K1-c / L3-a: 클립 1개 get undefined(null 분기) → 업로드 성공해도 raw_uploaded 기록 안 됨 + export_clips_incomplete 로그', async ({ page }) => {
   await page.route('**://www.googleapis.com/**', (route) =>
     route.fulfill({ json: { id: 'stub-drive-file-id', files: [{ id: 'stub-drive-file-id' }] } })
   );
@@ -419,14 +419,15 @@ test('K1-c: 클립 1개 읽기 실패(get 가로채 throw) → 업로드 성공�
 
   await page.reload({ waitUntil: 'domcontentloaded' });
 
-  // 클립 get을 가로채 throw
+  // 클립 get이 undefined를 반환하도록 가로채기 (throw 아님)
   await page.evaluate(({ id }) => {
     const origGet = IDBObjectStore.prototype.get;
     IDBObjectStore.prototype.get = function (key: any) {
+      const req = origGet.apply(this, arguments as any);
       if (this.name === 'audioClips' && typeof key === 'string' && key.startsWith(id)) {
-        throw new Error('intercepted clip read error');
+        Object.defineProperty(req, 'result', { get: () => undefined, configurable: true });
       }
-      return origGet.apply(this, arguments as any);
+      return req;
     };
   }, { id: sessId });
 
@@ -438,7 +439,7 @@ test('K1-c: 클립 1개 읽기 실패(get 가로채 throw) → 업로드 성공�
   // 동기화 완료 대기
   await expect(page.locator('text=로그 1/1 세션 백업')).toBeVisible({ timeout: 15_000 });
 
-  // clipsComplete가 false이므로 raw_uploaded 에 기록되지 않아야 함
+  // clipsComplete가 false이므로 raw_uploaded에 기록되지 않아야 함
   const uploadedIds = await page.evaluate(async () => {
     const { loadRawUploadedRecord } = await import('/src/lib/db.ts');
     const rec = await loadRawUploadedRecord();
@@ -446,13 +447,58 @@ test('K1-c: 클립 1개 읽기 실패(get 가로채 throw) → 업로드 성공�
   });
   expect(uploadedIds).not.toContain(sessId);
 
-  // export_clips_* 로그가 정확히 1줄 존재해야 함
+  // export_clips_incomplete:missing=1 로그가 정확히 1줄 존재해야 함
   const exportClipsLogs = await page.evaluate(async () => {
     const { logger } = await import('/src/lib/logger.ts');
     return logger.getAll().filter((e) => typeof e.extra === 'string' && e.extra.startsWith('export_clips_'));
   });
   expect(exportClipsLogs).toHaveLength(1);
-  expect(exportClipsLogs[0].extra).toContain('export_clips_failed');
+  expect(exportClipsLogs[0].extra).toBe('export_clips_incomplete:missing=1');
+  expect((exportClipsLogs[0] as any).sessionId).toBe('__app__');
+  expect((exportClipsLogs[0] as any).parsed).toBe(sessId);
+});
+
+test('L3-b noteSessionPersisted 배선: 업로드 기록된 세션에 새 값 커밋(실제 persistSession) 시 기록에서 제외됨', async ({ page }) => {
+  const MINI_COLUMNS = [
+    { id: 'm1', name: '측정1', type: 'float', input: 'voice', ttsAnnounce: false, auto: { kind: 'fixed', value: '' }, decimals: 1, sampleKey: false },
+  ];
+  const MINI_SETTINGS = {
+    ...AZ_SETTINGS,
+    state: { ...AZ_SETTINGS.state, columns: MINI_COLUMNS, totalRows: 2 },
+  };
+  await boot(page, PHONE_402, {
+    settings: MINI_SETTINGS as unknown as typeof AZ_SETTINGS,
+  });
+  await waitForTtsIdle(page);
+
+  const liveSessionId = await page.evaluate(async () => {
+    const { useSessionStore } = await import('/src/stores/sessionStore.ts');
+    return useSessionStore.getState().sessionId;
+  });
+  expect(liveSessionId).toBeTruthy();
+
+  // 1. 활성 세션을 markRawUploaded로 올림 기록에 추가
+  await page.evaluate(async (id) => {
+    const { markRawUploaded } = await import('/src/lib/rawRetention.ts');
+    await markRawUploaded([id]);
+  }, liveSessionId);
+
+  const beforeUploaded = await page.evaluate(async () => {
+    const { loadRawUploadedRecord } = await import('/src/lib/db.ts');
+    return ((await loadRawUploadedRecord()) as any)?.ids ?? [];
+  });
+  expect(beforeUploaded).toContain(liveSessionId);
+
+  // 2. 실제 새 값 커밋 (실제 persistSession 호출 경로 발화)
+  await fireStt(page, '15.5', 900);
+  await waitForTtsIdle(page);
+
+  // 3. persistSession 말미의 noteSessionPersisted로 인해 기록에서 제외되어야 함 (N07 변이 방어)
+  const afterUploaded = await page.evaluate(async () => {
+    const { loadRawUploadedRecord } = await import('/src/lib/db.ts');
+    return ((await loadRawUploadedRecord()) as any)?.ids ?? [];
+  });
+  expect(afterUploaded).not.toContain(liveSessionId);
 });
 
 test('H3 / K8 SessionCard 녹음 용량 표시 e2e (1.5MB / 0.0MB · 삭제 버튼 경로 · 셈 전 문구 · 실패 로깅)', async ({ page }) => {

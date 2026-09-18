@@ -73,8 +73,8 @@ export {
   sessionHealth,
   // v0.53.0 R7 — 세션 결산 생략(새로고침 복원).
   sessionHealthSkip,
-  // v0.54.0 G1 & G2 — 원본 보존 정리 계측.
-  rawPruned, rawPruneFailed, rawUploadedRecordFailed,
+  // v0.54.0 G1 & G2 & K1 — 원본 보존 정리 및 내보내기 계측.
+  rawPruned, rawPruneFailed, rawUploadedRecordFailed, exportClipsIncomplete,
 } from './logEventsSession';
 
 // 설정·UI 계측 도메인 — logEventsUi.ts.

@@ -154,7 +154,7 @@ export async function pruneOldRawClips(justSavedId: string): Promise<void> {
     const [sessions, clipKeys, rec] = await Promise.all([
       loadAllSessions(),
       loadAllAudioClipKeys(),
-      loadRawUploadedRecord(),
+      _loadRecord(),
     ]);
 
     const uploadedIds = new Set(parseRawUploadedRecord(rec));

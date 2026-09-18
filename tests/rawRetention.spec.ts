@@ -181,3 +181,32 @@ test('[node] K7 noteSessionPersisted — mark 뒤 다시 note하면 잊음', asy
   __setRawRetentionStorageForTest(null);
 });
 
+test('[node] L3-c 직렬 큐 비대칭 지연 순서 보장 (N09 chain 제거 변이 방어)', async () => {
+  let stored: { ids: string[] } = { ids: [] };
+  let loadDelayForMark = 50;
+
+  __setRawRetentionStorageForTest({
+    load: async () => {
+      const delay = loadDelayForMark;
+      loadDelayForMark = 5;
+      await new Promise((r) => setTimeout(r, delay));
+      return { ids: [...stored.ids] };
+    },
+    save: async (rec: any) => {
+      stored = { ids: [...rec.ids] };
+    },
+  });
+  __resetPersistedIdsForTest();
+
+  // mark(['s1']) 바로 뒤에 forgetRawUploaded('s1')를 동시에 호출
+  // chain이 있으면: mark 완료(50ms) 후 forget이 실행되어 최종 상태는 []
+  // chain이 없으면: forget(5ms)이 먼저 끝나고 mark(50ms)가 덮어써서 최종 상태가 ['s1']이 됨 (N09 red)
+  await Promise.all([
+    markRawUploaded(['s1']),
+    forgetRawUploaded('s1'),
+  ]);
+
+  expect(stored.ids).toEqual([]);
+
+  __setRawRetentionStorageForTest(null);
+});

@@ -54,6 +54,7 @@ import {
   rawPruned,
   rawPruneFailed,
   rawUploadedRecordFailed,
+  exportClipsIncomplete,
 } from '../src/lib/logEvents';
 
 /** v0.51.1 L (민구 지시 2026-09-02) — 동기화 완료 계측. 예시는 STT 레인 §6 L의 형태 그대로. */
@@ -144,6 +145,12 @@ test('rawPruneFailed — :raw 정리 실패 바이트 계약 (G2 신규 이벤�
 /** v0.54.0 G1 — raw_uploaded 기록 저장 실패 계측 바이트 계약. */
 test('rawUploadedRecordFailed — raw_uploaded 기록 저장 실패 바이트 계약 (G1 신규 이벤트)', () => {
   expect(rawUploadedRecordFailed('quota')).toBe('raw_uploaded_record_failed:quota');
+});
+
+/** v0.54.0 K1 / L5 — 로그 zip 내보내기 중 누락된 클립 수 계측 바이트 계약. */
+test('exportClipsIncomplete — 로그 zip 내보내기 중 누락된 클립 수 계측 바이트 계약', () => {
+  expect(exportClipsIncomplete(1)).toBe('export_clips_incomplete:missing=1');
+  expect(exportClipsIncomplete(3)).toBe('export_clips_incomplete:missing=3');
 });
 
 /** v0.51.1 B2 (제보② 2026-09-02) — atEnd 흡수. `cell_wait_absorb:<colId>`와 같은 꼴. */

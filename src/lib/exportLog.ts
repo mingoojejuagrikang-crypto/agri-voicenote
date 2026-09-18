@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import { logger } from './logger';
-import { withErr } from './logEvents';
+import { withErr, exportClipsIncomplete } from './logEvents';
 import {
   loadAudioClip, loadAllAudioClipKeys, loadLogEvents, loadAllSessions,
   loadScreenshot, loadAllScreenshotKeys,
@@ -101,12 +101,28 @@ async function exportLogZipInternal(sessionIds?: string[]): Promise<{ blob: Blob
         missingClips++;
       }
     }
+    const exportParsed = (sessionIds && sessionIds.length > 0)
+      ? sessionIds.join(',')
+      : scopedSessions.map((s) => s.id).join(',');
     if (missingClips > 0) {
-      logger.log({ type: 'app', extra: `export_clips_incomplete:missing=${missingClips}` });
+      logger.log({
+        type: 'app',
+        sessionId: '__app__',
+        parsed: exportParsed,
+        extra: exportClipsIncomplete(missingClips),
+      });
     }
   } catch (e) {
     clipsComplete = false;
-    logger.log({ type: 'app', extra: withErr('export_clips_failed', e) });
+    const exportParsed = (sessionIds && sessionIds.length > 0)
+      ? sessionIds.join(',')
+      : scopedSessions.map((s) => s.id).join(',');
+    logger.log({
+      type: 'app',
+      sessionId: '__app__',
+      parsed: exportParsed,
+      extra: withErr('export_clips_failed', e),
+    });
   }
 
   // v0.33.0 항목10-B: screens/ — 자동 화면 캡처(JPEG) + screens-manifest.json. 키

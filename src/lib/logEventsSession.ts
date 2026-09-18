@@ -146,3 +146,8 @@ export function rawPruneFailed(message: string): string {
 export function rawUploadedRecordFailed(message: string): string {
   return `raw_uploaded_record_failed:${message}`;
 }
+
+/** v0.54.0 K1 / L5 — 로그 zip 내보내기 중 누락된 클립 수 계측. */
+export function exportClipsIncomplete(missing: number): string {
+  return `export_clips_incomplete:missing=${missing}`;
+}
