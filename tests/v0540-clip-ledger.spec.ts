@@ -467,6 +467,11 @@ test('ⓔ 트림 미발생(무음 PCM 스텁) → clip_raw_skipped:reason=no_seg
   const savedCount = Number(mSaved![1]);
   const failedCount = Number(mFailed![1]);
 
+  // unreliable은 clip_summary에 없다(clipHealth.ts 바이트 불변) — clip_unreliable_summary가 없으면 방출 계약상 0이다(단언으로 잠근 0).
+  const unreliableEvents = events.filter((e) => (e.extra ?? '').startsWith('clip_unreliable_summary:'));
+  expect(unreliableEvents.length, 'ⓔ 정상 무음 세션 — clip_unreliable_summary는 방출 계약상 0줄(unreliable·mutedFailed 둘 다 0)').toBe(0);
+  const unreliableCount = 0;
+
   const healthEvents = events.filter((e) => (e.extra ?? '').startsWith('session_health:'));
   expect(healthEvents.length).toBe(1);
   const healthExtra = healthEvents[0].extra ?? '';
@@ -476,5 +481,5 @@ test('ⓔ 트림 미발생(무음 PCM 스텁) → clip_raw_skipped:reason=no_seg
   const discardedCount = Number(mDiscarded![1]);
 
   const stopAwaitCount = events.filter((e) => (e.extra ?? '') === 'clip_stop_await').length;
-  expect(stopAwaitCount).toBe(savedCount + failedCount + 0 + saveErrCount + discardedCount);
+  expect(stopAwaitCount).toBe(savedCount + failedCount + unreliableCount + saveErrCount + discardedCount);
 });
