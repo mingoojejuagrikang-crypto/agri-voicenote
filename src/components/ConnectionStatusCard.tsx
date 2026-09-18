@@ -19,8 +19,11 @@
 import { useEffect, useState } from 'react';
 import { T } from '../tokens';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useSessionStore, isSessionLive } from '../stores/sessionStore';
 import { getStoredToken, onTokenSettled } from '../lib/googleAuth';
-import { isConnectionAlive } from '../lib/googleConnection';
+import { isConnectionAlive, getConnection, connectionDaysLeft } from '../lib/googleConnection';
+import { reloginUnlessSessionLive } from '../lib/syncAuthGuard';
+import { LoginRequiredModal } from './LoginRequiredModal';
 import { parseSpreadsheetId, readonlySheetsAuth } from '../lib/sheets';
 import {
   getPastIndexStatus,
@@ -65,13 +68,13 @@ function ReadyCheckBadge() {
 function StatusRow({ label, value, tone, testId, action, lead }: {
   label: string;
   value: string;
-  tone: 'ok' | 'warn' | 'off';
+  tone: 'ok' | 'warn' | 'bad' | 'off';
   testId: string;
   action?: React.ReactNode;
   /** 값 텍스트 바로 앞(오른쪽 정렬 유지)에 붙는 표식(예: 과거값 ready ✓). */
   lead?: React.ReactNode;
 }) {
-  const color = tone === 'ok' ? T.green : tone === 'warn' ? T.amber : T.textMute;
+  const color = tone === 'ok' ? T.green : tone === 'warn' ? T.amber : tone === 'bad' ? T.red : T.textMute;
   return (
     <div data-testid={testId} data-tone={tone} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, minHeight: 28 }}>
       <span style={{ fontSize: 12, fontWeight: 700, color: T.textDim, flexShrink: 0, width: 64 }}>
@@ -121,16 +124,42 @@ export function ConnectionStatusCard() {
   //    깜빡이는 쪽이 오히려 사실과 멀다. 🔴 남는 대가는 **제스처 밖 경로**(부팅 프리페치 등)가
   //    여전히 토큰 없이 실패할 수 있다는 것이고, 그건 계획서 §3 한계로 민구가 승인한 축이다.
   //    (아래 30s 폴링 틱이 창 만료 순간도 그대로 잡는다 — 판정이 시각 함수라서.)
+  const [loginOpen, setLoginOpen] = useState(false);
+  const isLive = isSessionLive(useSessionStore((state) => state.phase));
+
+  // 1) Google 연결 — 3단계 판정(v0.55.0 C-1, C-2).
+  //    🟢 토큰 있음: 사용 가능 · <m>분 남음 (tone: ok)
+  //    🟡 토큰 없음 + 연결창 살아 있음: 재인증 필요 · 연결 <d>일 남음 (tone: warn) + [탭해서 갱신] 버튼
+  //    🔴 둘 다 아님: 로그인 필요 (tone: bad)
   const token = getStoredToken();
   const connectionAlive = isConnectionAlive();
-  const linked = !!token || connectionAlive;
-  const knewAccount = !!(s.userEmail || s.googleConnected);
-  // ⚠️ 텍스트에 '연결됨'을 쓰지 않는다 — 파일 머리 주석의 strict mode 계약(설정탭 Google 버튼과
-  //    `text=연결됨` 로케이터 충돌). 창만 살아 있는 경우도 같은 '로그인됨' 문구를 쓴다.
-  const googleValue = linked
-    ? `로그인됨 · ${token?.email ?? s.userEmail ?? ''}`
-    : knewAccount ? '재로그인 필요' : '미로그인';
-  const googleTone: 'ok' | 'warn' | 'off' = linked ? 'ok' : knewAccount ? 'warn' : 'off';
+  let googleValue = '로그인 필요';
+  let googleTone: 'ok' | 'warn' | 'bad' = 'bad';
+  if (token) {
+    const m = Math.max(0, Math.floor((token.expires_at - 300_000 - Date.now()) / 60_000));
+    googleValue = `사용 가능 · ${m}분 남음`;
+    googleTone = 'ok';
+  } else if (connectionAlive) {
+    const d = connectionDaysLeft(getConnection(), Date.now());
+    googleValue = `재인증 필요 · 연결 ${d}일 남음`;
+    googleTone = 'warn';
+  }
+
+  const showGoogleRefresh = googleTone === 'warn' && !isLive;
+  const googleAction = showGoogleRefresh ? (
+    <button
+      type="button"
+      data-testid="conn-google-refresh"
+      onClick={() => setLoginOpen(true)}
+      style={{
+        flexShrink: 0, minHeight: 28, padding: '0 10px', borderRadius: 999,
+        border: `1px solid ${T.lineStrong}`, background: 'transparent',
+        color: T.textDim, fontSize: 12, fontWeight: 800, cursor: 'pointer',
+      }}
+    >
+      탭해서 갱신
+    </button>
+  ) : undefined;
 
   // 2) 시트 연결 — URL 파싱 + 탭 선택. 저장 목록의 파일명으로 표기(요약 팝업과 동일 규칙).
   const sheetId = parseSpreadsheetId(s.sheetUrl);
@@ -202,27 +231,38 @@ export function ConnectionStatusCard() {
   ) : undefined;
 
   return (
-    <div
-      data-testid="connection-status-card"
-      style={{
-        background: T.card, border: `1px solid ${T.line}`, borderRadius: 14,
-        padding: '10px 14px',
-        display: 'flex', flexDirection: 'column', gap: 4,
-        width: '100%',
-      }}
-    >
-      <StatusRow label="Google 연결" value={googleValue} tone={googleTone} testId="conn-google" />
-      <StatusRow label="시트 연결" value={sheetValue} tone={sheetTone} testId="conn-sheet" />
-      <StatusRow
-        label="과거값 준비"
-        value={idxValue}
-        tone={idxTone}
-        testId="conn-past"
-        action={retry}
-        // v0.35.0 항목8 — ready(신선 캐시=로그인+시트연결로 프리페치 완료)일 때만 굵은 녹색 ✓.
-        //   stale(영속 폴백)/loading/none엔 표식 없음(기존 표기 유지). 프리페치 트리거/TTL 무변경.
-        lead={idx.state === 'ready' ? <ReadyCheckBadge /> : undefined}
-      />
-    </div>
+    <>
+      <div
+        data-testid="connection-status-card"
+        style={{
+          background: T.card, border: `1px solid ${T.line}`, borderRadius: 14,
+          padding: '10px 14px',
+          display: 'flex', flexDirection: 'column', gap: 4,
+          width: '100%',
+        }}
+      >
+        <StatusRow label="Google 연결" value={googleValue} tone={googleTone} testId="conn-google" action={googleAction} />
+        <StatusRow label="시트 연결" value={sheetValue} tone={sheetTone} testId="conn-sheet" />
+        <StatusRow
+          label="과거값 준비"
+          value={idxValue}
+          tone={idxTone}
+          testId="conn-past"
+          action={retry}
+          // v0.35.0 항목8 — ready(신선 캐시=로그인+시트연결로 프리페치 완료)일 때만 굵은 녹색 ✓.
+          //   stale(영속 폴백)/loading/none엔 표식 없음(기존 표기 유지). 프리페치 트리거/TTL 무변경.
+          lead={idx.state === 'ready' ? <ReadyCheckBadge /> : undefined}
+        />
+      </div>
+      {loginOpen && (
+        <LoginRequiredModal
+          reason="Google 연결이 만료되었습니다. 다시 로그인하여 동기화를 계속하세요."
+          onClose={() => setLoginOpen(false)}
+          onLogin={() => {
+            void reloginUnlessSessionLive().finally(() => setLoginOpen(false));
+          }}
+        />
+      )}
+    </>
   );
 }

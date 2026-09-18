@@ -8,9 +8,10 @@
  * 계약과 근거는 아래 블록 주석이 그대로 갖는다. 요약하면 **녹음 무결성 > 갱신 편의**다.
  */
 import { logger } from './logger';
-import { getStoredToken } from './googleAuth';
+import { getStoredToken, signIn } from './googleAuth';
 import { ensureAccessToken } from './googleAuthRefresh';
 import { useSessionStore, isSessionLive } from '../stores/sessionStore';
+import { statusCardLogin } from './logEvents';
 
 // ── 🔴 v0.51 r2 [F-3 잔존 + F-4 교차] — **세션 중에는 여기서도 갱신하지 않는다.** ──
 //
@@ -44,3 +45,13 @@ export const ensureAuthUnlessSessionLive = async (o?: { force?: boolean }): Prom
   }
   return ensureAccessToken(o);
 };
+
+/** v0.55.0 C-2 — 연결 상태 카드 [탭해서 갱신] 로그인 핸들러. */
+export function reloginUnlessSessionLive(): Promise<boolean> {
+  if (isSessionLive(useSessionStore.getState().phase)) {
+    logger.log({ type: 'app', extra: statusCardLogin('skipped_session_live') });
+    return Promise.resolve(false);
+  }
+  logger.log({ type: 'app', extra: statusCardLogin('clicked') });
+  return signIn().then(() => true, () => false);
+}

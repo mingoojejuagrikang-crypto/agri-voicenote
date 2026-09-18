@@ -328,8 +328,9 @@ test('미로그인 + 유효 폴백(2h 전) → 이상치 알람 발화 + trend_u
   //    창이 죽었을 때 정직하게 강등하는가는 아래 3상태 배지 테스트 ①-b가 고정한다.
   //    이 테스트의 본 주제(**토큰 없이도 폴백 인덱스로 알람이 발화하는가**)는 그대로다.
   await page.locator('[data-testid="tab-voice"]').click();
-  await expect(page.locator('[data-testid="conn-google"]')).toContainText('로그인됨');
-  await expect(page.locator('[data-testid="conn-google"]')).toHaveAttribute('data-tone', 'ok');
+  // v0.55.0 결정 1-b — 토큰 없음 + 창 살아 있음 = 🟡 재인증 필요
+  await expect(page.locator('[data-testid="conn-google"]')).toContainText('재인증 필요');
+  await expect(page.locator('[data-testid="conn-google"]')).toHaveAttribute('data-tone', 'warn');
   await expect(page.locator('[data-testid="conn-past"]')).toContainText('2행 · 1회차 준비됨');
   await expect(page.locator('[data-testid="conn-past"]')).toHaveAttribute('data-tone', 'warn');
   // v0.35.0 항목8 — stale(영속 폴백)엔 ready ✓ 표식이 없다(ready일 때만 붙는다).
@@ -446,8 +447,9 @@ test('3상태 배지(설정탭) — 연결 실시간 판정([AUTH-7] stale 표�
   await seedAndBoot(page, { withToken: false, sheetsFail: true });
   const card = page.locator('[data-testid="connection-status-card"]');
   await expect(card).toBeVisible();
-  await expect(page.locator('[data-testid="conn-google"]')).toContainText('로그인됨 · tester@example.com');
-  await expect(page.locator('[data-testid="conn-google"]')).toHaveAttribute('data-tone', 'ok');
+  // v0.55.0 결정 1-b — 토큰 없음 + 창 살아 있음 = 🟡 재인증 필요
+  await expect(page.locator('[data-testid="conn-google"]')).toContainText('재인증 필요');
+  await expect(page.locator('[data-testid="conn-google"]')).toHaveAttribute('data-tone', 'warn');
   // ①-b 연결창까지 죽으면 **정직하게 강등한다** — 배지의 원래 존재 이유([AUTH-7])는 여기 남는다.
   await page.evaluate(() => {
     const KEY = 'agri-voicenote-settings-v3';
@@ -456,8 +458,9 @@ test('3상태 배지(설정탭) — 연결 실시간 판정([AUTH-7] stale 표�
     localStorage.setItem(KEY, JSON.stringify(raw));
   });
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(page.locator('[data-testid="conn-google"]')).toContainText('재로그인 필요');
-  await expect(page.locator('[data-testid="conn-google"]')).toHaveAttribute('data-tone', 'warn');
+  // v0.55.0 결정 1-b — 토큰 없음 + 창 죽음 = 🔴 로그인 필요
+  await expect(page.locator('[data-testid="conn-google"]')).toContainText('로그인 필요');
+  await expect(page.locator('[data-testid="conn-google"]')).toHaveAttribute('data-tone', 'bad');
   await expect(page.locator('[data-testid="conn-sheet"]')).toContainText('Sheet1');
   await expect(page.locator('[data-testid="conn-sheet"]')).toHaveAttribute('data-tone', 'ok');
   // 🔴 v0.46.1 WP-2 — 사유를 밝히는 표시로 바뀌었다(위 주석 참조). 토큰·API key 모두 없는 상태.
@@ -471,6 +474,7 @@ test('3상태 배지(설정탭) — 연결 실시간 판정([AUTH-7] stale 표�
     }));
   });
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(page.locator('[data-testid="conn-google"]')).toContainText('로그인됨 · tester@example.com');
+  // v0.55.0 결정 1-b — 토큰 주입 = 🟢 사용 가능
+  await expect(page.locator('[data-testid="conn-google"]')).toContainText('사용 가능');
   await expect(page.locator('[data-testid="conn-google"]')).toHaveAttribute('data-tone', 'ok');
 });
