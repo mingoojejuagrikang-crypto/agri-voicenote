@@ -117,7 +117,7 @@ test('① 토큰 expires_at = Date.now() + 47.5분 => 사용 가능 · 42분 남
 
 test('② 토큰 없음 + 살아 있는 연결 기록 => 재인증 필요 · 연결 27일 남음 (warn) · 버튼 노출 (설정+입력)', async ({ page }) => {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  const oneHourAgo = Date.now() - 3600_000;
+  const thirtyMinAgo = Date.now() - 1800_000;
 
   await page.evaluate(({ settings, storeKey, t }) => {
     localStorage.clear();
@@ -133,7 +133,7 @@ test('② 토큰 없음 + 살아 있는 연결 기록 => 재인증 필요 · 연
       },
     };
     localStorage.setItem(storeKey, JSON.stringify(s));
-  }, { settings: SETTINGS, storeKey: STORE_KEY, t: oneHourAgo });
+  }, { settings: SETTINGS, storeKey: STORE_KEY, t: thirtyMinAgo });
 
   await page.reload({ waitUntil: 'domcontentloaded' });
 
