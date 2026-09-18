@@ -13,10 +13,13 @@ import { sumSessionClipBytes } from './db';
 
 export function useSessionClipBytes(
   sessions: ReadonlyArray<{ id: string; finishedAt?: number }>,
+  liveSessionId?: string,
 ): ReadonlyMap<string, number> {
   const [bytesMap, setBytesMap] = useState<ReadonlyMap<string, number>>(() => new Map());
 
-  const depKey = sessions.map((s) => `${s.id}:${s.finishedAt ?? 0}`).join('|');
+  const depKey = sessions
+    .map((s) => (s.id === liveSessionId ? s.id : `${s.id}:${s.finishedAt ?? 0}`))
+    .join('|');
 
   useEffect(() => {
     let cancelled = false;

@@ -526,3 +526,95 @@ test('H3 SessionCard 녹음 용량 표시 e2e (1.2MB / 0.0MB · 삭제 후 유�
   await expect(page.locator(`[data-testid="session-clip-bytes-${sessB}"]`)).toHaveCount(0);
 });
 
+test('K5 useSessionClipBytes 진행 중 세션 커밋(finishedAt 변경) 시 재계산 방지 및 종료 시 1바퀴 재계산', async ({ page }) => {
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+
+  const sessLive = 'sess_k5_live';
+  const sessOld = 'sess_k5_old';
+
+  await page.evaluate(async ({ liveId, oldId }) => {
+    localStorage.clear();
+    const { saveSession } = await import('/src/lib/db.ts');
+    await saveSession({
+      id: liveId,
+      date: '2026-09-18',
+      label: '진행 중 세션',
+      startedAt: 1000,
+      finishedAt: 1000,
+      completedRows: 1,
+      syncedRows: 0,
+      rows: [{ index: 1, values: { m1: '10' } }],
+      columns: [{ id: 'm1', name: '측정1', input: 'voice' }],
+    } as any);
+    await saveSession({
+      id: oldId,
+      date: '2026-09-18',
+      label: '과거 세션',
+      startedAt: 500,
+      finishedAt: 600,
+      completedRows: 1,
+      syncedRows: 0,
+      rows: [{ index: 1, values: { m1: '20' } }],
+      columns: [{ id: 'm1', name: '측정1', input: 'voice' }],
+    } as any);
+  }, { liveId: sessLive, oldId: sessOld });
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+
+  // 1. openCursor 호출 횟수 계측 장치 설치
+  await page.evaluate(() => {
+    (window as any).__audioClipsCursorCount = 0;
+    const origOpenCursor = IDBObjectStore.prototype.openCursor;
+    IDBObjectStore.prototype.openCursor = function (...args: any[]) {
+      if (this.name === 'audioClips') {
+        (window as any).__audioClipsCursorCount++;
+      }
+      return origOpenCursor.apply(this, args as any);
+    };
+  });
+
+  // 2. liveSessionId를 sessLive로 설정 (진행 중 상태)
+  await page.evaluate(async ({ liveId }) => {
+    const { useSessionStore } = await import('/src/stores/sessionStore.ts');
+    useSessionStore.setState({ sessionId: liveId, phase: 'active' });
+  }, { liveId: sessLive });
+
+  // 3. 데이터 탭 이동 → DataScreen 마운트 및 첫 바퀴 집계 (2개 세션)
+  await page.locator('[data-testid="tab-data"]').click();
+  await expect(page.locator(`[data-testid="session-clip-bytes-${sessLive}"]`)).not.toHaveText('녹음 …', { timeout: 10_000 });
+  await expect(page.locator(`[data-testid="session-clip-bytes-${sessOld}"]`)).not.toHaveText('녹음 …', { timeout: 10_000 });
+  const initialCount = await page.evaluate(() => (window as any).__audioClipsCursorCount);
+
+  // 4. 진행 중 세션(sessLive)의 finishedAt을 3번 변경 (커밋 모사)
+  for (let step = 1; step <= 3; step++) {
+    await page.evaluate(async ({ liveId, step }) => {
+      const { useDataStore } = await import('/src/stores/dataStore.ts');
+      useDataStore.setState((s) => ({
+        sessions: s.sessions.map((sess) =>
+          sess.id === liveId ? { ...sess, finishedAt: 1000 + step * 100 } : sess
+        ),
+      }));
+    }, { liveId: sessLive, step });
+    await page.waitForTimeout(100);
+  }
+
+  // 단언: 3번의 finishedAt 변경에도 추가 openCursor 호출은 0이어야 함
+  const midCount = await page.evaluate(() => (window as any).__audioClipsCursorCount);
+  expect(midCount - initialCount, '진행 중 세션의 finishedAt 변경 시 추가 집계는 0이어야 함').toBe(0);
+
+  // 5. 세션 종료 (liveSessionId가 해제됨)
+  await page.evaluate(async () => {
+    const { useSessionStore } = await import('/src/stores/sessionStore.ts');
+    useSessionStore.getState().resetAll(); // sessionId = ''
+  });
+
+  // 단언: 세션 종료 후 정확히 1바퀴(2개 세션 = 2번) 다시 계산됨
+  await page.waitForFunction(
+    (expected) => (window as any).__audioClipsCursorCount >= expected,
+    midCount + 2,
+    { timeout: 10_000 }
+  );
+  const finalCount = await page.evaluate(() => (window as any).__audioClipsCursorCount);
+  expect(finalCount - midCount, '세션 종료 시 정확히 1바퀴(2개 세션) 추가 집계되어야 함').toBe(2);
+});
+
