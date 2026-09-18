@@ -431,6 +431,12 @@ test('K1-c / L3-a: 클립 1개 get undefined(null 분기) → 업로드 성공�
     };
   }, { id: sessId });
 
+  // A-3 ⓐ: 살아 있는 세션을 흉내 (sessionId: '__app__' 명시 잠금)
+  await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    logger.setSessionId('sess_live_dummy');
+  });
+
   await page.locator('[data-testid="tab-data"]').click();
 
   await page.getByText('시트에 추가').click();
@@ -456,6 +462,62 @@ test('K1-c / L3-a: 클립 1개 get undefined(null 분기) → 업로드 성공�
   expect(exportClipsLogs[0].extra).toBe('export_clips_incomplete:missing=1');
   expect((exportClipsLogs[0] as any).sessionId).toBe('__app__');
   expect((exportClipsLogs[0] as any).parsed).toBe(sessId);
+
+  await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    logger.setSessionId(undefined);
+  });
+});
+
+test('A-3-b export_clips_failed — 클립 읽기 예외 시 sessionId: __app__ 및 parsed: 세션 id 목록 잠금', async ({ page }) => {
+  await page.route('**://www.googleapis.com/**', (route) =>
+    route.fulfill({ json: { id: 'stub-drive-file-id', files: [{ id: 'stub-drive-file-id' }] } })
+  );
+  await routeSheetsSuccess(page);
+
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  const sessId = 'sess_export_failed';
+  await seedUploadSyncSession(page, sessId, true);
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+
+  // 세션 더미 세팅으로 기본 sessionId 변경
+  await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    logger.setSessionId('sess_live_dummy');
+  });
+
+  // 클립 get이 예외를 던지도록 가로채기 (loadAudioClip이 쓰는 IDB 읽기 실패)
+  await page.evaluate(({ id }) => {
+    const origGet = IDBObjectStore.prototype.get;
+    IDBObjectStore.prototype.get = function (key: any) {
+      if (this.name === 'audioClips' && typeof key === 'string' && key.startsWith(id)) {
+        throw new Error('Simulated IDB clip read error');
+      }
+      return origGet.apply(this, arguments as any);
+    };
+  }, { id: sessId });
+
+  await page.locator('[data-testid="tab-data"]').click();
+
+  await page.getByText('시트에 추가').click();
+  await page.locator('button:has-text("추가 (")').click();
+
+  // 동기화 완료 대기
+  await expect(page.locator('text=로그 1/1 세션 백업')).toBeVisible({ timeout: 15_000 });
+
+  const exportFailedLogs = await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    return logger.getAll().filter((e) => typeof e.extra === 'string' && e.extra.startsWith('export_clips_failed'));
+  });
+  expect(exportFailedLogs).toHaveLength(1);
+  expect((exportFailedLogs[0] as any).sessionId).toBe('__app__');
+  expect((exportFailedLogs[0] as any).parsed).toBe(sessId);
+
+  await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    logger.setSessionId(undefined);
+  });
 });
 
 test('L3-b noteSessionPersisted 배선: 업로드 기록된 세션에 새 값 커밋(실제 persistSession) 시 기록에서 제외됨', async ({ page }) => {
@@ -707,6 +769,13 @@ test('L1 useSessionClipBytes 실제 세션(커밋 뒤 추가 셈 0 · 종료 뒤
   await fireStt(page, '12.3', 900);
   await waitForTtsIdle(page);
 
+  // A-5: 값 12.3이 실제로 커밋됐음을 단언 (스토어 행 값)
+  await page.waitForFunction(async (sid) => {
+    const { useDataStore } = await import('/src/stores/dataStore.ts');
+    const s = useDataStore.getState().sessions.find((x) => x.id === sid);
+    return s?.rows?.some((r) => r.values?.m1 === '12.3');
+  }, liveSessionId, { timeout: 10_000 });
+
   // 커밋으로 finishedAt이 찍혔지만 진행 중 세션이므로 추가 openCursor 호출은 0
   const midCount = await page.evaluate(() => (window as any).__audioClipsCursorCount);
   expect(midCount - initialCount, '진행 중 세션 커밋 시 추가 집계는 0이어야 함').toBe(0);
@@ -737,3 +806,76 @@ test('L1 useSessionClipBytes 실제 세션(커밋 뒤 추가 셈 0 · 종료 뒤
   await expect(page.locator(`[data-testid="session-clip-bytes-${liveSessionId}"]`)).toHaveText(expectedText);
 });
 
+test('A-2 useSessionClipBytes — 데이터 탭 연 채 일시정지 시 추가 셈 0 (isLivePaused 분기 잠금)', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).__audioClipsCursorCount = 0;
+    const origOpenCursor = IDBObjectStore.prototype.openCursor;
+    IDBObjectStore.prototype.openCursor = function (...args: any[]) {
+      if (this.name === 'audioClips') {
+        (window as any).__audioClipsCursorCount++;
+      }
+      return origOpenCursor.apply(this, args as any);
+    };
+  });
+
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+
+  const sessOld = 'sess_a2_old';
+  await page.evaluate(async (oldId) => {
+    localStorage.clear();
+    const { saveSession } = await import('/src/lib/db.ts');
+    await saveSession({
+      id: oldId,
+      date: '2026-09-18',
+      label: '과거 세션',
+      startedAt: 500,
+      finishedAt: 600,
+      completedRows: 1,
+      syncedRows: 0,
+      rows: [{ index: 1, values: { m1: '20' } }],
+      columns: [{ id: 'm1', name: '측정1', input: 'voice' }],
+    } as any);
+  }, sessOld);
+
+  const MINI_COLUMNS = [
+    { id: 'm1', name: '측정1', type: 'float', input: 'voice', ttsAnnounce: false, auto: { kind: 'fixed', value: '' }, decimals: 1, sampleKey: false },
+  ];
+  const MINI_SETTINGS = {
+    ...AZ_SETTINGS,
+    state: { ...AZ_SETTINGS.state, columns: MINI_COLUMNS, totalRows: 2 },
+  };
+  await boot(page, PHONE_402, {
+    settings: MINI_SETTINGS as unknown as typeof AZ_SETTINGS,
+  });
+  await waitForTtsIdle(page);
+
+  const liveSessionId = await page.evaluate(async () => {
+    const { useSessionStore } = await import('/src/stores/sessionStore.ts');
+    return useSessionStore.getState().sessionId;
+  });
+  expect(liveSessionId).toBeTruthy();
+
+  // 첫 값 커밋 (세션이 dataStore에 등록됨)
+  await fireStt(page, '10.0', 900);
+  await waitForTtsIdle(page);
+
+  // 2. 데이터 탭으로 이동
+  await page.locator('[data-testid="tab-data"]').click();
+  await expect(page.locator(`[data-testid="session-clip-bytes-${liveSessionId}"]`)).not.toHaveText('녹음 …', { timeout: 10_000 });
+  await expect(page.locator(`[data-testid="session-clip-bytes-${sessOld}"]`)).not.toHaveText('녹음 …', { timeout: 10_000 });
+  const initialCount = await page.evaluate(() => (window as any).__audioClipsCursorCount);
+
+  // 3. 데이터 탭을 연 채 일시정지 음성 명령
+  await fireStt(page, '일시정지', 1000);
+  await waitForTtsIdle(page);
+
+  // phase === 'paused' 확인
+  await page.waitForFunction(async () => {
+    const { useSessionStore } = await import('/src/stores/sessionStore.ts');
+    return useSessionStore.getState().phase === 'paused';
+  }, { timeout: 15_000 });
+
+  // 추가 셈 0 확인
+  const pausedCount = await page.evaluate(() => (window as any).__audioClipsCursorCount);
+  expect(pausedCount - initialCount, '일시정지 시 추가 집계는 0이어야 함').toBe(0);
+});
