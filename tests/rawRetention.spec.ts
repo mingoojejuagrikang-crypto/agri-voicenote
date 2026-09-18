@@ -21,6 +21,11 @@ import {
   selectRawKeysToPrune,
   parseRawUploadedRecord,
   RAW_KEEP_SESSIONS,
+  markRawUploaded,
+  forgetRawUploaded,
+  noteSessionPersisted,
+  __setRawRetentionStorageForTest,
+  __resetPersistedIdsForTest,
 } from '../src/lib/rawRetention';
 
 const ROOT = process.cwd();
@@ -92,3 +97,87 @@ test('selectRawKeysToPrune — 10번째(보존)와 11번째(정리) 경계 잠�
   expect(malformedResult.keys).toEqual([]);
   expect(malformedResult.sessionIds).toEqual([]);
 });
+
+test('[node] K7 markRawUploaded 및 forgetRawUploaded 동시 호출 시 직렬 큐 순서 보장', async () => {
+  let stored: { ids: string[] } = { ids: [] };
+  const ops: string[] = [];
+
+  __setRawRetentionStorageForTest({
+    load: async () => {
+      // 비동기 지연으로 동시성 유도
+      await new Promise((r) => setTimeout(r, 10));
+      return { ids: [...stored.ids] };
+    },
+    save: async (rec: any) => {
+      await new Promise((r) => setTimeout(r, 10));
+      stored = { ids: [...rec.ids] };
+      ops.push(rec.ids.join(','));
+    },
+  });
+  __resetPersistedIdsForTest();
+
+  // 동시 실행: mark(['s1']) -> forget('s1') -> mark(['s2', 's1'])
+  await Promise.all([
+    markRawUploaded(['s1']),
+    forgetRawUploaded('s1'),
+    markRawUploaded(['s2', 's1']),
+  ]);
+
+  // 직렬 큐 덕분에 마지막 상태는 ['s1', 's2']
+  expect(stored.ids.sort()).toEqual(['s1', 's2']);
+  expect(ops).toHaveLength(3);
+
+  __setRawRetentionStorageForTest(null);
+});
+
+test('[node] K7 noteSessionPersisted — 두 번째 호출은 기록을 건드리지 않음 (중복 no-op)', async () => {
+  let saveCount = 0;
+  let stored: { ids: string[] } = { ids: ['sess_a', 'sess_b'] };
+
+  __setRawRetentionStorageForTest({
+    load: async () => ({ ids: [...stored.ids] }),
+    save: async (rec: any) => {
+      saveCount++;
+      stored = { ids: [...rec.ids] };
+    },
+  });
+  __resetPersistedIdsForTest();
+
+  // 첫 번째 noteSessionPersisted -> forgetRawUploaded 실행됨
+  await noteSessionPersisted('sess_a');
+  expect(stored.ids).toEqual(['sess_b']);
+  expect(saveCount).toBe(1);
+
+  // 두 번째 noteSessionPersisted -> 이미 잊었으므로 아무 작업도 하지 않음
+  await noteSessionPersisted('sess_a');
+  expect(saveCount).toBe(1);
+
+  __setRawRetentionStorageForTest(null);
+});
+
+test('[node] K7 noteSessionPersisted — mark 뒤 다시 note하면 잊음', async () => {
+  let stored: { ids: string[] } = { ids: [] };
+
+  __setRawRetentionStorageForTest({
+    load: async () => ({ ids: [...stored.ids] }),
+    save: async (rec: any) => {
+      stored = { ids: [...rec.ids] };
+    },
+  });
+  __resetPersistedIdsForTest();
+
+  // 1. 첫 영속화
+  await noteSessionPersisted('sess_x');
+  expect(stored.ids).toEqual([]);
+
+  // 2. 업로드 완료로 mark
+  await markRawUploaded(['sess_x']);
+  expect(stored.ids).toEqual(['sess_x']);
+
+  // 3. 재녹음 영속화로 다시 note -> mark가 Set에서 뺐으므로 다시 잊음!
+  await noteSessionPersisted('sess_x');
+  expect(stored.ids).toEqual([]);
+
+  __setRawRetentionStorageForTest(null);
+});
+

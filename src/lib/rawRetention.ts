@@ -20,7 +20,7 @@ import { rawPruned, rawPruneFailed } from './logEvents';
 
 export const RAW_KEEP_SESSIONS = 10;
 
-export interface RawUploadedRecord {
+interface RawUploadedRecord {
   ids: string[];
 }
 
@@ -39,20 +39,66 @@ export function parseRawUploadedRecord(rec: unknown): string[] {
   return [];
 }
 
-/** 드라이브 백업 완료 세션 ID 목록을 합집합으로 기록. */
-export async function markRawUploaded(ids: string[]): Promise<void> {
-  const rec = await loadRawUploadedRecord();
-  const currentIds = parseRawUploadedRecord(rec);
-  const set = new Set([...currentIds, ...ids]);
-  await saveRawUploadedRecord({ ids: Array.from(set) });
+const persistedIds = new Set<string>();
+let chain: Promise<void> = Promise.resolve();
+
+let _loadRecord = loadRawUploadedRecord;
+let _saveRecord = saveRawUploadedRecord;
+
+export function __setRawRetentionStorageForTest(storage: {
+  load: () => Promise<unknown>;
+  save: (rec: unknown) => Promise<void>;
+} | null): void {
+  if (storage) {
+    _loadRecord = storage.load;
+    _saveRecord = storage.save;
+  } else {
+    _loadRecord = loadRawUploadedRecord;
+    _saveRecord = saveRawUploadedRecord;
+  }
 }
 
-/** 세션이 재저장되었을 때 백업 완료 목록에서 제외. */
-export async function forgetRawUploaded(id: string): Promise<void> {
-  const rec = await loadRawUploadedRecord();
-  const currentIds = parseRawUploadedRecord(rec);
-  const filtered = currentIds.filter((x) => x !== id);
-  await saveRawUploadedRecord({ ids: filtered });
+export function __resetPersistedIdsForTest(): void {
+  persistedIds.clear();
+  chain = Promise.resolve();
+}
+
+/** 드라이브 백업 완료 세션 ID 목록을 합집합으로 기록 (직렬 큐 적용). */
+export function markRawUploaded(ids: string[]): Promise<void> {
+  const p = chain.then(async () => {
+    const rec = await _loadRecord();
+    const currentIds = parseRawUploadedRecord(rec);
+    const set = new Set([...currentIds, ...ids]);
+    await _saveRecord({ ids: Array.from(set) });
+    for (const id of ids) {
+      persistedIds.delete(id);
+    }
+  });
+  chain = p.catch(() => {});
+  return p;
+}
+
+/** 세션이 재저장되었을 때 백업 완료 목록에서 제외 (직렬 큐 적용). */
+export function forgetRawUploaded(id: string): Promise<void> {
+  const p = chain.then(async () => {
+    const rec = await _loadRecord();
+    const currentIds = parseRawUploadedRecord(rec);
+    const filtered = currentIds.filter((x) => x !== id);
+    await _saveRecord({ ids: filtered });
+  });
+  chain = p.catch(() => {});
+  return p;
+}
+
+/**
+ * v0.54.0 K7: 세션 영속화 시 호출.
+ * 이 앱 실행에서 그 id를 아직 안 잊었으면 forgetRawUploaded(id) 후 모듈 Set에 넣고,
+ * markRawUploaded가 그 id를 기록하면 Set에서 뺀다.
+ */
+export async function noteSessionPersisted(id: string): Promise<void> {
+  if (persistedIds.has(id)) return;
+  persistedIds.add(id);
+  await forgetRawUploaded(id);
 }
 
 /**

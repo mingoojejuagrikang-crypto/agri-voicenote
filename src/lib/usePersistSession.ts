@@ -20,6 +20,7 @@ import { recountSynced } from './sessionSync';
 import { isUserInputColumn } from './autoValue';
 import { saveSession } from './db';
 import { logger } from './logger';
+import { noteSessionPersisted } from './rawRetention';
 import type { Column, Session, SessionRow, SessionTarget } from '../types';
 
 export interface PersistSessionDeps {
@@ -304,6 +305,7 @@ export function usePersistSession(deps: PersistSessionDeps) {
     // 마지막으로 내구 저장된 형상만 메모리 store에 공개한다. 보상 save 실패 시 깨진 포인터 형상을
     // UI에 성공처럼 올렸다가 reload에서 되돌아가는 split-brain을 막는다.
     useDataStore.getState().upsertSession(finalSession);
+    void noteSessionPersisted(finalSession.id);
     return true;
   }, []);
   return { persistSession };
