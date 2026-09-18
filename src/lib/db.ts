@@ -339,7 +339,7 @@ export async function loadSheetsRecord(): Promise<SheetsRecord | null> {
 /** v0.33.0 항목5 — 과거값 인덱스(pastValues)의 IDB write-through 레코드. 07-13 실기기에서 토큰
  *  만료(~1h, [AUTH-4]) 후 `past_index_skip:not_signed_in`으로 이상치 알람이 침묵해 -99.5% 오데이터가
  *  무알람 통과했다([TREND-AUTH-1] 잔여). 이 레코드는 loadPastIndex 성공 시마다 갱신되고, 부팅/세션
- *  시작 시 fp 일치 + 14일 이내면 폴백 인덱스로 복원되어 **미로그인이어도 알람이 작동**한다.
+ *  시작 시 fp 일치 + 28일 이내면 폴백 인덱스로 복원되어 **미로그인이어도 알람이 작동**한다.
  *  기존 'kv' 스토어 재사용(신규 스토어·DB 버전 bump 불요). 직렬화/검증은 pastValues.ts 소유 —
  *  여기서는 JSON-호환 레코드의 round-trip만 담당한다(SheetsRecord 패턴). */
 const PAST_INDEX_RECORD_KEY = '__past_index__';

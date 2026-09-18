@@ -56,7 +56,7 @@ let latestLoadGeneration = 0;
 let inflight: { fp: string; generation: number; promise: Promise<PastIndex | null> } | null = null;
 let loginRefreshInflight: { fp: string; promise: Promise<PastIndex | null> } | null = null;
 
-// v0.33.0 항목5 — IDB에서 복원한 영속 폴백(로그인 무관 이상치 알람). 유효성(fp 일치 + 14일 이내)은
+// v0.33.0 항목5 — IDB에서 복원한 영속 폴백(로그인 무관 이상치 알람). 유효성(fp 일치 + 28일 이내)은
 // 읽기 시점(getFallbackEntry)에 매번 재검증한다 — 하이드레이션 후 설정이 바뀌어도 안전.
 let fallback: CacheEntry | null = null;
 let fallbackHydrateStarted = false;
@@ -140,7 +140,7 @@ export function getCachedIndex(): PastIndex | null {
 
 // ─── v0.33.0 항목5 — 영속 폴백 (로그인 무관 이상치 알람) ───────────────────
 
-/** 유효한(fp 일치 + 14일 이내) 영속 폴백 엔트리. 신선 캐시와 달리 10분 TTL이 없다 —
+/** 유효한(fp 일치 + 28일 이내) 영속 폴백 엔트리. 신선 캐시와 달리 10분 TTL이 없다 —
  *  토큰 만료·재부팅·미로그인 세션에서도 "직전 회차 대비" 비교선을 유지하는 것이 목적. */
 function getFallbackEntry(): CacheEntry | null {
   if (!fallback) return null;
@@ -183,7 +183,7 @@ export function readIndexWithProvenance(): { index: PastIndex; stale: boolean; b
 
 /**
  * 부팅/세션 시작 시 1회 — IDB `__past_index__` 레코드를 메모리 폴백으로 복원한다(idempotent).
- * 손상 레코드·14일 초과는 조용히 폐기. fp 검증은 여기서 하지 않는다(설정 하이드레이션 레이스
+ * 손상 레코드·28일 초과는 조용히 폐기. fp 검증은 여기서 하지 않는다(설정 하이드레이션 레이스
  * 방지 — 읽기 시점의 getFallbackEntry가 매번 검증). 실패해도 throw하지 않는다(best-effort).
  */
 export async function hydratePastIndexFallback(): Promise<void> {

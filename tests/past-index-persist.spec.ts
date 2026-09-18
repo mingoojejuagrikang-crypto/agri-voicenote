@@ -6,7 +6,7 @@
  * 커버리지:
  *  - serializePastIndexEntry / deserializePastIndexEntry: Map↔entries 배열 round-trip
  *    (JSON 경유 포함 — IDB structured clone보다 엄격한 조건), 손상 레코드 → null.
- *  - isFallbackFresh: 14일 경계(경계 포함 = 유효, +1ms = 무효).
+ *  - isFallbackFresh: 28일 경계(경계 포함 = 유효, +1ms = 무효).
  *  - withTimeout: 시간 내 resolve / 초과 시 'timeout after' reject / 내부 오류 전파.
  */
 import { test, expect } from '@playwright/test';
@@ -125,23 +125,23 @@ test.describe('deserialize — 손상 레코드는 null(조용히 폐기)', () =
   });
 });
 
-test.describe('isFallbackFresh — 14일 경계', () => {
+test.describe('isFallbackFresh — 28일 경계', () => {
   const NOW = 1_760_000_000_000;
 
   test('방금 빌드 → 유효', () => {
     expect(isFallbackFresh(NOW, NOW)).toBe(true);
   });
 
-  test('정확히 14일 → 유효(경계 포함)', () => {
+  test('정확히 28일 → 유효(경계 포함)', () => {
     expect(isFallbackFresh(NOW - FALLBACK_TTL_MS, NOW)).toBe(true);
   });
 
-  test('14일 + 1ms → 무효', () => {
+  test('28일 + 1ms → 무효', () => {
     expect(isFallbackFresh(NOW - FALLBACK_TTL_MS - 1, NOW)).toBe(false);
   });
 
-  test('FALLBACK_TTL_MS = 14일(플랜 확정값 고정)', () => {
-    expect(FALLBACK_TTL_MS).toBe(14 * 24 * 60 * 60 * 1000);
+  test('FALLBACK_TTL_MS = 28일(플랜 확정값 고정)', () => {
+    expect(FALLBACK_TTL_MS).toBe(28 * 24 * 60 * 60 * 1000);
   });
 });
 

@@ -3,7 +3,7 @@
  *
  * 배경(07-13 실기기 §4): 토큰 만료(~1h, [AUTH-4]) → `past_index_skip:not_signed_in` →
  * 알람 침묵 → -99.5% 오데이터("1")가 무알람 통과·시트 동기화. 이 spec은 그 시나리오의 방어를
- * 직접 재현한다: **토큰이 없어도** IDB `__past_index__` 스냅샷(fp 일치 + 14일 이내)으로 알람이
+ * 직접 재현한다: **토큰이 없어도** IDB `__past_index__` 스냅샷(fp 일치 + 28일 이내)으로 알람이
  * 발화하고, 폴백 사용은 `trend_used_stale_index`로 계측된다.
  *
  * 패턴: trend-alert.spec.ts의 STT/TTS 주입 + Sheets stub + 설정 시드. IDB kv 레코드는
@@ -12,7 +12,7 @@
  *
  * 검증:
  *   1. 미로그인 + 유효 폴백(2h 전) → 이상치 알람 발화 + trend_used_stale_index:age_h=2
- *   2. 14일 초과 폴백 → 무알람(조용히 skip) + trend_skip:no_index (죽은 비교선 미사용)
+ *   2. 28일 초과 폴백 → 무알람(조용히 skip) + trend_skip:no_index (죽은 비교선 미사용)
  *   3. 로그인 세션 past_index_ready → IDB write-through 레코드 존재 + past_index_fetch_start 계측
  *      + 신선 캐시 경로는 stale 로그 없음
  *   4. 3상태 배지(설정탭·입력탭 시작 카드): Google 연결(토큰 실시간)/시트 연결/과거값 준비 + 재시도 버튼
@@ -363,8 +363,8 @@ test('미로그인 + 유효 폴백(2h 전) → 이상치 알람 발화 + trend_u
   expect(extras.some((x) => x.startsWith('past_index_ready'))).toBe(false);
 });
 
-test('14일 초과 폴백 → 무알람(조용히 skip) + trend_skip:no_index — 죽은 비교선 미사용', async ({ page }) => {
-  const builtAt = Date.now() - FALLBACK_TTL_MS - 3_600_000; // 14일 + 1h
+test('28일 초과 폴백 → 무알람(조용히 skip) + trend_skip:no_index — 죽은 비교선 미사용', async ({ page }) => {
+  const builtAt = Date.now() - FALLBACK_TTL_MS - 3_600_000; // 28일 + 1h
   await seedAndBoot(page, { withToken: false, record: buildRecord(builtAt), sheetsFail: true });
 
   // 배지: 만료 폴백은 하이드레이션에서 폐기 → 미준비 + 재시도 버튼.

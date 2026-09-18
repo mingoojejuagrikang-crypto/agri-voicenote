@@ -10,11 +10,12 @@
  */
 import type { PastIndex } from './pastValuesIndex';
 
-/** 폴백 유효기간: 14일. 회차 간격(주 단위 조사)을 넉넉히 덮되, 시즌이 지난 죽은 인덱스로
- *  엉뚱한 직전값 비교를 하지 않게 상한을 둔다(플랜 확정값). */
-export const FALLBACK_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+/** 폴백 유효기간: 28일. 회차 간격(주 단위 조사)을 넉넉히 덮되, 시즌이 지난 죽은 인덱스로
+ *  엉뚱한 직전값 비교를 하지 않게 상한을 둔다(플랜 확정값).
+ *  v0.55.0 민구 Q14 ⓑ — 조사 간격 ≈13일이라 14일은 하루만 밀려도 끊겼다 · 로그인 연결 4주와 같게. */
+export const FALLBACK_TTL_MS = 28 * 24 * 60 * 60 * 1000;
 
-/** 14일 경계 판정(경계 포함: 정확히 14일 = 아직 유효). 순수 함수 — 단위 테스트 대상. */
+/** 28일 경계 판정(경계 포함: 정확히 28일 = 아직 유효). 순수 함수 — 단위 테스트 대상. */
 export function isFallbackFresh(builtAt: number, now: number): boolean {
   return now - builtAt <= FALLBACK_TTL_MS;
 }
