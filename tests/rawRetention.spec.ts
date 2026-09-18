@@ -338,3 +338,36 @@ test('[node] L5 noteSessionPersisted — forgetRawUploaded 실패 시 Set 복구
 
   __setRawRetentionStorageForTest(null);
 });
+
+test('[node] A-1 pruneOldRawClips — 클립 키 읽기 실패 시 raw_prune_failed 로그 방출 및 예외 흡수', async () => {
+  logger.clear();
+
+  const sessions = Array.from({ length: 12 }, (_, i) => ({
+    id: `sess_${i + 1}`,
+    startedAt: (i + 1) * 100,
+  }));
+
+  __setRawRetentionStorageForTest({
+    load: async () => ({ ids: ['sess_1'] }),
+    save: async () => {},
+    loadSessions: async () => sessions,
+    loadClipKeys: async () => {
+      throw new Error('IDB clip keys read failed');
+    },
+    deleteClip: async () => {},
+  });
+  __resetPersistedIdsForTest();
+
+  await expect(pruneOldRawClips('sess_12')).resolves.toBeUndefined();
+
+  const failedLogs = logger.getAll().filter((e) => (e.extra ?? '').startsWith('raw_prune_failed:'));
+  expect(failedLogs).toHaveLength(1);
+  expect(failedLogs[0].type).toBe('error');
+  expect(failedLogs[0].sessionId).toBe('__app__');
+  expect(failedLogs[0].extra).toContain('IDB clip keys read failed');
+
+  const prunedLogs = logger.getAll().filter((e) => (e.extra ?? '').startsWith('raw_pruned:'));
+  expect(prunedLogs).toHaveLength(0);
+
+  __setRawRetentionStorageForTest(null);
+});
