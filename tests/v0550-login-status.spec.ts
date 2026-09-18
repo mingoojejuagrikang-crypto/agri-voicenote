@@ -216,6 +216,7 @@ test('④ ②에서 버튼 클릭 => 로그인 모달 -> [로그인] 클릭 => s
   // 로그인 모달 노출 확인
   const modalHeader = page.locator('text=로그인이 필요합니다');
   await expect(modalHeader).toBeVisible();
+  await expect(page.getByRole('dialog').locator('p')).toHaveCount(0);
 
   // 모달 안의 [로그인] 클릭
   const loginBtn = page.locator('button:has-text("로그인")').first();

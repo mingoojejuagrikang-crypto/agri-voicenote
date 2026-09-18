@@ -256,7 +256,6 @@ export function ConnectionStatusCard() {
       </div>
       {loginOpen && (
         <LoginRequiredModal
-          reason="Google 연결이 만료되었습니다. 다시 로그인하여 동기화를 계속하세요."
           onClose={() => setLoginOpen(false)}
           onLogin={() => {
             void reloginUnlessSessionLive().finally(() => setLoginOpen(false));
