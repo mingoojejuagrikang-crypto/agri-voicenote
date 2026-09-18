@@ -10,14 +10,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-
-test('[node] ⓪-게이트 이 오라클이 릴리스 게이트 목록에 등재돼 있다 (v0.55.0)', () => {
-  const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf-8')) as {
-    scripts: Record<string, string>;
-  };
-  const listed = (pkg.scripts['test:e2e:gate'] ?? '').split(/\s+/).filter((x) => x.startsWith('tests/'));
-  expect(listed, 'tests/audioTrim.spec.ts가 릴리스 게이트 목록에 없다').toContain('tests/audioTrim.spec.ts');
-});
 import {
   resampleLinear,
   combineWithPreroll,
@@ -30,6 +22,14 @@ import {
   PAD_FRONT_MS,
   PAD_BACK_MS,
 } from '../src/lib/audioTrim';
+
+test('[node] ⓪-게이트 이 오라클이 릴리스 게이트 목록에 등재돼 있다 (v0.55.0)', () => {
+  const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf-8')) as {
+    scripts: Record<string, string>;
+  };
+  const listed = (pkg.scripts['test:e2e:gate'] ?? '').split(/\s+/).filter((x) => x.startsWith('tests/'));
+  expect(listed, 'tests/audioTrim.spec.ts가 릴리스 게이트 목록에 없다').toContain('tests/audioTrim.spec.ts');
+});
 
 const RATE = 16000; // TARGET_RATE와 동일 — encodeWavMono가 다운샘플하지 않아 샘플 수 계산이 정확
 

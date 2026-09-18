@@ -133,11 +133,6 @@ test('② 토큰 없음 + 살아 있는 연결 기록 => 재인증 필요 · 연
       },
     };
     localStorage.setItem(storeKey, JSON.stringify(s));
-    localStorage.setItem('gs10_google_connection', JSON.stringify({
-      email: 'tester@example.com',
-      connectedAt: t,
-      lastUsedAt: t,
-    }));
   }, { settings: SETTINGS, storeKey: STORE_KEY, t: oneHourAgo });
 
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -199,11 +194,6 @@ test('④ ②에서 버튼 클릭 => 로그인 모달 -> [로그인] 클릭 => s
       },
     };
     localStorage.setItem(storeKey, JSON.stringify(s));
-    localStorage.setItem('gs10_google_connection', JSON.stringify({
-      email: 'tester@example.com',
-      connectedAt: t,
-      lastUsedAt: t,
-    }));
   }, { settings: SETTINGS, storeKey: STORE_KEY, t: oneHourAgo });
 
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -262,11 +252,6 @@ test('⑤ 세션이 살아 있으면 버튼 없음 · reloginUnlessSessionLive()
       },
     };
     localStorage.setItem(storeKey, JSON.stringify(s));
-    localStorage.setItem('gs10_google_connection', JSON.stringify({
-      email: 'tester@example.com',
-      connectedAt: t,
-      lastUsedAt: t,
-    }));
   }, { settings: SETTINGS, storeKey: STORE_KEY, t: oneHourAgo });
 
   await page.reload({ waitUntil: 'domcontentloaded' });

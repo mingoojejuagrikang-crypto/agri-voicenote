@@ -322,9 +322,8 @@ test('미로그인 + 유효 폴백(2h 전) → 이상치 알람 발화 + trend_u
   await seedAndBoot(page, { withToken: false, record: buildRecord(builtAt), sheetsFail: true });
 
   // 입력탭 시작 카드 배지: 과거값은 폴백 준비됨(warn).
-  // 🔴 v0.51 재정합 — Google 배지의 판정 축이 「유효 토큰」에서 **「유효 토큰 ∪ 살아 있는 4주
-  //    연결창」**으로 바뀌었다. 이 픽스처는 `googleConnected:true` + version 12라 v13 마이그레이션이
-  //    연결 기록을 승계해(민구 확정 결정②) 창이 살아 있다 → 토큰이 없어도 '로그인됨'이 맞다.
+  // v0.55.0 결정 1-b — 이 픽스처는 `googleConnected:true` + version 12라 v13 마이그레이션이
+  //    연결 기록을 승계해 창이 살아 있으나, 토큰이 없으므로 🟡 '재인증 필요'가 맞다.
   //    창이 죽었을 때 정직하게 강등하는가는 아래 3상태 배지 테스트 ①-b가 고정한다.
   //    이 테스트의 본 주제(**토큰 없이도 폴백 인덱스로 알람이 발화하는가**)는 그대로다.
   await page.locator('[data-testid="tab-voice"]').click();
@@ -439,11 +438,9 @@ test('v0.35.0 항목8 — 로그인+시트연결로 과거값 ready → 굵은 �
 });
 
 test('3상태 배지(설정탭) — 연결 실시간 판정([AUTH-7] stale 표시 해소) / 시트 / 과거값+재시도', async ({ page }) => {
-  // ①-a 토큰 없음 + **연결창 살아 있음**(v13 승계): 로그인됨(ok) / 시트 ok / 과거값 미준비+재시도.
-  // 🔴 v0.51 재정합 — 종전 계약은 「토큰 없음 = 재로그인 필요」였다. 이제 판정 축이 4주 연결창이라,
-  //    창 안에서는 제스처 지점(동기화 클릭·세션 시작)에서 무팝업으로 조용히 갱신되므로 매시간
-  //    '재로그인 필요'로 깜빡이는 쪽이 오히려 사실과 멀다(계획서 §2-2). [AUTH-7]이 막으려던
-  //    「끝내 아무것도 안 되는데 연결됨이라 우기는 상태」는 ①-b가 계속 지킨다.
+  // ①-a 토큰 없음 + **연결창 살아 있음**(v13 승계): 재인증 필요(warn) / 시트 ok / 과거값 미준비+재시도.
+  // v0.55.0 결정 1-b — 4주 창이 살아 있어도 토큰이 없으면 🟡 재인증 필요(warn)로 정직하게 표시한다.
+  //    [AUTH-7]이 막으려던 「끝내 아무것도 안 되는데 연결됨이라 우기는 상태」는 ①-b가 계속 지킨다.
   await seedAndBoot(page, { withToken: false, sheetsFail: true });
   const card = page.locator('[data-testid="connection-status-card"]');
   await expect(card).toBeVisible();
@@ -467,7 +464,7 @@ test('3상태 배지(설정탭) — 연결 실시간 판정([AUTH-7] stale 표�
   await expect(page.locator('[data-testid="conn-past"]')).toContainText('로그인 필요');
   await expect(page.locator('[data-testid="conn-past"]')).toHaveAttribute('data-tone', 'off');
 
-  // ② 토큰 주입 후 reload: Google 연결이 로그인됨(ok)으로 — 토큰 스토리지 실시간 판정.
+  // ② 토큰 주입 후 reload: Google 연결이 사용 가능(ok)으로 — 토큰 스토리지 실시간 판정.
   await page.evaluate(() => {
     localStorage.setItem('gs10_google_token', JSON.stringify({
       access_token: 'test-token', expires_at: Date.now() + 3600_000, email: 'tester@example.com',
