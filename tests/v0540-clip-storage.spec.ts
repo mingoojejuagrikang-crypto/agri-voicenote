@@ -688,4 +688,3 @@ test('K5 useSessionClipBytes 진행 중 세션 커밋(finishedAt 변경) 시 재
   const finalCount = await page.evaluate(() => (window as any).__audioClipsCursorCount);
   expect(finalCount - midCount, '세션 종료 시 정확히 1바퀴(2개 세션) 추가 집계되어야 함').toBe(2);
 });
-

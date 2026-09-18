@@ -561,4 +561,3 @@ test('v0.54.0 F3 · saveErr, discarded 카운터 동작 · 접두 격리 및 세
   expect(sum.saveErr).toBe(0);
   expect(sum.discarded).toBe(0);
 });
-

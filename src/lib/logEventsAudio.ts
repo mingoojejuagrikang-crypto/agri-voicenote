@@ -11,6 +11,7 @@
  * logEventsInstrumentation.ts가 같은 패턴의 전례다).
  */
 import { kv } from './logEvents';
+import type { RawSkipReason } from './audioTrim';
 
 /** `lifecycle:zombie_restart:stale_ms=<ms>,n=<streak>` — STT 좀비 재시작 진단.
  *  stale_ms/n 순서는 SOP-003 판독 계약이므로 이 빌더와 특성화 테스트에서 고정한다. */
@@ -381,7 +382,7 @@ export function bgMicAction(fields: {
 }
 
 /** v0.54.0 E2 — 트림 미발생 등으로 :raw 저장이 생략되었을 때 사유 계측. */
-export function clipRawSkipped(reason: string): string {
+export function clipRawSkipped(reason: RawSkipReason | 'unknown'): string {
   return `clip_raw_skipped:reason=${reason}`;
 }
 
@@ -389,4 +390,3 @@ export function clipRawSkipped(reason: string): string {
 export function clipRawSaveFailed(message: string): string {
   return `clip_raw_save_failed:${message}`;
 }
-
