@@ -485,9 +485,12 @@ test('K2 · 원본 정리 pruneOldRawClips 배선 잠금 — stop() 및 retryFin
 
   const retryIfDurableIdx = retryBody.indexOf('if (!durable) {');
   const retryPruneIdx = retryBody.indexOf('pruneOldRawClips(', retryIfDurableIdx);
+  const retryLoggerResetIdx = retryBody.indexOf('logger.setSessionId(undefined);', retryPruneIdx);
   expect(retryIfDurableIdx, 'retryFinalPersist() 안에 if (!durable) 가드가 있어야 한다').toBeGreaterThan(-1);
   expect(retryPruneIdx, 'retryFinalPersist() 안에 if (!durable) 뒤 pruneOldRawClips 호출이 있어야 한다').toBeGreaterThan(-1);
+  expect(retryLoggerResetIdx, 'retryFinalPersist() 안에 logger.setSessionId(undefined) 가 있어야 한다').toBeGreaterThan(-1);
   expect(retryIfDurableIdx < retryPruneIdx, 'retryFinalPersist() 안의 pruneOldRawClips는 if (!durable) 뒤에 있어야 한다').toBe(true);
+  expect(retryPruneIdx < retryLoggerResetIdx, 'retryFinalPersist() 안의 pruneOldRawClips는 logger.setSessionId(undefined) 전에 호출되어야 한다').toBe(true);
 });
 
 test('A-4 ⓐ · 공백 값 경계 — 첫 value parsed가 공백문자열일 때 0과 다르다고 판별', () => {
