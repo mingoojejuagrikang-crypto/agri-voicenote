@@ -16,7 +16,7 @@ import {
   loadRawUploadedRecord,
 } from './db';
 import { logger } from './logger';
-import { rawPruned, rawPruneFailed } from './logEvents';
+import { rawPruned, rawPruneFailed, rawUploadedRecordFailed } from './logEvents';
 
 export const RAW_KEEP_SESSIONS = 10;
 
@@ -44,7 +44,7 @@ let chain: Promise<void> = Promise.resolve();
 
 let _loadRecord = loadRawUploadedRecord;
 let _saveRecord = saveRawUploadedRecord;
-let _loadSessions = loadAllSessions;
+let _loadSessions: () => Promise<Array<{ id: string; startedAt: number }>> = loadAllSessions;
 let _loadClipKeys = loadAllAudioClipKeys;
 let _deleteClip = deleteAudioClip;
 
@@ -110,7 +110,16 @@ export function forgetRawUploaded(id: string): Promise<void> {
 export async function noteSessionPersisted(id: string): Promise<void> {
   if (persistedIds.has(id)) return;
   persistedIds.add(id);
-  await forgetRawUploaded(id);
+  try {
+    await forgetRawUploaded(id);
+  } catch (e) {
+    persistedIds.delete(id);
+    logger.log({
+      type: 'error',
+      sessionId: '__app__',
+      extra: rawUploadedRecordFailed(String((e as Error)?.message ?? e)),
+    });
+  }
 }
 
 /**

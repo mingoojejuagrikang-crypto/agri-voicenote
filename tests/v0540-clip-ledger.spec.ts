@@ -474,4 +474,3 @@ test('ⓔ 트림 미발생(무음 PCM 스텁) → clip_raw_skipped:reason=no_seg
   const stopAwaitCount = events.filter((e) => (e.extra ?? '') === 'clip_stop_await').length;
   expect(stopAwaitCount).toBe(savedCount + failedCount + 0 + saveErrCount + discardedCount);
 });
-

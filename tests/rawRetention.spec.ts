@@ -301,3 +301,40 @@ test('[node] M20 pruneOldRawClips — 지운 세션·클립 수 정확히 로깅
 
   __setRawRetentionStorageForTest(null);
 });
+
+test('[node] L5 noteSessionPersisted — forgetRawUploaded 실패 시 Set 복구 및 raw_uploaded_record_failed 로깅', async () => {
+  logger.clear();
+
+  let failOnce = true;
+  let saveCount = 0;
+  let stored: { ids: string[] } = { ids: ['sess_err'] };
+
+  __setRawRetentionStorageForTest({
+    load: async () => ({ ids: [...stored.ids] }),
+    save: async (rec: any) => {
+      saveCount++;
+      if (failOnce) {
+        failOnce = false;
+        throw new Error('IDB write failed');
+      }
+      stored = { ids: [...rec.ids] };
+    },
+  });
+  __resetPersistedIdsForTest();
+
+  // 첫 번째 호출: forgetRawUploaded 실패 -> catch되고 Set에서 빠짐, 에러 로그 1줄 방출, 비정상 reject 없음
+  await expect(noteSessionPersisted('sess_err')).resolves.toBeUndefined();
+
+  const errLogs = logger.getAll().filter((e) => (e.extra ?? '').startsWith('raw_uploaded_record_failed:'));
+  expect(errLogs).toHaveLength(1);
+  expect(errLogs[0].type).toBe('error');
+  expect(errLogs[0].sessionId).toBe('__app__');
+  expect(errLogs[0].extra).toContain('IDB write failed');
+
+  // Set에서 빠졌으므로 두 번째 호출 시 다시 시도해야 함 (failOnce가 false이므로 이번엔 성공)
+  await noteSessionPersisted('sess_err');
+  expect(saveCount).toBe(2);
+  expect(stored.ids).toEqual([]);
+
+  __setRawRetentionStorageForTest(null);
+});

@@ -115,7 +115,7 @@
     `raw_prune_failed:<메시지>` (`pruneOldRawClips()` 중 예외 발생 시 방출 · `type:'error'` · `sessionId:'__app__'`) ·
     `raw_uploaded_record_failed:<메시지>` (드라이브 백업 완료 후 `markRawUploaded()` 중 예외 발생 시 방출 · `type:'error'` · `sessionId:'__app__'`) ·
     `export_clips_failed:<메시지>` (세션 로그 zip 백업 중 클립 읽기 예외 방출 · `type:'app'`) ·
-    `export_clips_incomplete:missing=<n>` (세션 로그 zip 백업 중 미누락 클립 발생 시 방출 · `type:'app'`) ·
+    `export_clips_incomplete:missing=<n>` (세션 로그 zip 백업 중 누락 클립 발생 시 방출 · `type:'app'`) ·
     `clip_bytes_count_failed:<메시지>` (`useSessionClipBytes` 집계 중 예외 발생 시 방출 · `type:'error'` · `sessionId:'__app__'`).
   - 목록에 없는 이벤트는 **바이트 불변**이다. 확장이 필요하면 필드를 늘리지 말고 **새 이벤트
     이름**을 써라 — 그게 계약을 안 깨고 늘리는 유일한 길이다.
