@@ -40,6 +40,7 @@ import { useSessionCommitMarks } from '../components/voice/useVoiceCommitMark';
 import { relinkClipPointer, unlinkClipPointer } from './clipPointer';
 import { loadAudioClip, loadSession, saveAudioClip } from './db';
 import { logger } from './logger';
+import { clipRawSkipped, clipRawSaveFailed } from './logEvents';
 import { EMPTY_CLIP_BYTES } from './useClipCapture';
 import type { ClipHealth } from './clipHealth';
 import type { AudioRecorder, ClipResult } from './audioRecorder';
@@ -281,7 +282,7 @@ export function useValueCommit(deps: ValueCommitDeps) {
     const savePromise = (async () => {
       try {
         logCell({ type: 'clip', extra: 'clip_stop_await', row: clipAwaitingRow, colId: clipAwaitingColId });
-        const { blob: clipBlob, raw: rawBlob, trimFailed, trimFailReason, mutedSpan } = await clipStopPromise;
+        const { blob: clipBlob, raw: rawBlob, rawSkip, trimFailed, trimFailReason, mutedSpan } = await clipStopPromise;
         if (mutedSpan) { mutedClipInFlight = true; clipHealth.beginMutedClip(); }
         logCell({ type: 'clip', extra: `clip_stop_resolved:${clipBlob ? clipBlob.size : 'null'}`, row: clipAwaitingRow, colId: clipAwaitingColId });
         // v0.20.0 BL-2 — 트림이 예외(decodeAudioData 등)로 생략됐으면(저장본=미트림 원본 webm) 가시화한다.
@@ -371,8 +372,26 @@ export function useValueCommit(deps: ValueCommitDeps) {
         // pendingClips에는 등록하지 않으므로 데이터탭 재생 UI에는 노출되지 않고, 로그 zip의
         // clips/(prefix 매칭)과 deleteSession cascade에만 따라간다. 분석 전용.
         if (rawBlob) {
-          await saveAudioClip(`${clipKey}:raw`, rawBlob);
-          logCell({ type: 'clip', extra: `clip_raw_saved:${rawBlob.size}`, clipKey: `${clipKey}:raw`, row: clipAwaitingRow, colId: clipAwaitingColId });
+          try {
+            await saveAudioClip(`${clipKey}:raw`, rawBlob);
+            logCell({ type: 'clip', extra: `clip_raw_saved:${rawBlob.size}`, clipKey: `${clipKey}:raw`, row: clipAwaitingRow, colId: clipAwaitingColId });
+          } catch (e) {
+            logCell({
+              type: 'error',
+              extra: clipRawSaveFailed(String((e as Error)?.message ?? e)),
+              clipKey: `${clipKey}:raw`,
+              row: clipAwaitingRow,
+              colId: clipAwaitingColId,
+            });
+          }
+        } else {
+          logCell({
+            type: 'clip',
+            extra: clipRawSkipped(rawSkip ?? 'unknown'),
+            clipKey,
+            row: clipAwaitingRow,
+            colId: clipAwaitingColId,
+          });
         }
       } catch (e) {
         logCell({ type: 'error', extra: `clip_save_failed:${String((e as Error)?.message ?? e)}`, row: clipAwaitingRow, colId: clipAwaitingColId });

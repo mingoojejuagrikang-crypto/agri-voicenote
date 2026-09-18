@@ -51,6 +51,8 @@ export {
   audioRouteRevalidate, foregroundReturn, wakeLockEvent,
   visibilityContext, lifecycleSignal, clipArmBlocked, micTeardown,
   beepPlay, feedbackUploadMic, bgEnterSnapshot, bgMicAction,
+  // v0.54.0 E2 & F1
+  clipRawSkipped, clipRawSaveFailed,
   type ForegroundReturnTeardownResult, type ForegroundReturnTeardown,
 } from './logEventsAudio';
 
@@ -71,6 +73,8 @@ export {
   sessionHealth,
   // v0.53.0 R7 — 세션 결산 생략(새로고침 복원).
   sessionHealthSkip,
+  // v0.54.0 G1 & G2 — 원본 보존 정리 계측.
+  rawPruned, rawPruneFailed, rawUploadedRecordFailed,
 } from './logEventsSession';
 
 // 설정·UI 계측 도메인 — logEventsUi.ts.

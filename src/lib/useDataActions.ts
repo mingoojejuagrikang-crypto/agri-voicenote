@@ -27,6 +27,8 @@ import { ensureAccessToken } from './googleAuthRefresh';
 import { useExportActions } from './useExportActions';
 import { useRecoverActions } from './useRecoverActions';
 import { logger } from './logger';
+import { rawUploadedRecordFailed } from './logEvents';
+import { markRawUploaded } from './rawRetention';
 import { clipPlayer } from './clipPlayer';
 import { sessionTargetFromSettings } from './sheetConnection';
 import {
@@ -263,6 +265,16 @@ export function useDataActions() {
               logger.log({ type: 'app', extra: `drive_upload:failed:${z.sessionId}:${sanitizeUploadError(emsg)}` });
               console.warn('Drive 로그 업로드 실패(세션)', z.sessionId, err);
             }
+          }
+          // v0.54.0 G1 — 백업 성공 세션 ID들을 kv __raw_uploaded__ 에 기록
+          try {
+            await markRawUploaded([...backedUpOk]);
+          } catch (e) {
+            logger.log({
+              type: 'error',
+              sessionId: '__app__',
+              extra: rawUploadedRecordFailed(String((e as Error)?.message ?? e)),
+            });
           }
           // autoDelete 불변식: 삭제 대상(successIds)이 모두 백업됐을 때만 backupOk.
           backupOk = report.successIds.every((id) => backedUpOk.has(id));

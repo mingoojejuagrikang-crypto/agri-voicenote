@@ -462,7 +462,7 @@ export async function sumSessionClipBytes(sessionId: string): Promise<{ total: n
   const db = await getDb();
   const tx = db.transaction('audioClips', 'readonly');
   const store = tx.objectStore('audioClips');
-  const range = IDBKeyRange.bound(`${sessionId}:`, `${sessionId}:\ufffd`);
+  const range = IDBKeyRange.bound(`${sessionId}:`, `${sessionId}:\uffff`);
   let total = 0;
   let raw = 0;
   let count = 0;
@@ -484,4 +484,9 @@ export async function sumSessionClipBytes(sessionId: string): Promise<{ total: n
   }
   return { total, raw, count };
 }
+
+// v0.54.0 G1 — 드라이브 로그 백업이 완료된 세션 ID 기록.
+const RAW_UPLOADED_KEY = '__raw_uploaded__';
+export const saveRawUploadedRecord = (rec: unknown) => kvPut(RAW_UPLOADED_KEY, rec);
+export const loadRawUploadedRecord = () => kvGet(RAW_UPLOADED_KEY);
 

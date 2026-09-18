@@ -277,3 +277,43 @@ test.describe('encodeWavMono — WAV 헤더/크기 계약', () => {
     expect(b.size).toBe(44 + 1000 * 2);
   });
 });
+
+test.describe('buildClipBlobs rawSkip (v0.54.0 E3)', () => {
+  const origBlob = new Blob([new Uint8Array(100)], { type: 'audio/webm' });
+
+  test('no_segments: 발화 미검출 시 rawSkip=no_segments (프리롤 유/무 모두)', () => {
+    const silence = new Float32Array(RATE);
+    const withPre = buildClipBlobs(silence, RATE, true, origBlob);
+    expect(withPre.raw).toBeNull();
+    expect(withPre.rawSkip).toBe('no_segments');
+
+    const withoutPre = buildClipBlobs(silence, RATE, false, origBlob);
+    expect(withoutPre.raw).toBeNull();
+    expect(withoutPre.rawSkip).toBe('no_segments');
+  });
+
+  test('no_effect: 거의 전부 발화(트림 효과 미미) 시 rawSkip=no_effect', () => {
+    // 16000 샘플 중 15800 샘플 발화 -> keptRatio >= KEEP_RATIO (0.85)
+    const mono = synth(100, 15800, 100);
+    const r = buildClipBlobs(mono, RATE, false, origBlob);
+    expect(r.raw).toBeNull();
+    expect(r.rawSkip).toBe('no_effect');
+  });
+
+  test('over_trimmed: 원본은 길지만 트림 결과가 과도하게 짧은 경우 rawSkip=over_trimmed', () => {
+    // 1초(16000) 버퍼 중 800샘플(50ms) 발화: robustPeak(0.97) 통과, kept ≈ 530ms < MIN_KEPT_MS(600ms)
+    const mono = synth(8000, 800, 7200);
+    const r = buildClipBlobs(mono, RATE, false, origBlob);
+    expect(r.raw).toBeNull();
+    expect(r.rawSkip).toBe('over_trimmed');
+  });
+
+  test('정상 트림: 실제 트림 발생 시 raw !== null 이고 rawSkip 미동봉(undefined)', () => {
+    // 1초 무음 + 0.5초 발화 + 1초 무음 -> 정상 트림
+    const mono = synth(16000, 8000, 16000);
+    const r = buildClipBlobs(mono, RATE, false, origBlob);
+    expect(r.raw).not.toBeNull();
+    expect(r.rawSkip).toBeUndefined();
+  });
+});
+

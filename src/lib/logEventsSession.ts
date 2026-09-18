@@ -107,11 +107,14 @@ export interface SessionHealthSummaryInput {
   corr: string;
   confQ: string | { asked: number; hit: number };
   modMishear: number;
+  saveErr: number;
+  discarded: number;
 }
 
 /** v0.53.0 C1a (민구 Q2 ⓐ · Q3 ⓐ · Q6 ⓐ) — **세션 결산 계측**(세션 1회당 1건).
+ *  v0.54.0 F2 — saveErr, discarded 2칸 확장.
  *  방출: stop()의 persistSession() 직후(`if (!durable)` 앞).
- *  형태: session_health:cells=<n>,reask=<n>,lowconf=<n>,alarm=<fired>/<confirmed>,sttErr=<n>,wakeFail=<n>,authSkip=<n>,corr=<…>,confQ=<asked>/<hit>,modMishear=<n> */
+ *  형태: session_health:cells=<n>,reask=<n>,lowconf=<n>,alarm=<fired>/<confirmed>,sttErr=<n>,wakeFail=<n>,authSkip=<n>,corr=<…>,confQ=<asked>/<hit>,modMishear=<n>,saveErr=<n>,discarded=<n> */
 export function sessionHealth(fields: SessionHealthSummaryInput): string {
   const alarmStr = typeof fields.alarm === 'string'
     ? fields.alarm
@@ -119,7 +122,7 @@ export function sessionHealth(fields: SessionHealthSummaryInput): string {
   const confQStr = typeof fields.confQ === 'string'
     ? fields.confQ
     : `${fields.confQ.asked}/${fields.confQ.hit}`;
-  return `session_health:cells=${fields.cells},reask=${fields.reask},lowconf=${fields.lowconf},alarm=${alarmStr},sttErr=${fields.sttErr},wakeFail=${fields.wakeFail},authSkip=${fields.authSkip},corr=${fields.corr},confQ=${confQStr},modMishear=${fields.modMishear}`;
+  return `session_health:cells=${fields.cells},reask=${fields.reask},lowconf=${fields.lowconf},alarm=${alarmStr},sttErr=${fields.sttErr},wakeFail=${fields.wakeFail},authSkip=${fields.authSkip},corr=${fields.corr},confQ=${confQStr},modMishear=${fields.modMishear},saveErr=${fields.saveErr},discarded=${fields.discarded}`;
 }
 
 /** v0.53.0 R7 (민구 Q7 ⓐ) — 세션 결산 생략 계측(새로고침 복원 등 비정상 추적 세션).
@@ -128,5 +131,21 @@ export function sessionHealth(fields: SessionHealthSummaryInput): string {
 export function sessionHealthSkip(fields: { reason: 'restored' }): string {
   return `session_health_skip:reason=${fields.reason}`;
 }
+
+/** v0.54.0 G2 — 최근 10세션 밖 올린 세션의 :raw 클립 정리 결과 계측. */
+export function rawPruned(sessions: number, clips: number): string {
+  return `raw_pruned:sessions=${sessions},clips=${clips}`;
+}
+
+/** v0.54.0 G2 — :raw 클립 정리 예외 계측. */
+export function rawPruneFailed(message: string): string {
+  return `raw_prune_failed:${message}`;
+}
+
+/** v0.54.0 G1 — raw_uploaded 기록 저장 실패 계측. */
+export function rawUploadedRecordFailed(message: string): string {
+  return `raw_uploaded_record_failed:${message}`;
+}
+
 
 

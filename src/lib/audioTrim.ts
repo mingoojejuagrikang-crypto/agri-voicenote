@@ -57,12 +57,17 @@ export interface PrerollPcm {
   sampleRate: number;
 }
 
+/** v0.54.0 E1 — raw가 생략(null)된 사유. */
+export type RawSkipReason = 'no_ctx' | 'no_audio' | 'decode_failed' | 'no_segments' | 'no_effect' | 'over_trimmed';
+
 /** 클립 저장 직전 처리 결과.
  *  - `blob`: 실제 저장/재생용 클립(트림됨; 프리롤이 있으면 결합본 기준).
- *  - `raw`: 트림 전 전체본(프리롤 포함). `blob`과 내용이 같으면 null(중복 저장 방지). */
+ *  - `raw`: 트림이 실제로 일어났을 때만 트림 전 전체본 · 그 밖엔 null이고 본 클립이 곧 전체본(프리롤이 있으면 WAV 재인코딩 · 없으면 원래 컨테이너) — 사유는 rawSkip. */
 export interface ProcessedClip {
   blob: Blob;
   raw: Blob | null;
+  /** v0.54.0 E1 — raw===null일 때 사유 (트림된 경우엔 미동봉). */
+  rawSkip?: RawSkipReason;
   /** v0.20.0 BL-2 — 트림 **실패**(decodeAudioData 등 예외) 신호. 정상 no-op 트림(빈 blob·발화
    *  미검출·효과 미미·과트림 등 healthy 폴백)과 구별하기 위해 **catch(예외 경로)에서만** true가
    *  된다. 호출자(stopClip)가 이를 ClipResult로 전파하고, useVoiceSession이 row/colId 컨텍스트와
@@ -361,8 +366,8 @@ export function buildClipBlobs(
     // 발화 미검출: 프리롤이 결합돼 있으면 결합 전체본을 저장본으로(프리롤 증거 보존),
     // 아니면 원본 그대로(현행 동작 유지).
     return hadPreroll
-      ? { blob: encodeWavMono(mono, sampleRate, 0, mono.length), raw: null }
-      : { blob: originalBlob, raw: null };
+      ? { blob: encodeWavMono(mono, sampleRate, 0, mono.length), raw: null, rawSkip: 'no_segments' }
+      : { blob: originalBlob, raw: null, rawSkip: 'no_segments' };
   }
   const ranges = buildKeptRanges(segments, sampleRate, mono.length);
   let keptSamples = 0;
@@ -377,9 +382,10 @@ export function buildClipBlobs(
   if (noEffect || overTrimmed) {
     // 트림 효과 미미(거의 전부 발화) 또는 과도 축소(값 잘림 의심): 프리롤이 있으면 결합 전체본으로
     // 재인코딩(프리롤 포함이 목적), 없으면 원본 유지.
+    const rawSkip: RawSkipReason = noEffect ? 'no_effect' : 'over_trimmed';
     return hadPreroll
-      ? { blob: encodeWavMono(mono, sampleRate, 0, mono.length), raw: null }
-      : { blob: originalBlob, raw: null };
+      ? { blob: encodeWavMono(mono, sampleRate, 0, mono.length), raw: null, rawSkip }
+      : { blob: originalBlob, raw: null, rawSkip };
   }
   // v0.21.0 CLIP-MIDSPEECH-1 — buildKeptRanges가 항상 단일 범위를 돌려주므로 이 경로는 늘 연속
   // 인코딩(기존 단일발화 동작과 바이트 동일, splice 0). concatRanges 분기는 도달하지 않는 보존용
@@ -401,12 +407,13 @@ export function buildClipBlobs(
 export async function processClip(blob: Blob, preroll?: PrerollPcm | null): Promise<ProcessedClip> {
   try {
     const ctx = getCtx();
-    if (!ctx || !blob || blob.size === 0) return { blob, raw: null };
+    if (!ctx) return { blob, raw: null, rawSkip: 'no_ctx' };
+    if (!blob || blob.size === 0) return { blob, raw: null, rawSkip: 'no_audio' };
     const arr = await blob.arrayBuffer();
     // 일부 구현이 입력 ArrayBuffer를 detach하므로 복사본 전달.
     const audio = await ctx.decodeAudioData(arr.slice(0));
     const { sampleRate, numberOfChannels, length } = audio;
-    if (!length) return { blob, raw: null };
+    if (!length) return { blob, raw: null, rawSkip: 'no_audio' };
 
     // mono mix (트림 분석과 인코딩 모두 mono 기준)
     const mono = new Float32Array(length);
@@ -423,7 +430,7 @@ export async function processClip(blob: Blob, preroll?: PrerollPcm | null): Prom
     // 표시(trimFailed)해, 호출자가 row/colId와 함께 clip_trim_failed를 남긴다. 이전엔 이 폴백이
     // 무이벤트(침묵)라 "음성클립 편집 실패"(미트림 .webm)가 로그상 보이지 않았다(BL-2 근본 가시화).
     // **healthy no-op 트림과 구별** — 그 경로들은 buildClipBlobs/상단 early-return이라 여기 안 온다.
-    return { blob, raw: null, trimFailed: true, trimFailReason: `decode:${String((e as Error)?.name ?? e)}` };
+    return { blob, raw: null, trimFailed: true, trimFailReason: `decode:${String((e as Error)?.name ?? e)}`, rawSkip: 'decode_failed' };
   }
 }
 

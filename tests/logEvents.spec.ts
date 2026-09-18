@@ -49,6 +49,11 @@ import {
   syncSummary,
   sessionHealth,
   sessionHealthSkip,
+  clipRawSkipped,
+  clipRawSaveFailed,
+  rawPruned,
+  rawPruneFailed,
+  rawUploadedRecordFailed,
 } from '../src/lib/logEvents';
 
 /** v0.51.1 L (민구 지시 2026-09-02) — 동기화 완료 계측. 예시는 STT 레인 §6 L의 형태 그대로. */
@@ -73,7 +78,8 @@ test('syncSummary — 시트 올리기 합계 바이트 계약 (C13 신규 이�
     .toBe('sync_summary:ok=0,failed=2,rows=0,updated=0,fallback=0');
 });
 
-/** v0.53.0 C1a (민구 Q2 ⓐ · Q3 ⓐ · Q6 ⓐ) — 세션 결산 바이트 계약 (신규 이벤트 · 09-16 세션 기대값). */
+/** v0.53.0 C1a (민구 Q2 ⓐ · Q3 ⓐ · Q6 ⓐ) — 세션 결산 바이트 계약 (신규 이벤트 · 09-16 세션 기대값).
+ *  v0.54.0 F2 — saveErr, discarded 확장. */
 test('sessionHealth — 세션 결산 바이트 계약 (C1a 신규 이벤트 · 09-16 세션 기대값)', () => {
   expect(sessionHealth({
     cells: 144,
@@ -86,7 +92,9 @@ test('sessionHealth — 세션 결산 바이트 계약 (C1a 신규 이벤트 · 
     corr: 'reask:27/19|direct_modify:8/8|rerecord:7/6|touch:3/3',
     confQ: '3/2',
     modMishear: 7,
-  })).toBe('session_health:cells=144,reask=28,lowconf=12,alarm=0/0,sttErr=3,wakeFail=3,authSkip=0,corr=reask:27/19|direct_modify:8/8|rerecord:7/6|touch:3/3,confQ=3/2,modMishear=7');
+    saveErr: 1,
+    discarded: 2,
+  })).toBe('session_health:cells=144,reask=28,lowconf=12,alarm=0/0,sttErr=3,wakeFail=3,authSkip=0,corr=reask:27/19|direct_modify:8/8|rerecord:7/6|touch:3/3,confQ=3/2,modMishear=7,saveErr=1,discarded=2');
 
   expect(sessionHealth({
     cells: 10,
@@ -99,13 +107,43 @@ test('sessionHealth — 세션 결산 바이트 계약 (C1a 신규 이벤트 · 
     corr: '-',
     confQ: { asked: 1, hit: 1 },
     modMishear: 0,
-  })).toBe('session_health:cells=10,reask=1,lowconf=2,alarm=2/1,sttErr=0,wakeFail=0,authSkip=0,corr=-,confQ=1/1,modMishear=0');
+    saveErr: 0,
+    discarded: 0,
+  })).toBe('session_health:cells=10,reask=1,lowconf=2,alarm=2/1,sttErr=0,wakeFail=0,authSkip=0,corr=-,confQ=1/1,modMishear=0,saveErr=0,discarded=0');
 });
 
 /** v0.53.0 R7 (민구 Q7 ⓐ) — 세션 결산 생략 바이트 계약 (신규 이벤트). */
 test('sessionHealthSkip — 세션 결산 생략 바이트 계약 (R7 신규 이벤트)', () => {
   expect(sessionHealthSkip({ reason: 'restored' }))
     .toBe('session_health_skip:reason=restored');
+});
+
+/** v0.54.0 E2 (민구 Q9 ⓐ) — :raw 건너뜀 사유 계측 바이트 계약. */
+test('clipRawSkipped — :raw 건너뜀 바이트 계약 (E2 신규 이벤트)', () => {
+  expect(clipRawSkipped('no_effect')).toBe('clip_raw_skipped:reason=no_effect');
+  expect(clipRawSkipped('unknown')).toBe('clip_raw_skipped:reason=unknown');
+});
+
+/** v0.54.0 F1 (민구 Q11 ⓐ) — :raw 저장 실패 계측 바이트 계약. */
+test('clipRawSaveFailed — :raw 저장 실패 바이트 계약 (F1 신규 이벤트)', () => {
+  expect(clipRawSaveFailed('x')).toBe('clip_raw_save_failed:x');
+  expect(clipRawSaveFailed('quota_exceeded')).toBe('clip_raw_save_failed:quota_exceeded');
+});
+
+/** v0.54.0 G2 (민구 Q10 ⓑ) — 구세션 :raw 정리 계측 바이트 계약. */
+test('rawPruned — 구세션 :raw 정리 바이트 계약 (G2 신규 이벤트)', () => {
+  expect(rawPruned(2, 5)).toBe('raw_pruned:sessions=2,clips=5');
+  expect(rawPruned(1, 1)).toBe('raw_pruned:sessions=1,clips=1');
+});
+
+/** v0.54.0 G2 — :raw 정리 실패 계측 바이트 계약. */
+test('rawPruneFailed — :raw 정리 실패 바이트 계약 (G2 신규 이벤트)', () => {
+  expect(rawPruneFailed('disk error')).toBe('raw_prune_failed:disk error');
+});
+
+/** v0.54.0 G1 — raw_uploaded 기록 저장 실패 계측 바이트 계약. */
+test('rawUploadedRecordFailed — raw_uploaded 기록 저장 실패 바이트 계약 (G1 신규 이벤트)', () => {
+  expect(rawUploadedRecordFailed('quota')).toBe('raw_uploaded_record_failed:quota');
 });
 
 /** v0.51.1 B2 (제보② 2026-09-02) — atEnd 흡수. `cell_wait_absorb:<colId>`와 같은 꼴. */

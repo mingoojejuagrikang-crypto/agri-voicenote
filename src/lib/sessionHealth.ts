@@ -33,6 +33,8 @@ export interface SessionHealthSummary {
   corr: string;
   confQ: string;
   modMishear: number;
+  saveErr: number;
+  discarded: number;
 }
 
 export interface SessionHealthScreenValues {
@@ -65,6 +67,8 @@ export function createSessionHealth() {
   let wakeFailCount = 0;
   let authSkipCount = 0;
   let modMishearCount = 0;
+  let saveErrCount = 0;
+  let discardedCount = 0;
 
   // corr tracking per path
   const pathLines = new Map<CorrPath, number>();
@@ -90,6 +94,8 @@ export function createSessionHealth() {
     wakeFailCount = 0;
     authSkipCount = 0;
     modMishearCount = 0;
+    saveErrCount = 0;
+    discardedCount = 0;
 
     for (const p of CORR_PATHS) {
       pathLines.set(p, 0);
@@ -192,6 +198,16 @@ export function createSessionHealth() {
       if (MOD_MISHEAR_REGEX.test(entry.text)) {
         modMishearCount++;
       }
+    }
+
+    // v0.54.0 F2 — saveErr: clip_save_failed:<메시지> 만 (clip_raw_save_failed, clip_cmd_save_failed 제외)
+    if (x.startsWith('clip_save_failed:')) {
+      saveErrCount++;
+    }
+
+    // v0.54.0 F2 — discarded: clip_stale_pending
+    if (x.startsWith('clip_stale_pending')) {
+      discardedCount++;
     }
   }
 
@@ -297,6 +313,8 @@ export function createSessionHealth() {
       corr,
       confQ,
       modMishear: modMishearCount,
+      saveErr: saveErrCount,
+      discarded: discardedCount,
     };
   }
 

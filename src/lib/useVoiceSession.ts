@@ -56,6 +56,7 @@ import { useClipFailureAlert } from './useClipFailureAlert';
 import { useMicInterruptionNotice } from './useMicInterruptionNotice';
 import { clipFailSummaryScreen, clipUnreliableSummaryScreen, sessionHealthSummaryScreen } from './voicePrompts';
 import { resetSessionHealth, summarySessionHealth, getSessionHealthScreenValues, getSessionHealthSessionId } from './sessionHealth';
+import { pruneOldRawClips } from './rawRetention';
 // [ENV-12] Stage 3 — 세션 영속화(persistSession)는 usePersistSession이 소유한다(이 파일은 호출만).
 import { usePersistSession } from './usePersistSession';
 // [ENV-12] Stage 3 — 행 이동 계열 내비게이션은 useRowNav가, 항목 한 칸 이동(F-1)은 useFieldNav가
@@ -3072,6 +3073,8 @@ export function useVoiceSession() {
       });
       return false;
     }
+    // v0.54.0 G3 — 저장 성공 직후 구세션 :raw 정리 (비동기, 기다리지 않음)
+    void pruneOldRawClips(sessionIdRef.current);
     // v0.35.0 R2-FIX-1(리뷰 라운드2, Flash Critical·데이터무결성) — setPhase('ready')를 **persist
     //   완료 뒤**로 이동. 종전엔 이 위(say/clip flush/dispose/persist await 전)에서 ready로 렌더돼,
     //   그 await 구간에 사용자가 '음성 입력 시작'을 누르면 start()의 resetAll+새 sessionId가 최종

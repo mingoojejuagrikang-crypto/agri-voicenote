@@ -18,7 +18,7 @@
 import { logger } from './logger';
 import { TimeoutError, withTimeout } from './async';
 import { audioInputClass, micTeardown, recoverTimeout, type ForegroundReturnTeardownResult } from './logEvents';
-import { processClip, type PrerollPcm } from './audioTrim';
+import { processClip, type PrerollPcm, type RawSkipReason } from './audioTrim';
 // [ENV-12] 마이크 PCM 캡처(링버퍼·레벨·파형)는 MicPrerollTap이 소유한다 — 이 클래스는 위임만.
 import { MicPrerollTap, PREROLL_MS, clipWindowPeak, type ClipWindow } from './micPrerollTap';
 import { classifyInputDevice, classifyAudioInputClass } from './inputDevice';
@@ -78,8 +78,10 @@ interface ClipSlot {
 export interface ClipResult {
   /** 저장/재생용 클립(트림됨; 프리롤 결합 반영). 녹음 실패 시 null. */
   blob: Blob | null;
-  /** 트림 전 전체본(프리롤 포함). blob과 동일 내용이면 null — `…:raw` 중복 저장 방지. */
+  /** 트림이 실제로 일어났을 때만 트림 전 전체본 · 그 밖엔 null이고 본 클립이 곧 전체본(프리롤이 있으면 WAV 재인코딩 · 없으면 원래 컨테이너) — 사유는 rawSkip. */
   raw: Blob | null;
+  /** v0.54.0 E1 — raw===null일 때 사유 (트림된 경우엔 미동봉). */
+  rawSkip?: RawSkipReason;
   /** 이 클립에 결합된 프리롤 길이(ms). 프리롤 없으면 0. clip_duration 텔레메트리와 동일 값. */
   prerollMs: number;
   /** v0.20.0 BL-2 — 트림이 예외(decodeAudioData 실패 등)로 생략됐는지. true면 저장본은 원본(미트림)
@@ -1026,6 +1028,7 @@ export class AudioRecorder {
     // v0.20.0 BL-2 — 트림 실패 신호를 ClipResult로 전파(이벤트는 row/colId가 있는 useVoiceSession에서).
     return {
       blob: processed.blob, raw: processed.raw, prerollMs,
+      ...(processed.rawSkip ? { rawSkip: processed.rawSkip } : {}),
       ...(processed.trimFailed ? { trimFailed: true, trimFailReason: processed.trimFailReason } : {}),
       ...mutedField,
     };

@@ -379,3 +379,14 @@ export function bgMicAction(fields: {
 }): string {
   return kv({ edge: fields.edge, stt: fields.stt, capture: fields.capture });
 }
+
+/** v0.54.0 E2 — 트림 미발생 등으로 :raw 저장이 생략되었을 때 사유 계측. */
+export function clipRawSkipped(reason: string): string {
+  return `clip_raw_skipped:reason=${reason}`;
+}
+
+/** v0.54.0 F1 — :raw 저장 실패 계측 (본 클립 실패와 분리). */
+export function clipRawSaveFailed(message: string): string {
+  return `clip_raw_save_failed:${message}`;
+}
+

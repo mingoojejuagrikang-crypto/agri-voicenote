@@ -76,6 +76,7 @@ test('session_health — 세션 종료 시 정확히 1줄 방출 · 종료 화�
   expect(healthEvents.length, 'session_health는 정확히 1줄이어야 한다').toBe(1);
   const ev = healthEvents[0];
   expect(ev.extra).toContain('session_health:cells=1,reask=0,lowconf=0,alarm=0/0');
+  expect(ev.extra).toContain('saveErr=0,discarded=0');
 
   // 2. 새 세션 시작 시 session-health-line 사라짐 검증
   await page.locator('text=음성 입력 시작').first().click();

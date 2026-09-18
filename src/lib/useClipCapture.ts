@@ -14,6 +14,7 @@
 import { useCallback, useRef } from 'react';
 import type { AudioRecorder } from './audioRecorder';
 import { saveAudioClip, loadAudioClip } from './db';
+import { clipRawSkipped, clipRawSaveFailed } from './logEvents';
 import type { logger } from './logger';
 
 /** 이 크기 이하의 webm은 헤더만 있는 빈 캡처로 본다(값·명령 클립 공용 판정 기준). */
@@ -164,7 +165,7 @@ export function useClipCapture(deps: ClipCaptureDeps) {
       const cmdKey = `${getSessionId()}:${targetRow}:${targetColId}:cmd${idx}`;
       const savePromise = (async () => {
         try {
-          const { blob, raw } = await stopPromise;
+          const { blob, raw, rawSkip } = await stopPromise;
           if (!blob || blob.size <= EMPTY_CLIP_BYTES) {
             logCell({ type: 'clip', extra: `clip_cmd_empty:${blob ? blob.size : 'null'}`, kind: 'command', row: targetRow, colId: targetColId });
             return;
@@ -175,8 +176,28 @@ export function useClipCapture(deps: ClipCaptureDeps) {
           // deleteSession의 prefix cascade와 exportLog의 `key.split(':')[0]` 세션 필터가 모두
           // `sessionId:` prefix 기준이라 추가 배선 없이 zip clips/ 포함·삭제가 따라온다.
           if (raw) {
-            await saveAudioClip(`${cmdKey}:raw`, raw);
-            logCell({ type: 'clip', extra: `clip_raw_saved:${raw.size}`, kind: 'command', clipKey: `${cmdKey}:raw`, row: targetRow, colId: targetColId });
+            try {
+              await saveAudioClip(`${cmdKey}:raw`, raw);
+              logCell({ type: 'clip', extra: `clip_raw_saved:${raw.size}`, kind: 'command', clipKey: `${cmdKey}:raw`, row: targetRow, colId: targetColId });
+            } catch (e) {
+              logCell({
+                type: 'error',
+                extra: clipRawSaveFailed(String((e as Error)?.message ?? e)),
+                kind: 'command',
+                clipKey: `${cmdKey}:raw`,
+                row: targetRow,
+                colId: targetColId,
+              });
+            }
+          } else {
+            logCell({
+              type: 'clip',
+              extra: clipRawSkipped(rawSkip ?? 'unknown'),
+              kind: 'command',
+              clipKey: cmdKey,
+              row: targetRow,
+              colId: targetColId,
+            });
           }
         } catch (e) {
           logCell({ type: 'error', extra: `clip_cmd_save_failed:${String((e as Error)?.message ?? e)}`, row: targetRow, colId: targetColId });

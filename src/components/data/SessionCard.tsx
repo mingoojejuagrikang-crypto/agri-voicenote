@@ -5,7 +5,7 @@ import { sessionPending, sessionEverUploaded, sessionDirtyCount } from '../../li
 
 // ─── session card ────────────────────────────────────────────
 export function SessionCard({
-  session, expanded, inProgress = false, paused = false, onToggle, onDelete, onCellSave,
+  session, expanded, inProgress = false, paused = false, clipBytes, onToggle, onDelete, onCellSave,
 }: {
   session: Session;
   expanded: boolean;
@@ -16,6 +16,8 @@ export function SessionCard({
   inProgress?: boolean;
   /** v0.48.1 P5 보완(리뷰 F7) — 지금 이 세션이 일시정지 중인가. */
   paused?: boolean;
+  /** v0.54.0 H2 — 이 세션의 녹음 클립 바이트 수 합계 (total). */
+  clipBytes?: number;
   onToggle: () => void;
   onDelete: () => void;
   onCellSave: (rowIndex: number, colId: string, value: string) => void;
@@ -119,6 +121,14 @@ export function SessionCard({
             {session.label && (
               <div style={{ fontSize: 13, color: T.textMute, marginTop: 3 }}>{session.label}</div>
             )}
+            <div
+              data-testid={`session-clip-bytes-${session.id}`}
+              style={{ fontSize: 12, color: T.textMute, marginTop: 3 }}
+            >
+              {clipBytes !== undefined
+                ? `녹음 ${(clipBytes / 1_000_000).toFixed(1)}MB`
+                : '녹음 …'}
+            </div>
           </div>
           <div style={{ flex: 1 }} />
           <div

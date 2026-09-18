@@ -22,6 +22,7 @@ import { SessionCard } from '../components/data/SessionCard';
 import { SessionDetailModal } from '../components/data/SessionDetailModal';
 import { LoadErrorState } from '../components/data/LoadErrorState';
 import { EmptyState } from '../components/data/EmptyState';
+import { useSessionClipBytes } from '../lib/useSessionClipBytes';
 
 
 /** v0.25.0 데이터탭#4(Vance) — 작은 인라인 안내를 헤더 `?` on-demand 큰 팝업으로 이전.
@@ -76,6 +77,9 @@ export function DataScreen() {
   const liveSessionId = useSessionStore((s) => s.sessionId);
   const isLiveProgress = livePhase === 'active' || livePhase === 'complete' || livePhase === 'stopping';
   const isLivePaused = livePhase === 'paused';
+
+  // v0.54.0 H2 — 세션별 녹음 클립 바이트 비동기 집계
+  const clipBytesMap = useSessionClipBytes(sessions);
 
   const unsynced = sessions.filter((s) => sessionPending(s) > 0).length;
   const empty = sessions.length === 0;
@@ -234,6 +238,7 @@ export function DataScreen() {
               expanded={expandedSessionId === s.id}
               inProgress={s.id === liveSessionId && isLiveProgress}
               paused={s.id === liveSessionId && isLivePaused}
+              clipBytes={clipBytesMap.get(s.id)}
               onToggle={() => toggleExpand(s.id)}
               onDelete={() => setDeleteTarget(s)}
               onCellSave={(rowIndex, colId, value) => handleCellSave(s.id, rowIndex, colId, value)}

@@ -103,10 +103,17 @@
     ⚠️ `field_nav_blocked:<국면>`에 값 `confusionConfirm`이 **추가**됐다 — 꼬리가 아니라 값 하나짜리 형태의 새 값이다(예외 ②의 주의 그대로).
   - **신규 이벤트 ⑦·⑧(v0.53.0 · 2026-09-17):** `session_health` · `sync_summary` — 둘 다 신규 `LogEntry.type` 없이 기존 `type:'session'` / `type:'app'`의 `extra` 접두로 방출한다(log-replay 호환).
     형태(바이트 고정 · 빌더 `logEventsSession.ts` · 리터럴 `tests/logEvents.spec.ts`):
-    `session_health:cells=<n>,reask=<n>,lowconf=<n>,alarm=<fired>/<confirmed>,sttErr=<n>,wakeFail=<n>,authSkip=<n>,corr=<…>,confQ=<asked>/<hit>,modMishear=<n>`
-    (세션 종료 `stop()` 시점 persistSession 직후 정확히 1건 · 순수 모듈 `sessionHealth.ts` 집계 · 종료 화면 `session-health-line` 문구 동봉 · 단 새로고침 복원 등으로 트래커 세션 ID 불일치 시 `session_health_skip:reason=restored` 방출 및 화면 요약 생략) ·
+    `session_health:cells=<n>,reask=<n>,lowconf=<n>,alarm=<fired>/<confirmed>,sttErr=<n>,wakeFail=<n>,authSkip=<n>,corr=<…>,confQ=<asked>/<hit>,modMishear=<n>,saveErr=<n>,discarded=<n>`
+    (세션 종료 `stop()` 시점 persistSession 직후 정확히 1건 · 순수 모듈 `sessionHealth.ts` 집계 · 종료 화면 `session-health-line` 문구 동봉 · 단 새로고침 복원 등으로 트래커 세션 ID 불일치 시 `session_health_skip:reason=restored` 방출 및 화면 요약 생략 · v0.54.0 F2로 끝에 `saveErr`, `discarded` 확장) ·
     `sync_summary:ok=<report.ok>,failed=<report.failed>,rows=<report.rows>,updated=<report.updatedRows>,fallback=<report.fallbackAppended>`
     (시트 동기화 `syncSelected()` 완료 시점 명시적 `sessionId:'__app__'` 귀속으로 정확히 1건 방출 · 올리기가 **예외로** 끝나면 합계를 남기지 않는다(마지막 `return report` 앞 1곳만 — 설계)).
+  - **신규 이벤트 ⑨(v0.54.0 · 2026-09-18):** `clip_raw_skipped` · `clip_raw_save_failed` · `raw_pruned` · `raw_prune_failed` · `raw_uploaded_record_failed` — 신규 `LogEntry.type` 없이 기존 `type:'clip'`, `'error'`, `'app'`의 `extra` 접두로 방출한다.
+    형태(바이트 고정 · 빌더 `logEventsAudio.ts` / `logEventsSession.ts` · 리터럴 `tests/logEvents.spec.ts`):
+    `clip_raw_skipped:reason=<no_ctx|no_audio|decode_failed|no_segments|no_effect|over_trimmed|unknown>` (값·명령 클립에서 트림 미발생 등으로 `:raw` 저장을 건너뛸 때 본 클립 저장 직후 방출 · `type:'clip'`) ·
+    `clip_raw_save_failed:<메시지>` (`:raw` 저장만 예외가 발생했을 때 본 클립 연결을 보존하며 분리 방출 · `type:'error'` · `clipKey: \`${clipKey}:raw\``) ·
+    `raw_pruned:sessions=<n>,clips=<n>` (`pruneOldRawClips()`가 1개 이상의 구세션 `:raw` 클립을 삭제했을 때 정확히 1건 방출 · `type:'app'` · `sessionId:'__app__'`) ·
+    `raw_prune_failed:<메시지>` (`pruneOldRawClips()` 중 예외 발생 시 방출 · `type:'error'` · `sessionId:'__app__'`) ·
+    `raw_uploaded_record_failed:<메시지>` (드라이브 백업 완료 후 `markRawUploaded()` 중 예외 발생 시 방출 · `type:'error'` · `sessionId:'__app__'`).
   - 목록에 없는 이벤트는 **바이트 불변**이다. 확장이 필요하면 필드를 늘리지 말고 **새 이벤트
     이름**을 써라 — 그게 계약을 안 깨고 늘리는 유일한 길이다.
   - 🔴 **오라클은 「프로덕션이 실제로 방출하는 형상」을 재라.** 확장 필드가 항상 붙는 이벤트를

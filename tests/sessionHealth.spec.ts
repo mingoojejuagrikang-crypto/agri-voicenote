@@ -68,6 +68,11 @@ test('ⓑ 방출처 소스 파일 오라클 잠금 — 소스 변경 시 red', (
   // 6. trend_alert_confirmed (useTrendGate.ts:243)
   const trendGateSrc = readFileSync(resolve(ROOT, 'src/lib/useTrendGate.ts'), 'utf-8');
   expect(trendGateSrc).toContain("extra: 'trend_alert_confirmed'");
+
+  // 7. clip_save_failed & clip_stale_pending (v0.54.0 F3 — useValueCommit.ts)
+  const valCommitSrc = readFileSync(resolve(ROOT, 'src/lib/useValueCommit.ts'), 'utf-8');
+  expect(valCommitSrc).toContain("'clip_stale_pending'");
+  expect(valCommitSrc).toContain('`clip_save_failed:${');
 });
 
 test('ⓐ 빌더 출력 공급 및 카운터 동작 검증', () => {
@@ -482,4 +487,46 @@ test('A-4 ⓐ · 공백 값 경계 — 첫 value parsed가 공백문자열일 �
   expect(sum.confQ).toBe('1/1');
 });
 
+test('v0.54.0 F3 · saveErr, discarded 카운터 동작 · 접두 격리 및 세션 분리 단언', () => {
+  const tracker = createSessionHealth();
+  const SID = 'sess_f3_test';
+  const OTHER_SID = 'sess_other';
+  tracker.reset(SID);
+
+  // 1. 정상 카운트: 본 세션 clip_save_failed -> saveErr 1
+  tracker.onEntry({
+    ts: 1, type: 'error', sessionId: SID, extra: 'clip_save_failed:quota_exceeded',
+  });
+
+  // 2. 접두 격리: clip_raw_save_failed, clip_cmd_save_failed 는 saveErr에 안 듦
+  tracker.onEntry({
+    ts: 2, type: 'error', sessionId: SID, extra: 'clip_raw_save_failed:quota_exceeded',
+  });
+  tracker.onEntry({
+    ts: 3, type: 'error', sessionId: SID, extra: 'clip_cmd_save_failed:disk_error',
+  });
+
+  // 3. 정상 카운트: 본 세션 clip_stale_pending -> discarded 1
+  tracker.onEntry({
+    ts: 4, type: 'error', sessionId: SID, extra: 'clip_stale_pending',
+  });
+
+  // 4. 다른 세션 격리: 다른 세션의 이벤트는 무시
+  tracker.onEntry({
+    ts: 5, type: 'error', sessionId: OTHER_SID, extra: 'clip_save_failed:quota_exceeded',
+  });
+  tracker.onEntry({
+    ts: 6, type: 'error', sessionId: OTHER_SID, extra: 'clip_stale_pending',
+  });
+
+  let sum = tracker.summary();
+  expect(sum.saveErr, 'saveErr는 본 세션의 clip_save_failed만 1건이어야 한다').toBe(1);
+  expect(sum.discarded, 'discarded는 본 세션의 clip_stale_pending만 1건이어야 한다').toBe(1);
+
+  // 5. reset(newId) 호출 시 0 리셋
+  tracker.reset('sess_f3_new');
+  sum = tracker.summary();
+  expect(sum.saveErr).toBe(0);
+  expect(sum.discarded).toBe(0);
+});
 
