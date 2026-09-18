@@ -418,3 +418,66 @@ test('④ 무인증 세션 종료 후 데이터 탭 진입 전 토큰 주입 시
   expect(tokenOkLogs).toHaveLength(1);
   expect((tokenOkLogs[0] as any).sessionId).toBe('__app__');
 });
+
+test('⑤ 일시정지 중 데이터 탭 진입 시 로그인 팝업 및 프롬프트 로그 0 (isSessionLive paused 가드 잠금)', async ({ page }) => {
+  await seedAndBoot(page, {
+    record: buildRecord(Date.now() - 60_000),
+  });
+
+  await goVoiceAndStart(page);
+
+  await page.evaluate(async () => {
+    const { resetPastIndexRetries } = await import('/src/lib/pastValues.ts');
+    resetPastIndexRetries();
+  });
+
+  await page.waitForFunction(() => {
+    const el = document.querySelector('[data-testid="voice-active-state"]');
+    return el && el.textContent && el.textContent.includes('횡경');
+  }, { timeout: 10_000 });
+  await fireStt(page, '120.5');
+  await waitForTtsIdle(page);
+
+  const popup = page.locator('[data-testid="anomaly-alert"]');
+  await expect(popup).toBeVisible({ timeout: 5000 });
+  await fireStt(page, '확인');
+  await waitForTtsIdle(page);
+
+  await page.waitForFunction(() => {
+    const el = document.querySelector('[data-testid="voice-active-state"]');
+    return el && el.textContent && el.textContent.includes('종경');
+  }, { timeout: 10_000 });
+  await fireStt(page, '55.0');
+  await waitForTtsIdle(page);
+
+  // auth_lost_in_session 1줄 확인
+  const events = await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    return logger.getAll().filter((e) => (e.extra ?? '').startsWith('auth_lost_in_session:'));
+  });
+  expect(events).toHaveLength(1);
+
+  // 일시정지 음성 명령
+  await fireStt(page, '일시정지', 1000);
+  await waitForTtsIdle(page);
+
+  await page.waitForFunction(async () => {
+    const { useSessionStore } = await import('/src/stores/sessionStore.ts');
+    return useSessionStore.getState().phase === 'paused';
+  }, { timeout: 15_000 });
+
+  // 데이터 탭 클릭
+  await page.locator('[data-testid="tab-data"]').click();
+  await page.waitForTimeout(500);
+
+  // 로그인이 필요합니다 0개
+  await expect(page.locator('text=로그인이 필요합니다')).toHaveCount(0);
+
+  // auth_lost_prompt: 로 시작하는 로그 0줄
+  const promptLogs = await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    return logger.getAll().filter((e) => (e.extra ?? '').startsWith('auth_lost_prompt:'));
+  });
+  expect(promptLogs).toHaveLength(0);
+});
+
