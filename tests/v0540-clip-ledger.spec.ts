@@ -127,19 +127,39 @@ test('ⓐ :raw 저장만 실패 → clip_raw_save_failed: 1줄, 본 클립 보�
   expect(sessionRow?.audioClips?.m1, '본 클립 포인터가 남아 있어야 한다').toBeTruthy();
   expect(sessionRow?.audioClips?.m1).not.toContain(':raw');
 
-  // session_health saveErr=0 단언
-  expect(healthEvents.length).toBe(1);
+  // session_health saveErr=0 단언 (정확히 1줄)
+  expect(healthEvents.length, 'session_health는 정확히 1줄이어야 한다').toBe(1);
   const healthExtra = healthEvents[0].extra ?? '';
   expect(healthExtra).toContain('saveErr=0');
   expect(healthExtra).toContain('discarded=0');
 
-  // 검산식 단언: clip_stop_await = saved + failed + unreliable + saveErr + discarded
+  // clip_summary 및 session_health 파싱을 통한 실제 검산식 단언
+  // clip_stop_await = saved + failed + unreliable + saveErr + discarded
+  const clipSummaryEvents = events.filter((e) => (e.extra ?? '').startsWith('clip_summary:'));
+  expect(clipSummaryEvents.length, 'clip_summary는 정확히 1줄이어야 한다').toBe(1);
+  const clipSummaryExtra = clipSummaryEvents[0].extra ?? '';
+  const mSaved = clipSummaryExtra.match(/saved=(\d+)/);
+  const mFailed = clipSummaryExtra.match(/failed=(\d+)/);
+  expect(mSaved, 'clip_summary에 saved가 있어야 한다').toBeTruthy();
+  expect(mFailed, 'clip_summary에 failed가 있어야 한다').toBeTruthy();
+  const savedCount = Number(mSaved![1]);
+  const failedCount = Number(mFailed![1]);
+
+  const unreliableEvents = events.filter((e) => (e.extra ?? '').startsWith('clip_unreliable_summary:'));
+  let unreliableCount = 0;
+  if (unreliableEvents.length > 0) {
+    const mUnreliable = (unreliableEvents[0].extra ?? '').match(/unreliable=(\d+)/);
+    if (mUnreliable) unreliableCount = Number(mUnreliable[1]);
+  }
+
+  const mSaveErr = healthExtra.match(/saveErr=(\d+)/);
+  const mDiscarded = healthExtra.match(/discarded=(\d+)/);
+  expect(mSaveErr, 'session_health에 saveErr가 있어야 한다').toBeTruthy();
+  expect(mDiscarded, 'session_health에 discarded가 있어야 한다').toBeTruthy();
+  const saveErrCount = Number(mSaveErr![1]);
+  const discardedCount = Number(mDiscarded![1]);
+
   const stopAwaitCount = events.filter((e) => (e.extra ?? '') === 'clip_stop_await').length;
-  const savedCount = events.filter((e) => (e.extra ?? '').startsWith('clip_saved:')).length;
-  const failedCount = 0; // clip_summary failed
-  const unreliableCount = 0;
-  const saveErrCount = 0;
-  const discardedCount = 0;
   expect(stopAwaitCount).toBe(savedCount + failedCount + unreliableCount + saveErrCount + discardedCount);
 });
 
@@ -208,20 +228,32 @@ test('ⓑ 본 클립 저장 실패 → clip_save_failed: 1줄, saveErr=1, 재연
   expect(healthExtra).toContain('saveErr=1');
   expect(healthExtra).toContain('discarded=0');
 
-  // clip_summary의 failed는 0, unreliable도 0 (재연결 배너를 부르는 카운터 미증가 확인)
+  // clip_summary는 정확히 1줄이어야 함 (failed=0, unreliable도 0 — 재연결 배너 미발생 확인)
   const clipSummaryEvents = events.filter((e) => (e.extra ?? '').startsWith('clip_summary:'));
-  if (clipSummaryEvents.length > 0) {
-    expect(clipSummaryEvents[0].extra).toContain('failed=0');
-  }
+  expect(clipSummaryEvents.length, 'clip_summary는 정확히 1줄이어야 한다').toBe(1);
+  const clipSummaryExtra = clipSummaryEvents[0].extra ?? '';
+  const mSaved = clipSummaryExtra.match(/saved=(\d+)/);
+  const mFailed = clipSummaryExtra.match(/failed=(\d+)/);
+  expect(mSaved, 'clip_summary에 saved가 있어야 한다').toBeTruthy();
+  expect(mFailed, 'clip_summary에 failed가 있어야 한다').toBeTruthy();
+  const savedCount = Number(mSaved![1]);
+  const failedCount = Number(mFailed![1]);
+  expect(failedCount).toBe(0);
+
   const unreliableEvents = events.filter((e) => (e.extra ?? '').startsWith('clip_unreliable_summary:'));
   expect(unreliableEvents.length, 'clip_unreliable_summary는 0줄이어야 한다').toBe(0);
+  const unreliableCount = 0;
+
+  // session_health 파싱
+  const mSaveErr = healthExtra.match(/saveErr=(\d+)/);
+  const mDiscarded = healthExtra.match(/discarded=(\d+)/);
+  expect(mSaveErr, 'session_health에 saveErr가 있어야 한다').toBeTruthy();
+  expect(mDiscarded, 'session_health에 discarded가 있어야 한다').toBeTruthy();
+  const saveErrCount = Number(mSaveErr![1]);
+  const discardedCount = Number(mDiscarded![1]);
+  expect(saveErrCount).toBe(1);
 
   // 검산식 단언: clip_stop_await = saved + failed + unreliable + saveErr + discarded
   const stopAwaitCount = events.filter((e) => (e.extra ?? '') === 'clip_stop_await').length;
-  const savedCount = 0;
-  const failedCount = 0;
-  const unreliableCount = 0;
-  const saveErrCount = 1;
-  const discardedCount = 0;
   expect(stopAwaitCount).toBe(savedCount + failedCount + unreliableCount + saveErrCount + discardedCount);
 });
