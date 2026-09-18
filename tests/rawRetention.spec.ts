@@ -45,52 +45,46 @@ test('parseRawUploadedRecord — 레코드 형상 검증', () => {
   expect(parseRawUploadedRecord({ ids: ['sess_1', 'sess_2'] })).toEqual(['sess_1', 'sess_2']);
 });
 
-test('selectRawKeysToPrune — 12세션 순수 선택 오라클 잠금 (G4)', () => {
-  // 12개 세션: sess_1이 가장 오래됨 (startedAt 100), sess_12가 가장 최근 (startedAt 1200)
+test('selectRawKeysToPrune — 10번째(보존)와 11번째(정리) 경계 잠금 (K2 · slice(keep±1) 방어)', () => {
+  // 12개 세션: startedAt 오름차순 (sess_1=100 ... sess_12=1200)
+  // 내림차순 정렬 시:
+  // 1번째: sess_12 (1200) ... 10번째: sess_3 (300) -> 보존 대상
+  // 11번째: sess_2 (200) ... 12번째: sess_1 (100) -> 정리 대상
   const sessions = Array.from({ length: 12 }, (_, i) => ({
     id: `sess_${i + 1}`,
     startedAt: (i + 1) * 100,
   }));
 
-  // 최근 10세션: sess_3 ~ sess_12 (startedAt 300 ~ 1200)
-  // 오래된 2세션: sess_1 (100), sess_2 (200)
-
-  // sess_1(오래됨)과 sess_10(최근 10)을 올림
-  const uploadedIds = new Set(['sess_1', 'sess_10']);
+  // 10번째 최신(sess_3)과 11번째 최신(sess_2)을 모두 올림 상태로 둠
+  const uploadedIds = new Set(['sess_2', 'sess_3']);
 
   const clipKeys = [
-    // sess_1 (오래됨 & 올림): 대상!
-    'sess_1:1:m1:raw',
-    'sess_1:1:m1:cmd2:raw',
-    'sess_1:1:m1',        // 트림 클립 -> 제외
-    'sess_1:1:m1:a1',     // 재시도 클립 -> 제외
+    // sess_3 (10번째 최신 & 올림): keep=10 보존 -> 정리되지 않아야 함!
+    'sess_3:1:m1:raw',
+    'sess_3:1:m1:cmd1:raw',
 
-    // sess_2 (오래됨 & 안 올림): 제외!
+    // sess_2 (11번째 최신 & 올림): keep 밖 & 올림 -> 정리 대상!
     'sess_2:1:m1:raw',
-    'sess_2:1:m1:cmd1:raw',
+    'sess_2:1:m1:cmd2:raw',
+    'sess_2:1:m1', // 트림 본체 -> 제외
 
-    // sess_10 (최근 10 & 올림): keep 10 보존 -> 제외!
-    'sess_10:1:m1:raw',
-    'sess_10:1:m1:cmd1:raw',
+    // sess_1 (12번째 최신 & 안 올림): 제외!
+    'sess_1:1:m1:raw',
 
-    // sess_11 (최근 10 & 안 올림): keep 10 보존 -> 제외!
-    'sess_11:1:m1:raw',
-
-    // 고아 키 (세션 목록에 없음): 제외!
-    'sess_orphan:1:m1:raw',
-
-    // 접두 충돌 검증: sess_1 vs sess_10
-    // sess_10 키가 sess_1의 prefix 매칭으로 오인되어 지워지지 않아야 함
+    // 접두 충돌 검증용 sess_20 (고아 키): 제외!
+    'sess_20:1:m1:raw',
   ];
 
   const result = selectRawKeysToPrune(sessions, clipKeys, uploadedIds, RAW_KEEP_SESSIONS);
 
-  // 대상은 오직 sess_1의 :raw 키 2개뿐이어야 함
+  // 대상은 오직 sess_2의 :raw 키 2개뿐이어야 함
+  // slice(keep-1) 변이 시: 10번째인 sess_3 키까지 포함되어 실패
+  // slice(keep+1) 변이 시: 11번째인 sess_2 키가 누락되어 0개로 실패
   expect(result.keys.sort()).toEqual([
-    'sess_1:1:m1:cmd2:raw',
-    'sess_1:1:m1:raw',
+    'sess_2:1:m1:cmd2:raw',
+    'sess_2:1:m1:raw',
   ]);
-  expect(result.sessionIds).toEqual(['sess_1']);
+  expect(result.sessionIds).toEqual(['sess_2']);
 
   // 레코드 형상이 틀려서 uploadedIds가 비어있는 경우 -> 0개 선택
   const malformedUploaded = new Set(parseRawUploadedRecord({ ids: 'broken' }));

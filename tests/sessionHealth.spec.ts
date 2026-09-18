@@ -461,6 +461,35 @@ test('A-2 · 결산 방출 자리 잠금 — stop()의 persistSession() 뒤, if 
   expect(healthIdx < ifDurableIdx, 'sessionHealth(healthSummary) 방출은 if (!durable) 앞에 있어야 한다').toBe(true);
 });
 
+test('K2 · 원본 정리 pruneOldRawClips 배선 잠금 — stop() 및 retryFinalPersist()의 if (!durable) 뒤', () => {
+  const voiceSrc = readFileSync(resolve(ROOT, 'src/lib/useVoiceSession.ts'), 'utf-8');
+
+  // 1. stop() 안에서의 배선
+  const stopIndex = voiceSrc.indexOf('const stop = useCallback(async (');
+  expect(stopIndex, 'useVoiceSession.ts에 stop 함수가 있어야 한다').toBeGreaterThan(-1);
+  const stopBody = voiceSrc.slice(stopIndex);
+
+  const persistIdx = stopBody.indexOf('const durable = await persistSession();');
+  const ifDurableIdx = stopBody.indexOf('if (!durable) {', persistIdx);
+  const pruneIdx = stopBody.indexOf('pruneOldRawClips(sessionIdRef.current);', ifDurableIdx);
+
+  expect(persistIdx, 'stop() 안에 persistSession() 호출이 있어야 한다').toBeGreaterThan(-1);
+  expect(ifDurableIdx, 'stop() 안에 if (!durable) 가드가 있어야 한다').toBeGreaterThan(-1);
+  expect(pruneIdx, 'stop() 안에 if (!durable) 뒤 pruneOldRawClips 호출이 있어야 한다').toBeGreaterThan(-1);
+  expect(ifDurableIdx < pruneIdx, 'stop() 안의 pruneOldRawClips는 if (!durable) 뒤에 있어야 한다').toBe(true);
+
+  // 2. retryFinalPersist() 안에서의 배선 (K6)
+  const retryIndex = voiceSrc.indexOf('const retryFinalPersist = useCallback(async (');
+  expect(retryIndex, 'useVoiceSession.ts에 retryFinalPersist 함수가 있어야 한다').toBeGreaterThan(-1);
+  const retryBody = voiceSrc.slice(retryIndex);
+
+  const retryIfDurableIdx = retryBody.indexOf('if (!durable) {');
+  const retryPruneIdx = retryBody.indexOf('pruneOldRawClips(', retryIfDurableIdx);
+  expect(retryIfDurableIdx, 'retryFinalPersist() 안에 if (!durable) 가드가 있어야 한다').toBeGreaterThan(-1);
+  expect(retryPruneIdx, 'retryFinalPersist() 안에 if (!durable) 뒤 pruneOldRawClips 호출이 있어야 한다').toBeGreaterThan(-1);
+  expect(retryIfDurableIdx < retryPruneIdx, 'retryFinalPersist() 안의 pruneOldRawClips는 if (!durable) 뒤에 있어야 한다').toBe(true);
+});
+
 test('A-4 ⓐ · 공백 값 경계 — 첫 value parsed가 공백문자열일 때 0과 다르다고 판별', () => {
   const tracker = createSessionHealth();
   const SID = 'sess_ws_boundary';

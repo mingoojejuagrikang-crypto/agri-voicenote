@@ -11,6 +11,8 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { BASE } from './baseUrl';
+import { boot, PHONE_402, SETTINGS as AZ_SETTINGS } from './fixtures/activeZones';
+import { waitForTtsIdle } from './fixtures/stt';
 
 test.setTimeout(60_000);
 
@@ -214,6 +216,78 @@ test('G4 pruneOldRawClips e2e — 12세션 중 10세션 밖 올린 세션 1개�
 
   // 올림 기록에서 sess_12가 빠지고 sess_1만 남아 있어야 함
   expect(result.uploadedAfter).toEqual({ ids: ['sess_1'] });
+});
+
+test('K2 e2e — 시드 세션 11개(+올림 1개) 주입 후 실제 짧은 세션 종료 시 raw_pruned 1줄 및 해당 :raw만 정리', async ({ page }) => {
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+
+  // 1. 오래된 세션 11개 시드 (sess_old_1: startedAt 100 ... sess_old_11: 1100)
+  await page.evaluate(async () => {
+    const { saveSession, saveAudioClip, loadAllAudioClipKeys, deleteAudioClip, saveRawUploadedRecord } = await import('/src/lib/db.ts');
+    const existing = await loadAllAudioClipKeys();
+    for (const k of existing) await deleteAudioClip(k);
+
+    for (let i = 1; i <= 11; i++) {
+      await saveSession({
+        id: `sess_old_${i}`,
+        date: '2026-09-18',
+        startedAt: i * 100,
+        completedRows: 1,
+        syncedRows: 0,
+        rows: [{ index: 1, values: { m1: '10' } }],
+        columns: [{ id: 'm1', name: '측정1', input: 'voice' }],
+      } as any);
+    }
+
+    // sess_old_1 (11개 중 가장 오래됨 & 올림): 본체 1개 + :raw 1개
+    await saveAudioClip('sess_old_1:1:m1', new Blob(['main clip'], { type: 'audio/webm' }));
+    await saveAudioClip('sess_old_1:1:m1:raw', new Blob(['raw clip'], { type: 'audio/webm' }));
+
+    // sess_old_2 (오래됨 & 안 올림): :raw 1개
+    await saveAudioClip('sess_old_2:1:m1:raw', new Blob(['raw clip 2'], { type: 'audio/webm' }));
+
+    // 올림 기록에 sess_old_1만 등록
+    await saveRawUploadedRecord({ ids: ['sess_old_1'] });
+  });
+
+  const MINI_COLUMNS = [
+    { id: 'cd', name: '조사일자', type: 'date', input: 'auto', ttsAnnounce: false, auto: { kind: 'fixed', value: '오늘' }, sampleKey: false },
+    { id: 'm1', name: '측정1', type: 'float', input: 'voice', ttsAnnounce: false, auto: { kind: 'fixed', value: '' }, decimals: 1, sampleKey: false },
+  ];
+  const MINI_SETTINGS = {
+    ...AZ_SETTINGS,
+    state: { ...AZ_SETTINGS.state, columns: MINI_COLUMNS, totalRows: 1 },
+  };
+
+  // 2. 실제 짧은 세션 시작 (boot)
+  await boot(page, PHONE_402, {
+    settings: MINI_SETTINGS as unknown as typeof AZ_SETTINGS,
+  });
+  await waitForTtsIdle(page);
+
+  // 3. 바로 세션 종료
+  await page.locator('button[title="입력 종료"]').click();
+  await page.locator('button[title="종료 확인"]').click();
+  await expect(page.locator('[data-testid="session-health-line"]')).toBeVisible({ timeout: 15_000 });
+
+  // 4. 단언:
+  // - raw_pruned 로그 1줄: sessions=1,clips=1
+  // - sess_old_1:1:m1:raw는 삭제됨
+  // - sess_old_1:1:m1 (본체)는 보존됨
+  // - sess_old_2:1:m1:raw (안 올린 세션)은 보존됨
+  const check = await page.evaluate(async () => {
+    const { loadAllAudioClipKeys } = await import('/src/lib/db.ts');
+    const { logger } = await import('/src/lib/logger.ts');
+    const keys = await loadAllAudioClipKeys();
+    const pruneLogs = logger.getAll().filter((e) => typeof e.extra === 'string' && e.extra.startsWith('raw_pruned:'));
+    return { keys, pruneLogs };
+  });
+
+  expect(check.pruneLogs).toHaveLength(1);
+  expect(check.pruneLogs[0].extra).toBe('raw_pruned:sessions=1,clips=1');
+  expect(check.keys).toContain('sess_old_1:1:m1');
+  expect(check.keys).not.toContain('sess_old_1:1:m1:raw');
+  expect(check.keys).toContain('sess_old_2:1:m1:raw');
 });
 
 async function seedUploadSyncSession(page: any, sessId: string, withClip: boolean) {

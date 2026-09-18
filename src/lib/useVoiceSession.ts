@@ -3110,6 +3110,10 @@ export function useVoiceSession() {
       useSessionStore.getState().setPersistError({ retrying: false });
       return false;
     }
+    const retrySessionId = sessionIdRef.current;
+    if (retrySessionId) {
+      void pruneOldRawClips(retrySessionId);
+    }
     useSessionStore.getState().setPersistError(null);
     useSessionStore.getState().setPhase('ready');
     logger.setSessionId(undefined);
