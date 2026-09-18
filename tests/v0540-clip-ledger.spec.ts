@@ -47,6 +47,20 @@ const MINI_SETTINGS = {
 const MINI_HEADERS = ['조사일자', '농가명', '조사나무', '측정항목01'];
 const MINI_ROWS = [[PREV_ROUND, '이원창', '1', '100.0']];
 
+const TWO_COLUMNS = [
+  { id: 'cd', name: '조사일자', type: 'date', input: 'auto', ttsAnnounce: false, auto: { kind: 'fixed', value: '오늘' }, sampleKey: false },
+  { id: 'cf', name: '농가명', type: 'text', input: 'auto', ttsAnnounce: false, auto: { kind: 'fixed', value: '이원창' }, sampleKey: true },
+  { id: 'c0', name: '조사나무', type: 'int', input: 'auto', ttsAnnounce: true, auto: { kind: 'seq', from: 1, to: 1 }, sampleKey: true },
+  { id: 'm1', name: '측정항목01', type: 'float', input: 'voice', ttsAnnounce: true, auto: { kind: 'fixed', value: '' }, decimals: 1, sampleKey: false },
+  { id: 'm2', name: '측정항목02', type: 'float', input: 'voice', ttsAnnounce: true, auto: { kind: 'fixed', value: '' }, decimals: 1, sampleKey: false },
+];
+const TWO_SETTINGS = {
+  ...AZ_SETTINGS,
+  state: { ...AZ_SETTINGS.state, columns: TWO_COLUMNS, totalRows: 1, sessionAutoLabel: 'clip-ledger' },
+};
+const TWO_HEADERS = ['조사일자', '농가명', '조사나무', '측정항목01', '측정항목02'];
+const TWO_ROWS = [[PREV_ROUND, '이원창', '1', '100.0', '100.0']];
+
 test('ⓐ :raw 저장만 실패 → clip_raw_save_failed: 1줄, 본 클립 보존, saveErr=0, 검산식 성립', async ({ page }) => {
   // IDBObjectStore.prototype.put 가로채기: :raw 키에서만 throw
   // AudioContext.prototype.decodeAudioData 스텁: 트림 가능한 오디오 버퍼 반환 (rawBlob 생성 유도)
@@ -149,7 +163,7 @@ test('ⓐ :raw 저장만 실패 → clip_raw_save_failed: 1줄, 본 클립 보�
   const unreliableEvents = events.filter((e) => (e.extra ?? '').startsWith('clip_unreliable_summary:'));
   let unreliableCount = 0;
   if (unreliableEvents.length > 0) {
-    const mUnreliable = (unreliableEvents[0].extra ?? '').match(/unreliable=(\d+)/);
+    const mUnreliable = (unreliableEvents[0].extra ?? '').match(/muted=(\d+)/);
     if (mUnreliable) unreliableCount = Number(mUnreliable[1]);
   }
 
@@ -166,7 +180,7 @@ test('ⓐ :raw 저장만 실패 → clip_raw_save_failed: 1줄, 본 클립 보�
   // K4 원장 잠금: 값 클립마다 raw_saved + raw_skipped + raw_save_failed = clip_saved + unreliable:muted
   const rawSavedEvents = events.filter((e) => (e.extra ?? '').startsWith('clip_raw_saved:'));
   const rawSkippedEvents = events.filter((e) => (e.extra ?? '').startsWith('clip_raw_skipped:'));
-  const mutedEvents = events.filter((e) => (e.extra ?? '').startsWith('clip_unreliable:reason=muted'));
+  const mutedEvents = events.filter((e) => (e.extra ?? '').startsWith('clip_unreliable:muted'));
 
   expect(rawSavedEvents.length + rawSkippedEvents.length + rawFailEvents.length)
     .toBe(savedCount + mutedEvents.length);
@@ -345,20 +359,6 @@ test('K4 명령 클립 :raw 실패 분리 — :cmd<n>:raw put 실패 시 clip_ra
     }
   });
 
-  const TWO_COLUMNS = [
-    { id: 'cd', name: '조사일자', type: 'date', input: 'auto', ttsAnnounce: false, auto: { kind: 'fixed', value: '오늘' }, sampleKey: false },
-    { id: 'cf', name: '농가명', type: 'text', input: 'auto', ttsAnnounce: false, auto: { kind: 'fixed', value: '이원창' }, sampleKey: true },
-    { id: 'c0', name: '조사나무', type: 'int', input: 'auto', ttsAnnounce: true, auto: { kind: 'seq', from: 1, to: 1 }, sampleKey: true },
-    { id: 'm1', name: '측정항목01', type: 'float', input: 'voice', ttsAnnounce: true, auto: { kind: 'fixed', value: '' }, decimals: 1, sampleKey: false },
-    { id: 'm2', name: '측정항목02', type: 'float', input: 'voice', ttsAnnounce: true, auto: { kind: 'fixed', value: '' }, decimals: 1, sampleKey: false },
-  ];
-  const TWO_SETTINGS = {
-    ...AZ_SETTINGS,
-    state: { ...AZ_SETTINGS.state, columns: TWO_COLUMNS, totalRows: 1, sessionAutoLabel: 'clip-ledger' },
-  };
-  const TWO_HEADERS = ['조사일자', '농가명', '조사나무', '측정항목01', '측정항목02'];
-  const TWO_ROWS = [[PREV_ROUND, '이원창', '1', '100.0', '100.0']];
-
   await boot(page, PHONE_402, {
     settings: TWO_SETTINGS as unknown as typeof AZ_SETTINGS,
     headers: TWO_HEADERS,
@@ -396,3 +396,82 @@ test('K4 명령 클립 :raw 실패 분리 — :cmd<n>:raw put 실패 시 clip_ra
   expect(cmdSaveFails.length, '명령 클립 본체 저장 실패는 0줄이어야 함').toBe(0);
   expect(cmdPreserved.length, '명령 클립 본체는 저장되어야 함').toBeGreaterThanOrEqual(1);
 });
+
+test('ⓔ 트림 미발생(무음 PCM 스텁) → clip_raw_skipped:reason=no_segments 1줄 이상, unknown 아님, 원장 보존', async ({ page }) => {
+  // AudioContext.prototype.decodeAudioData 스텁: 전부 0인 무음 버퍼 반환 → findSpeechSegments가 빈 배열 반환 → rawSkip: 'no_segments'
+  await page.addInitScript(() => {
+    const origCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (origCtx) {
+      origCtx.prototype.decodeAudioData = async function () {
+        const rate = 16000;
+        const buf = this.createBuffer(1, 32000, rate);
+        return buf;
+      };
+    }
+  });
+
+  await boot(page, PHONE_402, {
+    settings: TWO_SETTINGS as unknown as typeof AZ_SETTINGS,
+    headers: TWO_HEADERS,
+    sheetRows: TWO_ROWS,
+  });
+  await waitForTtsIdle(page);
+
+  // 1개 값 커밋
+  await fireStt(page, '12.3', 900);
+  await waitForTtsIdle(page);
+
+  // 명령 발화 (수정) → 명령 클립 생성 유도
+  await fireStt(page, '수정 15.5', 900);
+  await waitForTtsIdle(page);
+
+  // 세션 종료
+  await page.locator('button[title="입력 종료"]').click();
+  await page.locator('button[title="종료 확인"]').click();
+
+  const healthLine = page.locator('[data-testid="session-health-line"]');
+  await expect(healthLine).toBeVisible({ timeout: 15_000 });
+
+  const events = await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    return logger.getAll();
+  });
+
+  // 값 클립 및 명령 클립의 rawSkipped 이벤트 확인
+  const rawSkippedEvents = events.filter((e) => (e.extra ?? '').startsWith('clip_raw_skipped:'));
+  expect(rawSkippedEvents.length, 'clip_raw_skipped가 1줄 이상 있어야 한다').toBeGreaterThanOrEqual(1);
+
+  // 무음 버퍼이므로 사유는 정확히 no_segments여야 함
+  const noSegmentsEvents = rawSkippedEvents.filter((e) => e.extra === 'clip_raw_skipped:reason=no_segments');
+  expect(noSegmentsEvents.length, 'clip_raw_skipped:reason=no_segments가 1줄 이상 있어야 한다').toBeGreaterThanOrEqual(1);
+
+  // 나온 모든 clip_raw_skipped는 unknown이 아니어야 함 (M04 / M06 잡기)
+  for (const ev of rawSkippedEvents) {
+    expect(ev.extra).not.toContain('unknown');
+    expect(ev.extra).toBe('clip_raw_skipped:reason=no_segments');
+  }
+
+  // 명령 클립에서도 clip_raw_skipped가 발생했는지 확인 (M06 명령 클립 잠금)
+  const cmdRawSkipped = rawSkippedEvents.filter((e) => (e as any).kind === 'command');
+  expect(cmdRawSkipped.length, '명령 클립에서도 clip_raw_skipped:reason=no_segments가 발생해야 한다').toBeGreaterThanOrEqual(1);
+
+  // 회계 검산식 확인
+  const clipSummaryEvents = events.filter((e) => (e.extra ?? '').startsWith('clip_summary:'));
+  expect(clipSummaryEvents.length).toBe(1);
+  const mSaved = (clipSummaryEvents[0].extra ?? '').match(/saved=(\d+)/);
+  const mFailed = (clipSummaryEvents[0].extra ?? '').match(/failed=(\d+)/);
+  const savedCount = Number(mSaved![1]);
+  const failedCount = Number(mFailed![1]);
+
+  const healthEvents = events.filter((e) => (e.extra ?? '').startsWith('session_health:'));
+  expect(healthEvents.length).toBe(1);
+  const healthExtra = healthEvents[0].extra ?? '';
+  const mSaveErr = healthExtra.match(/saveErr=(\d+)/);
+  const mDiscarded = healthExtra.match(/discarded=(\d+)/);
+  const saveErrCount = Number(mSaveErr![1]);
+  const discardedCount = Number(mDiscarded![1]);
+
+  const stopAwaitCount = events.filter((e) => (e.extra ?? '') === 'clip_stop_await').length;
+  expect(stopAwaitCount).toBe(savedCount + failedCount + 0 + saveErrCount + discardedCount);
+});
+
