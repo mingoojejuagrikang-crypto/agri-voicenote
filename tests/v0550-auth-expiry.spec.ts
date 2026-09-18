@@ -481,3 +481,61 @@ test('⑤ 일시정지 중 데이터 탭 진입 시 로그인 팝업 및 프롬�
   expect(promptLogs).toHaveLength(0);
 });
 
+test('⑥ 새 세션 시작 시 옛 세션 로그인 만료 표지 폐기 오라클 (consumeAuthLostPrompt curSid 검사 잠금)', async ({ page }) => {
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+
+  // 무인증 설정 주입
+  await page.evaluate(async (settings) => {
+    localStorage.clear();
+    const { useSettingsStore } = await import('/src/stores/settingsStore.ts');
+    useSettingsStore.setState(settings.state as any);
+  }, SETTINGS);
+
+  // 스토어 active, sessionId: 'sess_a' -> ensurePastIndex() -> auth_lost_in_session 1줄
+  await page.evaluate(async () => {
+    const { useSessionStore } = await import('/src/stores/sessionStore.ts');
+    const { logger } = await import('/src/lib/logger.ts');
+    const { resetPastIndexRetries, ensurePastIndex } = await import('/src/lib/pastValues.ts');
+    logger.clear();
+    resetPastIndexRetries();
+    useSessionStore.setState({
+      phase: 'active',
+      sessionId: 'sess_a',
+      startedAt: Date.now() - 5000,
+    });
+    ensurePastIndex();
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
+  const authLost = await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    return logger.getAll().filter((e) => (e.extra ?? '').startsWith('auth_lost_in_session:'));
+  });
+  expect(authLost).toHaveLength(1);
+
+  // 새 세션 sessionId: 'sess_b' (active 유지) -> 종료 phase: 'ready'
+  await page.evaluate(async () => {
+    const { useSessionStore } = await import('/src/stores/sessionStore.ts');
+    useSessionStore.setState({
+      sessionId: 'sess_b',
+    });
+    useSessionStore.setState({
+      phase: 'ready',
+    });
+  });
+
+  // 데이터 탭 클릭 후 대기
+  await page.locator('[data-testid="tab-data"]').click();
+  await page.waitForTimeout(500);
+
+  // 창 0개 · auth_lost_prompt: 0줄 단언
+  await expect(page.locator('text=로그인이 필요합니다')).toHaveCount(0);
+
+  const promptLogs = await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    return logger.getAll().filter((e) => (e.extra ?? '').startsWith('auth_lost_prompt:'));
+  });
+  expect(promptLogs).toHaveLength(0);
+});
+
+
