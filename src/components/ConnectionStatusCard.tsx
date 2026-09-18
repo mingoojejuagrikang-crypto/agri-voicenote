@@ -24,6 +24,7 @@ import { isConnectionAlive, getConnection, connectionDaysLeft } from '../lib/goo
 import { reloginUnlessSessionLive } from '../lib/syncAuthGuard';
 import { LoginRequiredModal } from './LoginRequiredModal';
 import { parseSpreadsheetId, readonlySheetsAuth } from '../lib/sheets';
+import { FALLBACK_TTL_MS } from '../lib/pastValuesPersist';
 import {
   getPastIndexStatus,
   prefetchPastIndex,
@@ -196,12 +197,23 @@ export function ConnectionStatusCard() {
    *  안 일어나므로 보이지 않는 게 정직하다(`[TEAMOPS-7]` — 무의미한 어포던스는 신뢰를 깎는다). */
   const canPreparePastIndex =
     !!readAuth && !!sheetId && !!s.sheetTab && s.tableGenerated && anyAnomalyRule;
-  const idxValue =
-    idx.state === 'ready' || idx.state === 'stale'
-      ? `${idx.rowCount}행 · ${idx.roundCount}회차 준비됨(${formatAge(idx.builtAt ?? now, now)})`
-      : idx.state === 'loading' ? '불러오는 중…' : notReadyReason;
-  const idxTone: 'ok' | 'warn' | 'off' =
-    idx.state === 'ready' ? 'ok' : idx.state === 'stale' ? 'warn' : 'off';
+  let idxValue: string;
+  let idxTone: 'ok' | 'warn' | 'bad' | 'off';
+  if (idx.state === 'ready' || idx.state === 'stale') {
+    const age = formatAge(idx.builtAt ?? now, now);
+    const daysLeft = Math.max(0, Math.floor(((idx.builtAt ?? now) + FALLBACK_TTL_MS - now) / 86_400_000));
+    idxValue = `${idx.rowCount}행 · ${idx.roundCount}회차 준비됨(${age} · ${daysLeft}일 남음)`;
+    idxTone = idx.state === 'ready' ? 'ok' : 'warn';
+  } else if (idx.state === 'loading') {
+    idxValue = '불러오는 중…';
+    idxTone = 'off';
+  } else if (anyAnomalyRule) {
+    idxValue = `${notReadyReason} · 알람 안 울림`;
+    idxTone = 'bad';
+  } else {
+    idxValue = notReadyReason;
+    idxTone = 'off';
+  }
   const showRetry = idx.state === 'stale' || (idx.state === 'none' && canPreparePastIndex);
 
   const retry = showRetry ? (
