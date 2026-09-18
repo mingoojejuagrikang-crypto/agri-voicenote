@@ -44,17 +44,29 @@ let chain: Promise<void> = Promise.resolve();
 
 let _loadRecord = loadRawUploadedRecord;
 let _saveRecord = saveRawUploadedRecord;
+let _loadSessions = loadAllSessions;
+let _loadClipKeys = loadAllAudioClipKeys;
+let _deleteClip = deleteAudioClip;
 
 export function __setRawRetentionStorageForTest(storage: {
   load: () => Promise<unknown>;
   save: (rec: unknown) => Promise<void>;
+  loadSessions?: () => Promise<Array<{ id: string; startedAt: number }>>;
+  loadClipKeys?: () => Promise<string[]>;
+  deleteClip?: (key: string) => Promise<void>;
 } | null): void {
   if (storage) {
     _loadRecord = storage.load;
     _saveRecord = storage.save;
+    if (storage.loadSessions) _loadSessions = storage.loadSessions;
+    if (storage.loadClipKeys) _loadClipKeys = storage.loadClipKeys;
+    if (storage.deleteClip) _deleteClip = storage.deleteClip;
   } else {
     _loadRecord = loadRawUploadedRecord;
     _saveRecord = saveRawUploadedRecord;
+    _loadSessions = loadAllSessions;
+    _loadClipKeys = loadAllAudioClipKeys;
+    _deleteClip = deleteAudioClip;
   }
 }
 
@@ -152,8 +164,8 @@ export async function pruneOldRawClips(justSavedId: string): Promise<void> {
 
     // 2. 세션 목록, 오디오 클립 키, 업로드 레코드 읽기
     const [sessions, clipKeys, rec] = await Promise.all([
-      loadAllSessions(),
-      loadAllAudioClipKeys(),
+      _loadSessions(),
+      _loadClipKeys(),
       _loadRecord(),
     ]);
 
@@ -164,7 +176,7 @@ export async function pruneOldRawClips(justSavedId: string): Promise<void> {
 
     // 4. 대상 키 삭제
     for (const key of keys) {
-      await deleteAudioClip(key);
+      await _deleteClip(key);
     }
 
     // 5. 삭제된 건이 있으면 로그 방출

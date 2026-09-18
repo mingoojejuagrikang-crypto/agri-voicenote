@@ -24,9 +24,11 @@ import {
   markRawUploaded,
   forgetRawUploaded,
   noteSessionPersisted,
+  pruneOldRawClips,
   __setRawRetentionStorageForTest,
   __resetPersistedIdsForTest,
 } from '../src/lib/rawRetention';
+import { logger } from '../src/lib/logger';
 
 const ROOT = process.cwd();
 
@@ -72,6 +74,7 @@ test('selectRawKeysToPrune — 10번째(보존)와 11번째(정리) 경계 잠�
     'sess_2:1:m1:raw',
     'sess_2:1:m1:cmd2:raw',
     'sess_2:1:m1', // 트림 본체 -> 제외
+    'sess_2:1:m1:a1', // 과거 시도 키 (:raw 아님) -> 제외 (N12)
 
     // sess_1 (12번째 최신 & 안 올림): 제외!
     'sess_1:1:m1:raw',
@@ -82,13 +85,14 @@ test('selectRawKeysToPrune — 10번째(보존)와 11번째(정리) 경계 잠�
 
   const result = selectRawKeysToPrune(sessions, clipKeys, uploadedIds, RAW_KEEP_SESSIONS);
 
-  // 대상은 오직 sess_2의 :raw 키 2개뿐이어야 함
+  // 대상은 오직 sess_2의 :raw 키 2개뿐이어야 함 (:a1 키 미포함 N12)
   // slice(keep-1) 변이 시: 10번째인 sess_3 키까지 포함되어 실패
   // slice(keep+1) 변이 시: 11번째인 sess_2 키가 누락되어 0개로 실패
   expect(result.keys.sort()).toEqual([
     'sess_2:1:m1:cmd2:raw',
     'sess_2:1:m1:raw',
   ]);
+  expect(result.keys).not.toContain('sess_2:1:m1:a1');
   expect(result.sessionIds).toEqual(['sess_2']);
 
   // 레코드 형상이 틀려서 uploadedIds가 비어있는 경우 -> 0개 선택
@@ -207,6 +211,93 @@ test('[node] L3-c 직렬 큐 비대칭 지연 순서 보장 (N09 chain 제거 �
   ]);
 
   expect(stored.ids).toEqual([]);
+
+  __setRawRetentionStorageForTest(null);
+});
+
+test('[node] M16 markRawUploaded — 기존 id 유지 (합집합)', async () => {
+  let stored: { ids: string[] } = { ids: ['sess_existing_1', 'sess_existing_2'] };
+
+  __setRawRetentionStorageForTest({
+    load: async () => ({ ids: [...stored.ids] }),
+    save: async (rec: any) => {
+      stored = { ids: [...rec.ids] };
+    },
+  });
+  __resetPersistedIdsForTest();
+
+  await markRawUploaded(['sess_new_3']);
+
+  expect(stored.ids.sort()).toEqual(['sess_existing_1', 'sess_existing_2', 'sess_new_3']);
+
+  __setRawRetentionStorageForTest(null);
+});
+
+test('[node] M19 pruneOldRawClips — 지울 대상이 0개면 raw_pruned 로그 방출 안 함', async () => {
+  logger.clear();
+
+  // 10개 세션만 존재 -> 보존 대상 (정리 대상 0)
+  const sessions = Array.from({ length: 10 }, (_, i) => ({
+    id: `sess_${i + 1}`,
+    startedAt: (i + 1) * 100,
+  }));
+
+  __setRawRetentionStorageForTest({
+    load: async () => ({ ids: ['sess_1', 'sess_2'] }),
+    save: async () => {},
+    loadSessions: async () => sessions,
+    loadClipKeys: async () => ['sess_1:1:m1:raw'],
+    deleteClip: async () => {},
+  });
+  __resetPersistedIdsForTest();
+
+  await pruneOldRawClips('sess_10');
+
+  const prunedLogs = logger.getAll().filter((e) => (e.extra ?? '').startsWith('raw_pruned:'));
+  expect(prunedLogs).toHaveLength(0);
+
+  __setRawRetentionStorageForTest(null);
+});
+
+test('[node] M20 pruneOldRawClips — 지운 세션·클립 수 정확히 로깅 및 실제 delete 호출', async () => {
+  logger.clear();
+
+  // 12개 세션 (sess_1=100 ... sess_12=1200)
+  // sess_1(100), sess_2(200)는 10개 밖 정리 대상
+  const sessions = Array.from({ length: 12 }, (_, i) => ({
+    id: `sess_${i + 1}`,
+    startedAt: (i + 1) * 100,
+  }));
+
+  const deletedKeys: string[] = [];
+
+  __setRawRetentionStorageForTest({
+    load: async () => ({ ids: ['sess_1', 'sess_2'] }),
+    save: async () => {},
+    loadSessions: async () => sessions,
+    loadClipKeys: async () => [
+      'sess_2:1:m1:raw',
+      'sess_2:1:m1:cmd2:raw',
+      'sess_1:1:m1:raw',
+      'sess_3:1:m1:raw', // sess_3은 10번째 최신(보존 대상)
+    ],
+    deleteClip: async (key: string) => {
+      deletedKeys.push(key);
+    },
+  });
+  __resetPersistedIdsForTest();
+
+  // justSavedId = 'sess_12'
+  await pruneOldRawClips('sess_12');
+
+  const prunedLogs = logger.getAll().filter((e) => (e.extra ?? '').startsWith('raw_pruned:'));
+  expect(prunedLogs).toHaveLength(1);
+  expect(prunedLogs[0].extra).toBe('raw_pruned:sessions=2,clips=3');
+  expect(deletedKeys.sort()).toEqual([
+    'sess_1:1:m1:raw',
+    'sess_2:1:m1:cmd2:raw',
+    'sess_2:1:m1:raw',
+  ]);
 
   __setRawRetentionStorageForTest(null);
 });
