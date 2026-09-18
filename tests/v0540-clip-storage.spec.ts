@@ -455,12 +455,12 @@ test('K1-c: 클립 1개 읽기 실패(get 가로채 throw) → 업로드 성공�
   expect(exportClipsLogs[0].extra).toContain('export_clips_failed');
 });
 
-test('H3 SessionCard 녹음 용량 표시 e2e (1.2MB / 0.0MB · 삭제 후 유지 · sumSessionClipBytes 일치)', async ({ page }) => {
+test('H3 / K8 SessionCard 녹음 용량 표시 e2e (1.5MB / 0.0MB · 삭제 버튼 경로 · 셈 전 문구 · 실패 로깅)', async ({ page }) => {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
 
   const sessA = 'sess_size_a';
   const sessB = 'sess_size_b';
-  const BYTES_A = 1_234_567; // 1.2MB
+  const BYTES_A = 1_500_000; // 10진 1.5MB (2진이면 1.4MB)
 
   await page.evaluate(async ({ idA, idB, sizeA }) => {
     localStorage.clear();
@@ -487,9 +487,45 @@ test('H3 SessionCard 녹음 용량 표시 e2e (1.2MB / 0.0MB · 삭제 후 유�
       columns: [{ id: 'm1', name: '측정1', input: 'voice' }],
     } as any);
 
-    // sessA에만 1,234,567 바이트 클립 저장
+    // sessA에만 1,500,000 바이트 클립 저장 (10진 1.5MB)
     await saveAudioClip(`${idA}:1:m1`, new Blob([new Uint8Array(sizeA)], { type: 'audio/webm' }));
   }, { idA: sessA, idB: sessB, sizeA: BYTES_A });
+
+  // 셈 전 문구 '녹음 …' 확인을 위해 openCursor success 리스너를 게이트로 보류 (addInitScript로 reload 생존)
+  await page.addInitScript(() => {
+    let resume: (() => void) | null = null;
+    (window as any).__cursorGate = new Promise<void>((res) => { resume = res; });
+    (window as any).__releaseCursor = () => { resume?.(); (window as any).__cursorGate = null; };
+
+    const origOpen = IDBObjectStore.prototype.openCursor;
+    IDBObjectStore.prototype.openCursor = function (...args: any[]) {
+      if (this.name === 'audioClips') {
+        const failPattern = localStorage.getItem('__fail_open_cursor');
+        if (failPattern) {
+          const range = args[0] as IDBKeyRange;
+          if (range && typeof range.lower === 'string' && range.lower.includes(failPattern)) {
+            throw new Error('forced openCursor error for ' + failPattern);
+          }
+        }
+        const req = origOpen.apply(this, args as any);
+        const origAdd = req.addEventListener;
+        req.addEventListener = function (type: string, listener: any, ...rest: any[]) {
+          if (type === 'success') {
+            const wrapped = async function (ev: any) {
+              if ((window as any).__cursorGate) {
+                await (window as any).__cursorGate;
+              }
+              listener.call(req, ev);
+            };
+            return origAdd.call(req, type, wrapped, ...rest);
+          }
+          return origAdd.call(req, type, listener, ...rest);
+        };
+        return req;
+      }
+      return origOpen.apply(this, args as any);
+    };
+  });
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('[data-testid="tab-data"]').click();
@@ -500,8 +536,15 @@ test('H3 SessionCard 녹음 용량 표시 e2e (1.2MB / 0.0MB · 삭제 후 유�
   await expect(cardA).toBeVisible({ timeout: 10_000 });
   await expect(cardB).toBeVisible({ timeout: 10_000 });
 
-  await expect(cardA).toHaveText('녹음 1.2MB');
-  await expect(cardB).toHaveText('녹음 0.0MB');
+  // 1. 셈 전 문구 단언: 게이트 보류 중 '녹음 …'
+  await expect(cardA).toHaveText('녹음 …');
+
+  // 게이트 해제 -> 집계 완료 유도
+  await page.evaluate(() => { (window as any).__releaseCursor(); });
+
+  // 2. 1,500,000 B -> 10진수 1.5MB 단언 (계산 완료 후)
+  await expect(cardA).toHaveText('녹음 1.5MB', { timeout: 10_000 });
+  await expect(cardB).toHaveText('녹음 0.0MB', { timeout: 10_000 });
 
   // 🔴 「표시 = 실제 저장 바이트」: 같은 페이지에서 sumSessionClipBytes를 불러 만든 문구와 같다
   const oracleTextA = await page.evaluate(async (id) => {
@@ -511,19 +554,47 @@ test('H3 SessionCard 녹음 용량 표시 e2e (1.2MB / 0.0MB · 삭제 후 유�
   }, sessA);
   await expect(cardA).toHaveText(oracleTextA);
 
-  // 세션 B 삭제
-  await page.evaluate(async (id) => {
-    const { deleteSession } = await import('/src/lib/db.ts');
-    await deleteSession(id);
-  }, sessB);
+  // 3. 세션 B 삭제 (DB 직접이 아니라 UI 상의 '세션 삭제' 버튼 경로 사용)
+  const deleteBtnB = page
+    .locator(`[data-testid="session-clip-bytes-${sessB}"]`)
+    .locator('xpath=ancestor::div[button[@title="세션 삭제"]][1]/button[@title="세션 삭제"]');
+  await deleteBtnB.click();
+  // 삭제 확인 모달의 '삭제' 버튼 클릭
+  await page.locator('button:has-text("삭제")').click();
+
+  // sessB 카드는 즉시 사라지고 sessA 카드는 reload 없이도 '녹음 1.5MB' 문구를 그대로 유지
+  await expect(page.locator(`[data-testid="session-clip-bytes-${sessB}"]`)).toHaveCount(0);
+  await expect(cardA).toBeVisible();
+  await expect(cardA).toHaveText('녹음 1.5MB');
+
+  // 4. 실패 시 clip_bytes_count_failed 로깅 및 카드 '녹음 …' 유지 검증
+  await page.evaluate(async () => {
+    localStorage.setItem('__fail_open_cursor', 'sess_err_test');
+    const { saveSession } = await import('/src/lib/db.ts');
+    await saveSession({
+      id: 'sess_err_test',
+      date: '2026-09-18',
+      label: '에러 테스트',
+      startedAt: 3000,
+      completedRows: 1,
+      syncedRows: 0,
+      rows: [{ index: 1, values: { m1: '99' } }],
+      columns: [{ id: 'm1', name: '측정1', input: 'voice' }],
+    } as any);
+  });
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('[data-testid="tab-data"]').click();
 
-  // sessA 카드 문구 유지 검증
-  await expect(page.locator(`[data-testid="session-clip-bytes-${sessA}"]`)).toBeVisible();
-  await expect(page.locator(`[data-testid="session-clip-bytes-${sessA}"]`)).toHaveText('녹음 1.2MB');
-  await expect(page.locator(`[data-testid="session-clip-bytes-${sessB}"]`)).toHaveCount(0);
+  const cardErr = page.locator('[data-testid="session-clip-bytes-sess_err_test"]');
+  await expect(cardErr).toBeVisible({ timeout: 10_000 });
+  await expect(cardErr).toHaveText('녹음 …');
+
+  const errorLogs = await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    return logger.getAll().filter((e) => (e.extra ?? '').startsWith('clip_bytes_count_failed:'));
+  });
+  expect(errorLogs.length, 'clip_bytes_count_failed 로그가 1줄 이상 남아야 함').toBeGreaterThanOrEqual(1);
 });
 
 test('K5 useSessionClipBytes 진행 중 세션 커밋(finishedAt 변경) 시 재계산 방지 및 종료 시 1바퀴 재계산', async ({ page }) => {

@@ -10,6 +10,7 @@
  */
 import { useState, useEffect } from 'react';
 import { sumSessionClipBytes } from './db';
+import { logger } from './logger';
 
 export function useSessionClipBytes(
   sessions: ReadonlyArray<{ id: string; finishedAt?: number }>,
@@ -35,8 +36,12 @@ export function useSessionClipBytes(
             next.set(s.id, total);
             return next;
           });
-        } catch {
-          // 조회 실패 시 해당 세션은 건너뜀
+        } catch (e) {
+          logger.log({
+            type: 'error',
+            sessionId: '__app__',
+            extra: `clip_bytes_count_failed:${e instanceof Error ? e.message : String(e)}`,
+          });
         }
       }
     }
