@@ -8,6 +8,16 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+test('[node] ⓪-게이트 이 오라클이 릴리스 게이트 목록에 등재돼 있다 (v0.55.0)', () => {
+  const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf-8')) as {
+    scripts: Record<string, string>;
+  };
+  const listed = (pkg.scripts['test:e2e:gate'] ?? '').split(/\s+/).filter((x) => x.startsWith('tests/'));
+  expect(listed, 'tests/audioTrim.spec.ts가 릴리스 게이트 목록에 없다').toContain('tests/audioTrim.spec.ts');
+});
 import {
   resampleLinear,
   combineWithPreroll,
