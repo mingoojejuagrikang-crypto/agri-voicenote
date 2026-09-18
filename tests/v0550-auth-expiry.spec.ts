@@ -312,7 +312,7 @@ test('③ 무인증 실제 세션 e2e — auth_lost_in_session 1줄 · 알람 �
   const signinStartLogs = events.filter((e) => (e.extra ?? '').startsWith('auth_signin_start'));
   expect(signinStartLogs).toHaveLength(0);
 
-  const ttsLogs = events.filter((e) => e.type === 'tts' && typeof e.text === 'string' && e.text.includes('로그인'));
+  const ttsLogs = events.filter((e) => e.type === 'tts' && ((e as any).ttsText ?? '').includes('로그인'));
   expect(ttsLogs).toHaveLength(0);
 
   // 세션 종료
