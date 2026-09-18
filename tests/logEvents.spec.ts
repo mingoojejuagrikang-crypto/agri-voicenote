@@ -55,6 +55,9 @@ import {
   rawPruneFailed,
   rawUploadedRecordFailed,
   exportClipsIncomplete,
+  authLostInSession,
+  authLostPrompt,
+  statusCardLogin,
 } from '../src/lib/logEvents';
 
 /** v0.51.1 L (민구 지시 2026-09-02) — 동기화 완료 계측. 예시는 STT 레인 §6 L의 형태 그대로. */
@@ -151,6 +154,25 @@ test('rawUploadedRecordFailed — raw_uploaded 기록 저장 실패 바이트 �
 test('exportClipsIncomplete — 로그 zip 내보내기 중 누락된 클립 수 계측 바이트 계약', () => {
   expect(exportClipsIncomplete(1)).toBe('export_clips_incomplete:missing=1');
   expect(exportClipsIncomplete(3)).toBe('export_clips_incomplete:missing=3');
+});
+
+/** v0.55.0 B-1 — 세션 중 로그인 만료 감지 바이트 계약. */
+test('authLostInSession — 세션 중 로그인 만료 감지 바이트 계약 (B-1)', () => {
+  expect(authLostInSession(0)).toBe('auth_lost_in_session:since=0');
+  expect(authLostInSession(5)).toBe('auth_lost_in_session:since=5');
+  expect(authLostInSession(123)).toBe('auth_lost_in_session:since=123');
+});
+
+/** v0.55.0 B-3 — 세션 종료 후 데이터 탭 로그인 모달 결과 바이트 계약. */
+test('authLostPrompt — 세션 종료 후 데이터 탭 로그인 모달 결과 바이트 계약 (B-3)', () => {
+  expect(authLostPrompt('shown')).toBe('auth_lost_prompt:shown');
+  expect(authLostPrompt('token_ok')).toBe('auth_lost_prompt:token_ok');
+});
+
+/** v0.55.0 C-2 — 연결 상태 카드 [탭해서 갱신] 로그인 결과 바이트 계약. */
+test('statusCardLogin — 연결 상태 카드 [탭해서 갱신] 로그인 결과 바이트 계약 (C-2)', () => {
+  expect(statusCardLogin('clicked')).toBe('status_card_login:clicked');
+  expect(statusCardLogin('skipped_session_live')).toBe('status_card_login:skipped_session_live');
 });
 
 /** v0.51.1 B2 (제보② 2026-09-02) — atEnd 흡수. `cell_wait_absorb:<colId>`와 같은 꼴. */

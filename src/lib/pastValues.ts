@@ -16,7 +16,9 @@ import { withTimeout } from './async';
 import { effectiveSampleKey } from './columnFlags';
 import { fetchAllRowsUnbounded, parseSpreadsheetId, readonlySheetsAuth } from './sheets';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useSessionStore, isSessionLive } from '../stores/sessionStore';
 import { logger } from './logger';
+import { authLostInSession } from './logEvents';
 import { deletePastIndexBackup, loadPastIndexBackup, savePastIndexBackup } from './db';
 import { buildPastIndex, resolveRoundCol, type PastIndex } from './pastValuesIndex';
 import {
@@ -80,6 +82,23 @@ export function subscribePastIndexStatus(cb: () => void): () => void {
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryAttempts = 0;
 const MAX_RETRIES = 5;
+
+// v0.55.0 B-1 — 세션 중 로그인 만료 1회 기록 모듈 변수 및 B-3 종료 후 프롬프트 표지.
+let authLostLoggedFor: string | null = null;
+let authLostPendingSessionId: string | null = null;
+
+// v0.55.0 B-2 — 무인증 헛기록 백오프 상태 (10초→30초→2분→5분).
+let noAuthUntil = 0;
+let noAuthStep = 0;
+const NO_AUTH_BACKOFF_MS = [10_000, 30_000, 120_000, 300_000];
+
+/** v0.55.0 B-3 — 세션 중 로그인 만료 후 세션 종료 시 로그인 모달 1회 띄우기 위한 소비 함수. */
+export function consumeAuthLostPrompt(): boolean {
+  const curSid = useSessionStore.getState().sessionId;
+  const shouldPrompt = !!authLostPendingSessionId && authLostPendingSessionId === curSid;
+  authLostPendingSessionId = null;
+  return shouldPrompt;
+}
 
 /** v0.34.0 리뷰(Codex+agy-Flash 공통) — 권한 오류(401 미인증 / 403 권한없음) 판별.
  *  sheets.ts의 fetch 실패는 `시트 조회 실패 (HTTP 403): …` 형태로 상태코드를 메시지에 담는다
@@ -227,6 +246,21 @@ async function loadPastIndex(opts?: { force?: boolean }): Promise<PastIndex | nu
   const auth = readonlySheetsAuth();
   if (!auth) {
     logger.log({ type: 'app', extra: 'past_index_skip:not_signed_in' });
+    const sessionState = useSessionStore.getState();
+    if (isSessionLive(sessionState.phase)) {
+      const curSid = sessionState.sessionId;
+      if (curSid && authLostLoggedFor !== curSid) {
+        authLostLoggedFor = curSid;
+        authLostPendingSessionId = curSid;
+        const sinceSec = Math.max(0, Math.floor((Date.now() - sessionState.startedAt) / 1000));
+        logger.log({
+          type: 'app',
+          extra: authLostInSession(sinceSec),
+        });
+      }
+    }
+    noAuthUntil = Date.now() + NO_AUTH_BACKOFF_MS[Math.min(noAuthStep, 3)];
+    noAuthStep++;
     return null;
   }
   const generation = ++latestLoadGeneration;
@@ -251,6 +285,8 @@ async function loadPastIndex(opts?: { force?: boolean }): Promise<PastIndex | nu
       // retryAttempts는 지문별 이력이 아니라 현재 준비 중인 인덱스의 단일 예산이다. 최신 요청의
       // 성공만 예산을 복구해야, 게시 직후 새 요청이 시작돼도 이전 세대가 최신 예산을 되감지 않는다.
       retryAttempts = 0;
+      noAuthUntil = 0;
+      noAuthStep = 0;
       cached = { fp: ctx.fp, builtAt: Date.now(), index };
       // v0.33.0 항목5 — IDB write-through(kv `__past_index__`) + 메모리 폴백 동기화.
       // 캐시 TTL(10분)·토큰 만료·재부팅 후에도 이 스냅샷이 알람 비교선으로 살아남는다.
@@ -325,6 +361,8 @@ function shouldRetryLoad(): boolean {
  */
 export function ensurePastIndex(): void {
   if (getCachedIndex()) return;
+  // v0.55.0 B-2: 무인증 헛기록 백오프 가드
+  if (Date.now() < noAuthUntil) return;
   // v0.38.0 리뷰#1(Codex Medium) — in-flight 가드는 **같은 지문**의 중복 조회만 막아야 한다.
   // 지문 비교 없이 막으면, 로그인 직후 느린 구지문 조회가 진행되는 동안 컬럼이 바뀌었을 때
   // 새 지문 재조회가 통째로 삼켜져 캐시가 빈 채로 남는다(현장 = 느린 네트워크에서 상시 조건).
@@ -388,6 +426,8 @@ export async function invalidatePastIndex(): Promise<void> {
  *  시도한다. 유효 캐시는 보존(무효화는 TTL/지문으로 getCachedIndex가 담당). */
 export function resetPastIndexRetries(): void {
   retryAttempts = 0;
+  noAuthUntil = 0;
+  noAuthStep = 0;
   if (retryTimer != null) { clearTimeout(retryTimer); retryTimer = null; }
 }
 

@@ -75,6 +75,8 @@ export {
   sessionHealthSkip,
   // v0.54.0 G1 & G2 & K1 — 원본 보존 정리 및 내보내기 계측.
   rawPruned, rawPruneFailed, rawUploadedRecordFailed, exportClipsIncomplete,
+  // v0.55.0 B-1 & B-3 & C-2 — 로그인 신뢰 계측.
+  authLostInSession, authLostPrompt, statusCardLogin,
 } from './logEventsSession';
 
 // 설정·UI 계측 도메인 — logEventsUi.ts.

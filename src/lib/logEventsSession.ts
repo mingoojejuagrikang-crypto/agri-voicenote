@@ -151,3 +151,18 @@ export function rawUploadedRecordFailed(message: string): string {
 export function exportClipsIncomplete(missing: number): string {
   return `export_clips_incomplete:missing=${missing}`;
 }
+
+/** v0.55.0 B-1 — 세션 중 로그인 만료 감지 계측. */
+export function authLostInSession(sinceSec: number): string {
+  return `auth_lost_in_session:since=${sinceSec}`;
+}
+
+/** v0.55.0 B-3 — 세션 종료 후 데이터 탭 로그인 유도 모달 결과 계측. */
+export function authLostPrompt(outcome: 'shown' | 'token_ok'): string {
+  return `auth_lost_prompt:${outcome}`;
+}
+
+/** v0.55.0 C-2 — 연결 상태 카드 [탭해서 갱신] 로그인 결과 계측. */
+export function statusCardLogin(outcome: 'clicked' | 'skipped_session_live'): string {
+  return `status_card_login:${outcome}`;
+}

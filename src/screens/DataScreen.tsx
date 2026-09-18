@@ -3,11 +3,15 @@ import { T } from '../tokens';
 import { I } from '../components/icons';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { useDataStore } from '../stores/dataStore';
-import { useSessionStore } from '../stores/sessionStore';
+import { useSessionStore, isSessionLive } from '../stores/sessionStore';
 import { hydrateSessions } from '../lib/hydrate';
 import { clipPlayer } from '../lib/clipPlayer';
 import { sessionPending } from '../lib/sessionSync';
 import { useDataActions } from '../lib/useDataActions';
+import { consumeAuthLostPrompt } from '../lib/pastValues';
+import { getStoredToken } from '../lib/googleAuth';
+import { logger } from '../lib/logger';
+import { authLostPrompt } from '../lib/logEvents';
 import { LoginRequiredModal } from '../components/LoginRequiredModal';
 import { HelpButton, SettingsHelpModal } from '../components/settings/SettingsHelp';
 import type { HelpItem } from '../components/settings/helpCopy';
@@ -110,6 +114,29 @@ export function DataScreen() {
 
   // 데이터탭을 떠나면(언마운트) 재생 중인 음성 클립 정지 — 전역 싱글톤이라 화면 밖에서 계속 재생되지 않도록 (Codex HIGH)
   useEffect(() => () => { clipPlayer.stop(); }, []);
+
+  // v0.55.0 B-3 — 세션 중 로그인 만료 시 세션 종료 후 데이터 탭에서 로그인 모달 1회 유도
+  useEffect(() => {
+    if (isSessionLive(livePhase)) return;
+    if (!consumeAuthLostPrompt()) return;
+    if (getStoredToken()) {
+      logger.log({
+        type: 'app',
+        sessionId: '__app__',
+        extra: authLostPrompt('token_ok'),
+      });
+      return;
+    }
+    logger.log({
+      type: 'app',
+      sessionId: '__app__',
+      extra: authLostPrompt('shown'),
+    });
+    setLoginPrompt({
+      reason: '조사 중에 로그인이 만료됐습니다. 시트에 올리기 전에 다시 로그인하세요.',
+      resume: () => {},
+    });
+  }, [livePhase]);
 
 
   return (
