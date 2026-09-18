@@ -215,6 +215,7 @@ export function useDataActions() {
           // 데이터 유실 방지 불변식(v0.23.0): 로그는 선택한 모든 세션을 올리되, autoDelete 대상은
           // successIds(시트에 새로 반영된 세션)로만 한정한다. 그 successIds가 **모두** 완전 백업(본인
           // Drive 필수 + 관리자 설정 시 admin도 필수)됐을 때만 backupOk=true → 부분 성공으로는 삭제 안 함.
+          const rawBackedUp = new Set<string>();
           for (const z of zips) {
             try {
               // v0.50 [UPLOAD-AUTH-1] — 인증 실패 1회 자동 재시도(계약·근거는 uploadAuthRetry).
@@ -236,6 +237,7 @@ export function useDataActions() {
               }
               const sessionOk = !!dual.userDriveId && (!dual.adminConfigured || !!dual.adminDriveId);
               if (sessionOk) backedUpOk.add(z.sessionId);
+              if (sessionOk && z.clipsComplete) rawBackedUp.add(z.sessionId);
               if (dual.userDriveId) anyUser.add('본인 Drive');
               if (dual.adminDriveId) anyAdmin.add('관리자 Drive');
               for (const e of dual.errors) {
@@ -266,9 +268,9 @@ export function useDataActions() {
               console.warn('Drive 로그 업로드 실패(세션)', z.sessionId, err);
             }
           }
-          // v0.54.0 G1 — 백업 성공 세션 ID들을 kv __raw_uploaded__ 에 기록
+          // v0.54.0 G1 & K1 — 클립 완전성 검증된 백업 성공 세션 ID들을 kv __raw_uploaded__ 에 기록
           try {
-            await markRawUploaded([...backedUpOk]);
+            await markRawUploaded([...rawBackedUp]);
           } catch (e) {
             logger.log({
               type: 'error',

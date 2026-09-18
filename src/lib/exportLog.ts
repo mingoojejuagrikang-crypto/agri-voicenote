@@ -24,6 +24,11 @@ import { ensureSpeakerId } from './sttSpeaker';
  *  v0.10.1: userEmail은 토큰의 검증된 값 (`getCurrentEmail`) 사용 — settingsStore stale 방지.
  */
 export async function exportLogZip(sessionIds?: string[]): Promise<Blob> {
+  const { blob } = await exportLogZipInternal(sessionIds);
+  return blob;
+}
+
+async function exportLogZipInternal(sessionIds?: string[]): Promise<{ blob: Blob; clipsComplete: boolean }> {
   const zip = new JSZip();
   const deviceInfo = await logger.deviceAsync();
   const userEmail = getCurrentEmail();
@@ -63,10 +68,11 @@ export async function exportLogZip(sessionIds?: string[]): Promise<Blob> {
     // v0.5.0 W7(T-19): 세션 필터 ZIP에도 앱 수명주기 이벤트('__app__' sentinel — app_boot,
     // hydration, recover, drive_upload, setting_changed)를 항상 동봉해 계측 공백을 없앤다.
     // X1: 빈 문자열은 유효한 IDB 키다 — `''` 인덱스 항목을 함께 읽고 창으로 거른다.
-    const loaded = await loadLogEvents(sessionIds ? [...sessionIds, APP_SENTINEL, ''] : undefined);
-    events = filterSet
-      ? loaded.filter((e) => includeEventInSessionExport(e, filterSet, blankWindow))
-      : loaded;
+    const idsToLoad = filterSet ? [...filterSet, APP_SENTINEL, ''] : undefined;
+    events = (await loadLogEvents(idsToLoad)).filter((e) => {
+      if (!filterSet) return true;
+      return includeEventInSessionExport(e, filterSet, blankWindow);
+    });
   } catch {
     events = logger.getAll().filter((e) => {
       if (!filterSet) return true;
@@ -76,7 +82,9 @@ export async function exportLogZip(sessionIds?: string[]): Promise<Blob> {
   zip.file('events.json', JSON.stringify(events, null, 2));
   if (sessionsJson != null) zip.file('sessions.json', sessionsJson);
 
-  // Include audio clips
+  // Include audio clips (v0.54.0 K1: clipsComplete 검증 및 빈 catch 제거)
+  let clipsComplete = true;
+  let missingClips = 0;
   try {
     const keys = await loadAllAudioClipKeys();
     for (const key of keys) {
@@ -88,9 +96,18 @@ export async function exportLogZip(sessionIds?: string[]): Promise<Blob> {
       if (blob) {
         const ext = blob.type.includes('wav') ? 'wav' : blob.type.includes('mp4') ? 'mp4' : 'webm';
         zip.file(`clips/${key}.${ext}`, blob);
+      } else {
+        clipsComplete = false;
+        missingClips++;
       }
     }
-  } catch { /* IDB unavailable */ }
+    if (missingClips > 0) {
+      logger.log({ type: 'app', extra: `export_clips_incomplete:missing=${missingClips}` });
+    }
+  } catch (e) {
+    clipsComplete = false;
+    logger.log({ type: 'app', extra: withErr('export_clips_failed', e) });
+  }
 
   // v0.33.0 항목10-B: screens/ — 자동 화면 캡처(JPEG) + screens-manifest.json. 키
   // `${sessionId}:${ts}:${trigger}` 규약이라 세션 필터·조인이 클립과 동일하게 동작한다.
@@ -137,7 +154,8 @@ export async function exportLogZip(sessionIds?: string[]): Promise<Blob> {
     logger.log({ type: 'app', extra: withErr('stt_profile_export_failed', e) });
   }
 
-  return zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  return { blob, clipsComplete };
 }
 
 /** v0.19.0 W6 — 세션별 개별 zip 생성. 시트 sync 성공 세션들을 **세션당 1개 zip**으로 분리해
@@ -155,16 +173,17 @@ export interface SessionZip {
   sessionId: string;
   blob: Blob;
   filename: string;
+  clipsComplete: boolean;
 }
 
 export async function exportLogZipsPerSession(sessionIds: string[]): Promise<SessionZip[]> {
   const date = new Date().toISOString().slice(0, 10);
   const out: SessionZip[] = [];
   for (const id of sessionIds) {
-    const blob = await exportLogZip([id]);
+    const { blob, clipsComplete } = await exportLogZipInternal([id]);
     const safeId = id.replace(/[^A-Za-z0-9_-]/g, '_');
     const filename = `growth-log_${date}_${safeId}_${Date.now()}.zip`;
-    out.push({ sessionId: id, blob, filename });
+    out.push({ sessionId: id, blob, filename, clipsComplete });
   }
   return out;
 }

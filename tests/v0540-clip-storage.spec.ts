@@ -216,27 +216,8 @@ test('G4 pruneOldRawClips e2e — 12세션 중 10세션 밖 올린 세션 1개�
   expect(result.uploadedAfter).toEqual({ ids: ['sess_1'] });
 });
 
-test('G4 업로드 후 markRawUploaded 기록 e2e (stubNetwork)', async ({ page }) => {
-  await page.route('**://www.googleapis.com/**', (route) =>
-    route.fulfill({ json: { id: 'stub-drive-file-id', files: [{ id: 'stub-drive-file-id' }] } })
-  );
-  await page.route('**://sheets.googleapis.com/**', async (route) => {
-    const url = route.request().url();
-    if (url.includes(':append')) {
-      await route.fulfill({ json: { updates: { updatedRange: '농가!A11:B11', updatedRows: 1 } } });
-      return;
-    }
-    if (url.includes(':batchUpdate')) {
-      await route.fulfill({ json: { spreadsheetId: 'stub', totalUpdatedCells: 2 } });
-      return;
-    }
-    await route.fulfill({ json: { values: [['농가명', '횡경']] } });
-  });
-
-  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-
-  const sessId = 'sess_upload_test';
-  await page.evaluate(async ({ id }) => {
+async function seedUploadSyncSession(page: any, sessId: string, withClip: boolean) {
+  await page.evaluate(async ({ id, hasClip }) => {
     localStorage.clear();
     localStorage.setItem('gs10_google_token', JSON.stringify({
       access_token: 'valid-token', expires_at: Date.now() + 3_600_000, email: 'tester@example.com',
@@ -256,7 +237,12 @@ test('G4 업로드 후 markRawUploaded 기록 e2e (stubNetwork)', async ({ page 
       },
     }));
 
-    const { saveSession } = await import('/src/lib/db.ts');
+    const { saveSession, saveAudioClip, loadAllAudioClipKeys, deleteAudioClip, saveRawUploadedRecord } = await import('/src/lib/db.ts');
+    const existingKeys = await loadAllAudioClipKeys();
+    for (const k of existingKeys) {
+      await deleteAudioClip(k);
+    }
+    await saveRawUploadedRecord({ ids: [] });
     await saveSession({
       id,
       date: '2026-09-18',
@@ -273,7 +259,37 @@ test('G4 업로드 후 markRawUploaded 기록 e2e (stubNetwork)', async ({ page 
       completedRows: 1,
       syncedRows: 0,
     } as any);
-  }, { id: sessId });
+
+    if (hasClip) {
+      await saveAudioClip(`${id}:1:c2`, new Blob(['clip data'], { type: 'audio/webm' }));
+    }
+  }, { id: sessId, hasClip: withClip });
+}
+
+function routeSheetsSuccess(page: any) {
+  return page.route('**://sheets.googleapis.com/**', async (route: any) => {
+    const url = route.request().url();
+    if (url.includes(':append')) {
+      await route.fulfill({ json: { updates: { updatedRange: '농가!A11:B11', updatedRows: 1 } } });
+      return;
+    }
+    if (url.includes(':batchUpdate')) {
+      await route.fulfill({ json: { spreadsheetId: 'stub', totalUpdatedCells: 2 } });
+      return;
+    }
+    await route.fulfill({ json: { values: [['농가명', '횡경']] } });
+  });
+}
+
+test('K1-a: Drive 백업 성공 + 클립 전부 읽힘 → raw_uploaded 기록됨', async ({ page }) => {
+  await page.route('**://www.googleapis.com/**', (route) =>
+    route.fulfill({ json: { id: 'stub-drive-file-id', files: [{ id: 'stub-drive-file-id' }] } })
+  );
+  await routeSheetsSuccess(page);
+
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  const sessId = 'sess_upload_ok';
+  await seedUploadSyncSession(page, sessId, true);
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.locator('[data-testid="tab-data"]').click();
@@ -288,6 +304,81 @@ test('G4 업로드 후 markRawUploaded 기록 e2e (stubNetwork)', async ({ page 
       return (rec as any)?.ids ?? [];
     });
   }, { timeout: 15_000, message: 'markRawUploaded가 기록되지 않았다' }).toContain(sessId);
+});
+
+test('K1-b: Drive 백업 실패(user leg 실패) → raw_uploaded 기록 안 됨', async ({ page }) => {
+  await page.route('**://www.googleapis.com/**', (route) =>
+    route.fulfill({ status: 500, json: { error: 'drive error' } })
+  );
+  await routeSheetsSuccess(page);
+
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  const sessId = 'sess_upload_drive_fail';
+  await seedUploadSyncSession(page, sessId, true);
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator('[data-testid="tab-data"]').click();
+
+  await page.getByText('시트에 추가').click();
+  await page.locator('button:has-text("추가 (")').click();
+
+  // 시트 업로드는 성공하나 로그 백업 경고 표시 대기
+  await expect(page.locator('text=로그 백업 실패')).toBeVisible({ timeout: 15_000 });
+
+  const uploadedIds = await page.evaluate(async () => {
+    const { loadRawUploadedRecord } = await import('/src/lib/db.ts');
+    const rec = await loadRawUploadedRecord();
+    return (rec as any)?.ids ?? [];
+  });
+  expect(uploadedIds).not.toContain(sessId);
+});
+
+test('K1-c: 클립 1개 읽기 실패(get 가로채 throw) → 업로드 성공해도 raw_uploaded 기록 안 됨 + export_clips_* 로그 1줄', async ({ page }) => {
+  await page.route('**://www.googleapis.com/**', (route) =>
+    route.fulfill({ json: { id: 'stub-drive-file-id', files: [{ id: 'stub-drive-file-id' }] } })
+  );
+  await routeSheetsSuccess(page);
+
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  const sessId = 'sess_upload_clip_fail';
+  await seedUploadSyncSession(page, sessId, true);
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+
+  // 클립 get을 가로채 throw
+  await page.evaluate(({ id }) => {
+    const origGet = IDBObjectStore.prototype.get;
+    IDBObjectStore.prototype.get = function (key: any) {
+      if (this.name === 'audioClips' && typeof key === 'string' && key.startsWith(id)) {
+        throw new Error('intercepted clip read error');
+      }
+      return origGet.apply(this, arguments as any);
+    };
+  }, { id: sessId });
+
+  await page.locator('[data-testid="tab-data"]').click();
+
+  await page.getByText('시트에 추가').click();
+  await page.locator('button:has-text("추가 (")').click();
+
+  // 동기화 완료 대기
+  await expect(page.locator('text=로그 1/1 세션 백업')).toBeVisible({ timeout: 15_000 });
+
+  // clipsComplete가 false이므로 raw_uploaded 에 기록되지 않아야 함
+  const uploadedIds = await page.evaluate(async () => {
+    const { loadRawUploadedRecord } = await import('/src/lib/db.ts');
+    const rec = await loadRawUploadedRecord();
+    return (rec as any)?.ids ?? [];
+  });
+  expect(uploadedIds).not.toContain(sessId);
+
+  // export_clips_* 로그가 정확히 1줄 존재해야 함
+  const exportClipsLogs = await page.evaluate(async () => {
+    const { logger } = await import('/src/lib/logger.ts');
+    return logger.getAll().filter((e) => typeof e.extra === 'string' && e.extra.startsWith('export_clips_'));
+  });
+  expect(exportClipsLogs).toHaveLength(1);
+  expect(exportClipsLogs[0].extra).toContain('export_clips_failed');
 });
 
 test('H3 SessionCard 녹음 용량 표시 e2e (1.2MB / 0.0MB · 삭제 후 유지 · sumSessionClipBytes 일치)', async ({ page }) => {
