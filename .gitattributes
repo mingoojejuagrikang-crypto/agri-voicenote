@@ -1,0 +1,17 @@
+# 줄 끝을 LF로 고정한다 — 윈도우(Git for Windows 기본 autocrlf)에서 clone해도 셸 스크립트·바이트 비교 테스트가 깨지지 않게.
+# 근거: plans/2026-09-23-windows-migration.md(workspace_teamops) §6-3 · CropWise 선례($'\r' 파손)
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.wav binary
+*.mp3 binary
+*.m4a binary
+*.zip binary
+*.gz binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
